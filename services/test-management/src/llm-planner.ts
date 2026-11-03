@@ -2,6 +2,7 @@ import type { PageContext, PlannerDraft } from "@testpilot/planner";
 import { mergeLlmHints, type LlmPlannerHints } from "@testpilot/planner";
 import { planFromIntake } from "@testpilot/planner";
 import { llmPlannerConfigFromEnv, type LlmPlannerConfig } from "./llm-config.js";
+import { recordLlmUsage } from "./llm-usage.js";
 
 export { llmPlannerConfigFromEnv, llmPlannerPublicInfo, type LlmPlannerConfig, type LlmPlannerPublicInfo } from "./llm-config.js";
 
@@ -43,7 +44,9 @@ async function chatCompletionsJson<T>(
   };
   const raw = body.choices?.[0]?.message?.content ?? "{}";
   const parsed = JSON.parse(raw) as T;
-  return { parsed, tokensUsed: body.usage?.total_tokens ?? 0 };
+  const tokensUsed = body.usage?.total_tokens ?? 0;
+  recordLlmUsage(tokensUsed);
+  return { parsed, tokensUsed };
 }
 
 export async function applyOptionalLlmDraft(input: {

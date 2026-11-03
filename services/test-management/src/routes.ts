@@ -11,6 +11,7 @@ import { computeIRHash, validateSemantics, validateTestIR } from "@testpilot/tes
 import { classifyFailure } from "@testpilot/evidence";
 import { chromium } from "playwright";
 import type { FileStore, RecordJob, StoredRun, StoredTest } from "./store.js";
+import { llmUsageSnapshot } from "./llm-usage.js";
 import {
   applyOptionalLlmDraft,
   llmPlannerConfigFromEnv,
@@ -412,6 +413,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       pilotReachable,
       pilotSecretsConfigured: pilotSecretsConfigured(),
       llm: llmPlannerPublicInfo(),
+      llmUsage: llmUsageSnapshot(),
       apiVersion: "0.2.0",
     };
   });
@@ -428,11 +430,13 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const baselineMin = baseline?.manualRegressionMinutes ?? null;
     const minutesSavedVsBaseline =
       batchMinutes != null && baselineMin != null ? Math.max(0, Math.round((baselineMin - batchMinutes) * 10) / 10) : null;
+    const llmUsage = llmUsageSnapshot();
     return {
       runCount: runs.length,
       passRate: runs.length ? passed / runs.length : 0,
       avgDurationMs: runs.length ? Math.round(totalMs / runs.length) : 0,
-      llmTokensTotal: 0,
+      llmTokensTotal: llmUsage.tokensTotal,
+      llmCallCount: llmUsage.callCount,
       approvedTestCount: approved,
       lastBatchDurationMs: lastBatchMs,
       lastBatchMinutes: batchMinutes != null ? Math.round(batchMinutes * 10) / 10 : null,

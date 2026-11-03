@@ -42,6 +42,8 @@ pnpm start
 
 LLM（DeepSeek 等）配置见 [`docs/llm.md`](docs/llm.md)；密钥只写在 **`.env`** 的 `TESTPILOT_LLM_API_KEY`。
 
+Agent 自主迭代边界见 [`docs/agent-iteration.md`](docs/agent-iteration.md)。
+
 ## 架构（与 design 图对齐）
 
 - **Interface**：Web Console（`apps/console`）· CLI 仍保留给 CI

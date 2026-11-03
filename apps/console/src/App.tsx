@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type StoredRun, type StoredTest } from "./api";
-import { describeStep, failureScreenshotPath } from "./stepSummary";
+import { describeStep, failureKindLabel, failureScreenshotPath } from "./stepSummary";
 
 type View = "home" | "tests" | "create" | "history";
 type CreateChannel = "intent" | "prd" | "record";
@@ -394,8 +394,14 @@ export function App() {
   };
 
   const approvedCount = tests.filter((t) => t.approvalStatus === "approved").length;
+  const draftCount = tests.filter((t) => t.approvalStatus === "draft").length;
   const approvedPilot = tests.filter((t) => t.approvalStatus === "approved" && t.title.includes("【试点】")).length;
   const approvedDemo = approvedCount - approvedPilot;
+  const sortedTests = [...tests].sort((a, b) => {
+    if (a.approvalStatus === "draft" && b.approvalStatus !== "draft") return -1;
+    if (a.approvalStatus !== "draft" && b.approvalStatus === "draft") return 1;
+    return a.title.localeCompare(b.title, "zh-CN");
+  });
 
   return (
     <div className="shell">
@@ -465,6 +471,11 @@ export function App() {
               </button>
             </div>
             <div className="hero-links">
+              {draftCount > 0 && (
+                <button type="button" className="btn btn-primary" onClick={() => setView("tests")}>
+                  审阅 {draftCount} 条草稿
+                </button>
+              )}
               <button type="button" className="btn btn-secondary" onClick={() => setView("tests")}>
                 查看用例
               </button>
@@ -511,7 +522,7 @@ export function App() {
             <h2 className="section-title">用例</h2>
             <p className="section-lede">已批准用例会参与「运行全部」。草稿需编辑断言并批准。</p>
             <div className="list">
-              {tests.map((t) => {
+              {sortedTests.map((t) => {
                 const last = lastByTest[t.id];
                 return (
                   <div className="row" key={t.id}>
@@ -557,24 +568,26 @@ export function App() {
             <p className="section-lede">
               用一句话、PRD 片段或录制表达测试意图；系统生成可执行草案，你再审阅断言即可。
             </p>
-            <div className="tabs">
-              {(
-                [
-                  ["intent", "一句话"],
-                  ["prd", "PRD / 文档"],
-                  ["record", "录制"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={`tab ${createChannel === id ? "active" : ""}`}
-                  onClick={() => setCreateChannel(id)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <div className="create-layout">
+              <nav className="create-nav" aria-label="创建方式">
+                {(
+                  [
+                    ["intent", "一句话"],
+                    ["prd", "PRD / 文档"],
+                    ["record", "录制"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={createChannel === id ? "active" : ""}
+                    onClick={() => setCreateChannel(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </nav>
+              <div className="create-panel">
             <div className="field">
               <label>用例名称</label>
               <input
@@ -649,6 +662,8 @@ export function App() {
                 生成草稿
               </button>
             )}
+              </div>
+            </div>
           </section>
         )}
 
@@ -665,7 +680,9 @@ export function App() {
                     <h3>{r.testTitle}</h3>
                     <p>
                       {new Date(r.completedAt).toLocaleString()} · {r.metrics?.durationMs ?? "—"} ms
-                      {r.metrics?.failureKind ? ` · ${r.metrics.failureKind}` : ""}
+                      {failureKindLabel(r.metrics?.failureKind)
+                        ? ` · ${failureKindLabel(r.metrics?.failureKind)}`
+                        : ""}
                     </p>
                   </div>
                   <div className="row-actions row-actions-history">
@@ -801,7 +818,7 @@ export function App() {
               <>
                 {diagnoseDetail.failureKind && (
                   <p className="diagnose-kind">
-                    分型：<strong>{diagnoseDetail.failureKind}</strong>
+                    分型：<strong>{failureKindLabel(diagnoseDetail.failureKind) ?? diagnoseDetail.failureKind}</strong>
                   </p>
                 )}
                 {diagnoseDetail.stepError && (

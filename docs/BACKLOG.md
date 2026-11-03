@@ -2,7 +2,7 @@
 
 对照 `design/TestPilot_Roadmap_v0.2.docx` 与 `design/架构图.png`。状态：**done** / **partial** / **todo**。
 
-> **当前阶段（2026-11-04）**：V0.1 可行性 + **Web 控制台主路径**已打通；练习环境 10 条 catalog + Playwright smoke CI。试点 **auto-intake 用例1**（工单无附件）与 design §5 定位策略对齐。**下一冲刺**：试点批准与扩展用例、V0.3 GitLab 回归脚本落地、API 断言。
+> **当前阶段（2026-11-04）**：V0.1 完成；V0.3 API 断言已在练习环境落地。试点 **auto-intake 用例1～2**（工单 / 客户页 smoke）。**下一冲刺**：批准试点草稿、GitLab 回归、趋势统计。
 
 ---
 
@@ -47,7 +47,7 @@
 
 | 模块 | 亮点 | 下一步（对齐 design） |
 |------|------|------------------------|
-| `apps/console` | 首页 / 用例 / 创建 / 审阅 / 结果 / 诊断 | 试点批量审阅、失败分型展示 |
+| `apps/console` | 侧栏主导航、创建页子菜单、草稿优先列表、失败分型中文 | 试点批量审阅 |
 | `services/test-management` | 文件存储、batch、产物、diagnose、bootstrap intakes | PostgreSQL（V0.2）、审计字段 |
 | `packages/runner-web` | 步骤机、重试、定位回退、exact role | suite 并行、policy.retry 分型 |
 | `packages/planner` | 规则 ticket intake、LLM merge | 更多业务模板；禁止弱断言「提交」 |

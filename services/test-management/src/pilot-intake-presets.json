@@ -5,5 +5,12 @@
     "intent": "登录后提交工单，只填必填项，不要上传附件（附件功能暂不测试）。",
     "pathAfterLogin": "/customer",
     "refreshDraft": false
+  },
+  {
+    "id": "pilot-auto-customer-smoke",
+    "title": "【试点】用例2 — 客户中心页加载",
+    "intent": "登录后打开客户中心页，确认页面正常加载，不要求提交工单。",
+    "pathAfterLogin": "/customer",
+    "refreshDraft": false
   }
 ]

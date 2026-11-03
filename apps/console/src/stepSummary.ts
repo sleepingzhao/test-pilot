@@ -24,6 +24,19 @@ export function describeStep(step: StepLike, index: number): string {
   }
 }
 
+export function failureKindLabel(kind?: string | null): string | null {
+  if (!kind) return null;
+  const map: Record<string, string> = {
+    PRODUCT_DEFECT: "产品缺陷",
+    LOCATOR_BREAKAGE: "定位失效",
+    ENVIRONMENT: "环境异常",
+    TEST_DATA: "测试数据",
+    ASSERTION_ORACLE: "断言预期",
+    UNKNOWN: "未知",
+  };
+  return map[kind] ?? kind;
+}
+
 export function failureScreenshotPath(run: {
   runId: string;
   artifacts?: { artifacts?: Array<{ kind: string; path: string }> };

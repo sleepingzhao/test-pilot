@@ -20,6 +20,10 @@ function textMentionsTicket(text: string): boolean {
   return /工单|ticket|提交需求/.test(text);
 }
 
+function textMentionsPageSmoke(text: string): boolean {
+  return /页面加载|正常加载|能打开|客户中心|customer|首页/.test(text) && !textMentionsTicket(text);
+}
+
 function textMentionsNoAttachment(text: string, constraints?: string[]): boolean {
   const blob = [text, ...(constraints ?? [])].join(" ");
   return /不要.*附件|不带附件|无附件|忽略附件|不测附件|不上传/.test(blob);
@@ -162,6 +166,17 @@ export function planFromIntake(input: IntakeInput): PlannerDraft {
         oracle: "human-approved",
       });
     }
+  } else if (textMentionsPageSmoke(goal) || textMentionsPageSmoke(input.title)) {
+    const anchor = input.context.elements.find(
+      (el) => el.name && /客户|工作台|首页|控制台|欢迎/.test(el.name) && el.name.length <= 32,
+    );
+    assertions.push({
+      id: "page-loaded",
+      type: "ui",
+      contains: anchor?.name?.trim().slice(0, 24) || "客户",
+      oracle: "human-approved",
+    });
+    uncertainties.push("页面 smoke：断言文案来自快照；批准前请改成页面上最稳定的标题或菜单名。");
   } else if (combined.includes("登录")) {
     assertions.push({
       id: "after-login",

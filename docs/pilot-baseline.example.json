@@ -1,0 +1,9 @@
+{
+  "module": "你的试点模块名称",
+  "baseUrl": "https://your-staging-host.example",
+  "loginPath": "/admin/login",
+  "manualRegressionMinutes": 25,
+  "manualCaseCount": 10,
+  "automatedCaseCount": 0,
+  "notes": "复制本文件为 pilot-baseline.json（已 gitignore），仅保存在本地。"
+}

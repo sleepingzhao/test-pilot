@@ -378,7 +378,13 @@ export function App() {
               </a>
               <a
                 className="btn btn-secondary"
-                href={pilotUrl ? `${pilotUrl}/admin/login` : "https://your-staging-host.example/admin/login"}
+                href={pilotUrl ? `${pilotUrl}/admin/login` : "#"}
+                onClick={(e) => {
+                  if (!pilotUrl) {
+                    e.preventDefault();
+                    notify("请在本机 .env 配置 TESTPILOT_PILOT_BASE_URL");
+                  }
+                }}
                 target="_blank"
                 rel="noreferrer"
               >

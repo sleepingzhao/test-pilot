@@ -47,14 +47,23 @@ function stampTestMeta(test: StoredTest, opts?: { approving?: boolean }): Stored
   return next;
 }
 
-async function loadPilotConstraints(): Promise<{ scopeNotes: string[]; forbiddenAssertions: string[] } | null> {
-  try {
-    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
-    const raw = await readFile(join(repoRoot, "docs/pilot-constraints.json"), "utf8");
-    return JSON.parse(raw) as { scopeNotes: string[]; forbiddenAssertions: string[] };
-  } catch {
-    return null;
+async function readLocalJson<T>(filename: string): Promise<T | null> {
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+  const primary = join(repoRoot, "docs", filename);
+  const fallback = join(repoRoot, "docs", filename.replace(".json", ".example.json"));
+  for (const path of [primary, fallback]) {
+    try {
+      const raw = await readFile(path, "utf8");
+      return JSON.parse(raw) as T;
+    } catch {
+      /* try next */
+    }
   }
+  return null;
+}
+
+async function loadPilotConstraints(): Promise<{ scopeNotes: string[]; forbiddenAssertions: string[] } | null> {
+  return readLocalJson("pilot-constraints.json");
 }
 
 function makeIntakeTestId(title: string): string {
@@ -79,14 +88,15 @@ async function snapshotAtUrl(url: string) {
   }
 }
 
-async function loadPilotBaseline(): Promise<{ manualRegressionMinutes?: number; notes?: string } | null> {
-  try {
-    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
-    const raw = await readFile(join(repoRoot, "docs/pilot-baseline.json"), "utf8");
-    return JSON.parse(raw) as { manualRegressionMinutes?: number; notes?: string };
-  } catch {
-    return null;
-  }
+async function loadPilotBaseline(): Promise<{ manualRegressionMinutes?: number; notes?: string; baseUrl?: string } | null> {
+  const doc = await readLocalJson<{ manualRegressionMinutes?: number; notes?: string; baseUrl?: string }>(
+    "pilot-baseline.json",
+  );
+  if (!doc) return null;
+  return {
+    ...doc,
+    baseUrl: process.env.TESTPILOT_PILOT_BASE_URL || doc.baseUrl,
+  };
 }
 
 /** Sum duration of runs started within 2 minutes of the latest run (typical「运行全部」批次). */
@@ -264,7 +274,10 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     };
     const title = body.title?.trim() || "未命名用例";
     const channel = body.channel === "prd" ? "prd" : "intent";
-    const url = body.url?.trim() || `${pilotBaseUrl()}/customer`;
+    const url = body.url?.trim() || (pilotBaseUrl() ? `${pilotBaseUrl()}/customer` : "");
+    if (!url) {
+      return reply.code(400).send({ error: "请在本机 .env 配置 TESTPILOT_PILOT_BASE_URL，或在请求中传入 url" });
+    }
     try {
       new URL(url);
     } catch {
@@ -324,7 +337,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const project = store.project();
     const pilotUrl = pilotBaseUrl();
     const demoReachable = await checkTargetReachable(DEMO_BASE_URL);
-    const pilotReachable = await checkTargetReachable(pilotUrl);
+    const pilotReachable = pilotUrl ? await checkTargetReachable(pilotUrl) : false;
     return {
       demoUrl: project.defaultBaseUrl,
       demoReachable,

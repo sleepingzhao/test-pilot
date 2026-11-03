@@ -1,9 +1,0 @@
-{
-  "module": "业务试点 管理端（试点）",
-  "baseUrl": "https://your-staging-host.example",
-  "loginPath": "/admin/login",
-  "manualRegressionMinutes": 25,
-  "manualCaseCount": 10,
-  "automatedCaseCount": 2,
-  "notes": "练习环境 10 条 + 试点 2 条（登录页、密码登录）。凭据仅通过 .env 注入，不进 Git。"
-}

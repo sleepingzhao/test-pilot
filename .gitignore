@@ -7,6 +7,8 @@ playwright-report/
 .env
 .env.*
 !.env.example
+docs/pilot-baseline.json
+docs/pilot-constraints.json
 coverage/
 .DS_Store
 data/

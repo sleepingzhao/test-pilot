@@ -4,7 +4,7 @@ import type { RunEnvironment } from "@testpilot/fixtures";
 export const DEMO_BASE_URL = "http://127.0.0.1:4173";
 
 export function pilotBaseUrl(): string {
-  return process.env.TESTPILOT_PILOT_BASE_URL ?? "https://your-staging-host.example";
+  return process.env.TESTPILOT_PILOT_BASE_URL ?? "";
 }
 
 export function buildRunEnvironment(primaryBaseUrl?: string): RunEnvironment {

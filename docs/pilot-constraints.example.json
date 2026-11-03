@@ -1,0 +1,7 @@
+{
+  "scopeNotes": [
+    "在此填写试点范围说明，例如：某流程不要测附件。",
+    "复制为 pilot-constraints.json（已 gitignore），仅保存在本地。"
+  ],
+  "forbiddenAssertions": ["附件", "上传文件", "upload"]
+}

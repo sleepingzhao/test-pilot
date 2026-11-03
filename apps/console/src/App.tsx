@@ -399,26 +399,25 @@ export function App() {
 
   return (
     <div className="shell">
-      <header className="top">
-        <div className="top-inner">
-          <div className="brand">TestPilot</div>
-          <nav>
-            <button type="button" className={view === "home" ? "active" : ""} onClick={() => setView("home")}>
-              开始
-            </button>
-            <button type="button" className={view === "tests" ? "active" : ""} onClick={() => setView("tests")}>
-              用例
-            </button>
-            <button type="button" className={view === "create" ? "active" : ""} onClick={() => setView("create")}>
-              创建
-            </button>
-            <button type="button" className={view === "history" ? "active" : ""} onClick={() => setView("history")}>
-              结果
-            </button>
-          </nav>
-        </div>
-      </header>
+      <aside className="sidebar" aria-label="主导航">
+        <div className="brand">TestPilot</div>
+        <nav className="side-nav">
+          <button type="button" className={view === "home" ? "active" : ""} onClick={() => setView("home")}>
+            开始
+          </button>
+          <button type="button" className={view === "tests" ? "active" : ""} onClick={() => setView("tests")}>
+            用例
+          </button>
+          <button type="button" className={view === "create" ? "active" : ""} onClick={() => setView("create")}>
+            创建
+          </button>
+          <button type="button" className={view === "history" ? "active" : ""} onClick={() => setView("history")}>
+            结果
+          </button>
+        </nav>
+      </aside>
 
+      <div className="content-column">
       {demoOk === false && (
         <div className="alert-bar">
           练习应用未启动（端口 4173）。Demo 用例需 <code>pnpm dev</code>；试点用例不受影响。
@@ -698,6 +697,7 @@ export function App() {
           </section>
         )}
       </main>
+      </div>
 
       {editTest && (
         <div className="overlay" onClick={() => setEditTest(null)}>

@@ -48,6 +48,10 @@ jobs:
         working-directory: packages/recorder-web
         run: pnpm test
 
+      - name: test-management unit tests
+        working-directory: services/test-management
+        run: pnpm test
+
       - name: Install Playwright Chromium
         working-directory: services/test-management
         run: pnpm exec playwright install chromium --with-deps

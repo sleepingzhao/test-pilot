@@ -26,6 +26,7 @@ import {
   uniqueTargetBaseUrls,
   DEMO_BASE_URL,
 } from "./run-env.js";
+import { estimateLastBatchDurationMs, groupRunsIntoBatches } from "./batch-metrics.js";
 
 const recordJobs = new Map<string, RecordJob>();
 let recordLock = false;
@@ -144,16 +145,6 @@ async function pilotIntakeDefaultUrl(): Promise<string> {
   const path = baseline?.loginPath?.trim() || "/customer";
   const normalized = path.startsWith("/") ? path : `/${path}`;
   return `${base.replace(/\/$/, "")}${normalized}`;
-}
-
-/** Sum duration of runs started within 2 minutes of the latest run (typical「运行全部」批次). */
-function estimateLastBatchDurationMs(runs: StoredRun[]): number | null {
-  if (runs.length === 0) return null;
-  const sorted = [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  const newestStart = new Date(sorted[0].startedAt).getTime();
-  const batch = sorted.filter((r) => newestStart - new Date(r.startedAt).getTime() <= 120_000);
-  if (batch.length === 0) return null;
-  return batch.reduce((s, r) => s + (r.metrics?.durationMs ?? 0), 0);
 }
 
 /** Runner should write network.json every run; patch if an old worker skipped it. */
@@ -448,6 +439,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       pilotBaselineMinutes: baselineMin,
       pilotBaselineNotes: baseline?.notes ?? null,
       minutesSavedVsBaseline,
+      recentBatches: groupRunsIntoBatches(runs).slice(0, 8),
     };
   });
 

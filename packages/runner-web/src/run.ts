@@ -206,7 +206,13 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
     }
 
     const artifacts = await evidence.finalize(status);
-    const failMsg = steps.find((s) => s.message)?.message ?? assertionResults.find((a) => !a.passed)?.message;
+    const failedAssertion = assertionResults.find((a) => !a.passed);
+    const failMsg = steps.find((s) => s.message)?.message ?? failedAssertion?.message;
+    const failureKind =
+      status === "passed"
+        ? undefined
+        : failedAssertion?.errorKind ??
+          classifyFailure({ stepError: failMsg, assertionMessage: failedAssertion?.message ?? failMsg });
     return {
       runId,
       testId: ir.id,
@@ -220,7 +226,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
       metrics: {
         durationMs: Date.now() - wallStart,
         llmTokensUsed: 0,
-        failureKind: status === "passed" ? undefined : classifyFailure({ stepError: failMsg, assertionMessage: failMsg }),
+        failureKind,
         attemptCount: 1,
       },
     };

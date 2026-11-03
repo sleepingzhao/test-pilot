@@ -39,6 +39,7 @@ runIn("packages/test-ir", "pnpm", ["exec", "tsx", "--test", "src/validate.test.t
 runIn("packages/planner", "pnpm", ["test"]);
 runIn("packages/assertions", "pnpm", ["test"]);
 runIn("packages/recorder-web", "pnpm", ["test"]);
+runIn("services/test-management", "pnpm", ["test"]);
 
 console.log("ci-local: smoke:demo");
 run("pnpm", ["smoke:demo"]);

@@ -4,9 +4,11 @@ import { describeStep, failureKindLabel, failureScreenshotPath } from "./stepSum
 
 type View = "home" | "tests" | "create" | "history";
 type CreateChannel = "intent" | "prd" | "record";
+type TestFilter = "all" | "draft" | "pilot" | "demo";
 
 export function App() {
   const [view, setView] = useState<View>("home");
+  const [testFilter, setTestFilter] = useState<TestFilter>("all");
   const [tests, setTests] = useState<StoredTest[]>([]);
   const [runs, setRuns] = useState<StoredRun[]>([]);
   const [lastByTest, setLastByTest] = useState<Record<string, StoredRun>>({});
@@ -81,6 +83,7 @@ export function App() {
         lastBatchMinutes?: number | null;
         approvedPilotCount?: number;
         approvedDemoCount?: number;
+        recentBatches?: Array<{ startedAt: string; total: number; passed: number; durationMs: number }>;
       }>("/api/metrics/summary");
       setSummary(m);
     } catch {
@@ -402,6 +405,12 @@ export function App() {
     if (a.approvalStatus !== "draft" && b.approvalStatus === "draft") return 1;
     return a.title.localeCompare(b.title, "zh-CN");
   });
+  const filteredTests = sortedTests.filter((t) => {
+    if (testFilter === "draft") return t.approvalStatus === "draft";
+    if (testFilter === "pilot") return t.title.includes("【试点】");
+    if (testFilter === "demo") return !t.title.includes("【试点】");
+    return true;
+  });
 
   return (
     <div className="shell">
@@ -413,6 +422,7 @@ export function App() {
           </button>
           <button type="button" className={view === "tests" ? "active" : ""} onClick={() => setView("tests")}>
             用例
+            {draftCount > 0 ? <span className="nav-badge">{draftCount}</span> : null}
           </button>
           <button type="button" className={view === "create" ? "active" : ""} onClick={() => setView("create")}>
             创建
@@ -514,6 +524,24 @@ export function App() {
                   : ""}
               </p>
             )}
+            {summary && (summary as { recentBatches?: Array<{ startedAt: string; total: number; passed: number; durationMs: number }> }).recentBatches?.length ? (
+              <div className="batch-trend">
+                <h3 className="batch-trend-title">最近回归批次</h3>
+                <ul className="batch-trend-list">
+                  {(summary as { recentBatches: Array<{ startedAt: string; total: number; passed: number; durationMs: number }> }).recentBatches.map(
+                    (b) => (
+                      <li key={b.startedAt}>
+                        <span>{new Date(b.startedAt).toLocaleString()}</span>
+                        <span className={b.passed === b.total ? "batch-ok" : "batch-warn"}>
+                          {b.passed}/{b.total} 通过
+                        </span>
+                        <span className="batch-dur">{Math.round(b.durationMs / 1000)}s</span>
+                      </li>
+                    ),
+                  )}
+                </ul>
+              </div>
+            ) : null}
           </section>
         )}
 
@@ -521,8 +549,27 @@ export function App() {
           <section>
             <h2 className="section-title">用例</h2>
             <p className="section-lede">已批准用例会参与「运行全部」。草稿需编辑断言并批准。</p>
+            <div className="test-filters">
+              {(
+                [
+                  ["all", "全部"],
+                  ["draft", "草稿"],
+                  ["pilot", "试点"],
+                  ["demo", "练习"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={testFilter === id ? "active" : ""}
+                  onClick={() => setTestFilter(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="list">
-              {sortedTests.map((t) => {
+              {filteredTests.map((t) => {
                 const last = lastByTest[t.id];
                 return (
                   <div className="row" key={t.id}>
@@ -558,6 +605,7 @@ export function App() {
                   </div>
                 );
               })}
+              {filteredTests.length === 0 && <p className="section-lede">没有匹配的用例</p>}
             </div>
           </section>
         )}

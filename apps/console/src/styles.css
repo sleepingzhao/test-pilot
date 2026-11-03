@@ -88,6 +88,90 @@ a:hover {
   font-weight: 600;
 }
 
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 980px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.test-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.test-filters button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 980px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.test-filters button.active {
+  border-color: var(--blue);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--blue);
+}
+
+.batch-trend {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.batch-trend-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.batch-trend-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.batch-trend-list li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.batch-ok {
+  color: var(--green);
+  font-weight: 500;
+}
+
+.batch-warn {
+  color: var(--red);
+  font-weight: 500;
+}
+
+.batch-dur {
+  font-variant-numeric: tabular-nums;
+}
+
 .content-column {
   min-width: 0;
   display: flex;

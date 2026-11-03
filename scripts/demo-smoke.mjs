@@ -13,6 +13,7 @@ const tests = [
   "examples/demo-webapp/tests/demo-users-smoke.json",
   "examples/demo-webapp/tests/demo-ticket-no-attachment.json",
   "examples/demo-webapp/tests/demo-duplicate-email.json",
+  "examples/demo-webapp/tests/demo-create-user-success.json",
 ];
 
 const demo = spawn("node", ["server.mjs"], {

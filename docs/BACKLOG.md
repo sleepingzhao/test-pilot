@@ -31,7 +31,7 @@
 | P0-4 | **录制 → 测试资产** | 语义 Locator；valueRef；控制台录制 | partial（recorder testId-first；API bootstrap 试点草稿） |
 | P0-5 | **AI 规划器** | DOM 裁剪 + draft + uncertainties | partial（规则 intake + 可选 DeepSeek；见 `docs/llm.md`） |
 | P0-6 | **结果证据** | trace + network.json + 失败截图 | partial（network 驱动 API 断言） |
-| P0-7 | **指标对比** | 回归耗时、通过率、与人工基线 | partial（`/api/metrics/summary` + baseline 文件） |
+| P0-7 | **指标对比** | 回归耗时、通过率、与人工基线 | partial（`/api/metrics/summary` + **recentBatches** 趋势） |
 
 **V0.1 发布门槛**
 

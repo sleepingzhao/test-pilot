@@ -66,3 +66,9 @@ Agent 自主迭代边界见 [`docs/agent-iteration.md`](docs/agent-iteration.md)
 | Demo + 种子用例 | `examples/demo-webapp` |
 
 高级用户仍可用 `pnpm cli run …`（见 `docs/BACKLOG.md`）。
+
+提交前自检（与 CI 一致）：
+
+```bash
+pnpm verify
+```

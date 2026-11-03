@@ -28,7 +28,7 @@ jobs:
 
       - name: Validate demo Test IR files
         run: |
-          for f in examples/demo-webapp/tests/*.json; do
+          for f in examples/demo-webapp/tests/*.json examples/pilot-pilot-admin/tests/*.json; do
             pnpm cli validate "$f" || exit 1
           done
 

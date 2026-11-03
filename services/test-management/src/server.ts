@@ -7,13 +7,20 @@ import sensible from "@fastify/sensible";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { registerRoutes } from "./routes.js";
-import { seedIfEmpty, syncCatalogTests } from "./seed.js";
+import { seedIfEmpty, syncCatalogTests, syncPilotCatalogTests } from "./seed.js";
 import { FileStore } from "./store.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const dataRoot = join(repoRoot, "data");
 const artifactsRoot = join(repoRoot, "artifacts");
 const consoleDist = join(repoRoot, "apps/console/dist");
+
+try {
+  const { config } = await import("dotenv");
+  config({ path: join(repoRoot, ".env") });
+} catch {
+  /* optional */
+}
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "127.0.0.1";
@@ -29,6 +36,9 @@ if (seeded > 0) app.log.info(`Seeded ${seeded} demo tests`);
 
 const synced = await syncCatalogTests(store);
 if (synced > 0) app.log.info(`Synced ${synced} catalog tests`);
+
+const pilotSynced = await syncPilotCatalogTests(store);
+if (pilotSynced > 0) app.log.info(`Synced ${pilotSynced} pilot catalog tests`);
 
 registerRoutes(app, store, artifactsRoot, dataRoot);
 await mkdir(artifactsRoot, { recursive: true });

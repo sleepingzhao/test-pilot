@@ -1,6 +1,9 @@
 {
-  "module": "demo-webapp（练习环境，待替换为真实业务模块）",
+  "module": "业务试点 管理端（试点）",
+  "baseUrl": "https://your-staging-host.example",
+  "loginPath": "/admin/login",
   "manualRegressionMinutes": 25,
   "manualCaseCount": 10,
-  "notes": "人工全量点检 10 条路径的参考基线；接入真实试点后更新此文件。自动化对比见控制台 metrics /api/metrics/summary。"
+  "automatedCaseCount": 2,
+  "notes": "练习环境 10 条 + 试点 2 条（登录页、密码登录）。凭据仅通过 .env 注入，不进 Git。"
 }

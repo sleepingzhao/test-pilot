@@ -1,0 +1,21 @@
+{
+  "id": "pilot-admin-login-page",
+  "version": 1,
+  "platform": "web",
+  "baseUrlRef": "pilot-admin",
+  "steps": [{ "id": "open-login", "action": "navigate", "path": "/admin/login" }],
+  "assertions": [
+    {
+      "id": "login-heading",
+      "type": "ui",
+      "contains": "登录管理控制台",
+      "oracle": "requirement"
+    },
+    {
+      "id": "password-tab",
+      "type": "ui",
+      "contains": "密码",
+      "oracle": "requirement"
+    }
+  ]
+}

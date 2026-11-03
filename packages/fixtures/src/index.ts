@@ -16,14 +16,14 @@ export function resolveFixtureRefs(fixtureName: string | undefined, env: RunEnvi
 }
 
 export function resolveValueRefs(ir: TestIR, env: RunEnvironment): Record<string, string> {
-  const map: Record<string, string> = {};
+  const map: Record<string, string> = { ...(env.fixtureValues ?? {}) };
   for (const step of ir.steps) {
-    if (step.valueRef) {
-      const key = step.valueRef;
-      const value = env.fixtureValues?.[key] ?? env.fixtureValues?.[key.replace(/^fixture\./, "")];
-      if (value !== undefined) {
-        map[key] = value;
-      }
+    if (!step.valueRef) continue;
+    if (map[step.valueRef] !== undefined) continue;
+    const envKey = `TESTPILOT_${step.valueRef.replace(/\./g, "_").toUpperCase()}`;
+    const fromEnv = process.env[envKey];
+    if (fromEnv !== undefined && fromEnv !== "") {
+      map[step.valueRef] = fromEnv;
     }
   }
   return map;

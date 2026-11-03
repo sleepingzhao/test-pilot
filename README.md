@@ -25,6 +25,14 @@ pnpm dev
 
 在控制台里：**运行全部用例**、**录制新用例**、**编辑断言**、下载 Trace。
 
+### 业务试点 试点（P0-1）
+
+1. 复制凭据：`cp .env.example .env` 并填写 `TESTPILOT_ENV_ADMIN_*`（勿提交 Git）
+2. 重启 `pnpm dev`，用例列表会出现 **【试点】** 用例
+3. 配置 `.env` 后批准「密码登录」用例，可与 Demo 用例一起回归
+
+试点地址默认：`https://your-staging-host.example/admin/login`（可用 `TESTPILOT_PILOT_BASE_URL` 覆盖）
+
 生产式单端口（构建后 API 托管静态 Console）：
 
 ```bash

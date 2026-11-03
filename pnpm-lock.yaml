@@ -203,6 +203,9 @@ importers:
       '@testpilot/evidence':
         specifier: workspace:*
         version: link:../../packages/evidence
+      '@testpilot/fixtures':
+        specifier: workspace:*
+        version: link:../../packages/fixtures
       '@testpilot/planner':
         specifier: workspace:*
         version: link:../../packages/planner
@@ -215,6 +218,9 @@ importers:
       '@testpilot/test-ir':
         specifier: workspace:*
         version: link:../../packages/test-ir
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
       fastify:
         specifier: ^5.1.0
         version: 5.12.8
@@ -972,6 +978,10 @@ packages:
   dequal@2.0.3:
     resolution: {integrity: sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==}
     engines: {node: '>=6'}
+
+  dotenv@16.6.1:
+    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
+    engines: {node: '>=12'}
 
   electron-to-chromium@1.5.473:
     resolution: {integrity: sha512-9njcRQK+6FOXNAWw5g+h2RPiyazqo5RFMVJ39ZMHjDHUNnnFlhnOGV7O0WmJetODDx19ES5p+FLi+KCVFQGugw==}
@@ -2033,6 +2043,8 @@ snapshots:
   depd@2.0.0: {}
 
   dequal@2.0.3: {}
+
+  dotenv@16.6.1: {}
 
   electron-to-chromium@1.5.473: {}
 

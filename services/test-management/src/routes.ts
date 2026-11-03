@@ -11,6 +11,14 @@ import { computeIRHash, validateSemantics, validateTestIR } from "@testpilot/tes
 import { classifyFailure } from "@testpilot/evidence";
 import { chromium } from "playwright";
 import type { FileStore, RecordJob, StoredRun, StoredTest } from "./store.js";
+import {
+  buildRunEnvironment,
+  pilotBaseUrl,
+  pilotSecretsConfigured,
+  testNeedsPilotSecrets,
+  uniqueTargetBaseUrls,
+  DEMO_BASE_URL,
+} from "./run-env.js";
 
 const recordJobs = new Map<string, RecordJob>();
 let recordLock = false;
@@ -76,9 +84,9 @@ async function ensureNetworkArtifact(artifacts: RunResult["artifacts"]): Promise
   };
 }
 
-async function checkDemoReachable(baseUrl: string): Promise<boolean> {
+async function checkTargetReachable(baseUrl: string): Promise<boolean> {
   try {
-    const res = await fetch(baseUrl, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(baseUrl, { signal: AbortSignal.timeout(5000) });
     return res.ok;
   } catch {
     return false;
@@ -104,13 +112,11 @@ async function executeRuns(
       if (job) job.completed += 1;
       continue;
     }
+    const runEnv = buildRunEnvironment(baseUrl);
     const result = await runTestIR(v.value, {
       headless: true,
       artifactsDir: join(artifactsRoot, "runs"),
-      env: {
-        baseUrl,
-        baseUrlRefs: { "staging-console": baseUrl, "default-env": baseUrl },
-      },
+      env: runEnv,
     });
     const artifacts = await ensureNetworkArtifact(result.artifacts);
     const stored: StoredRun = {
@@ -209,10 +215,15 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   app.get("/api/environment", async () => {
     const project = store.project();
-    const demoReachable = await checkDemoReachable(project.defaultBaseUrl);
+    const pilotUrl = pilotBaseUrl();
+    const demoReachable = await checkTargetReachable(DEMO_BASE_URL);
+    const pilotReachable = await checkTargetReachable(pilotUrl);
     return {
       demoUrl: project.defaultBaseUrl,
       demoReachable,
+      pilotUrl,
+      pilotReachable,
+      pilotSecretsConfigured: pilotSecretsConfigured(),
       apiVersion: "0.2.0",
     };
   });
@@ -261,10 +272,16 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       return reply.code(400).send({ error: "没有可运行的用例（需已批准）" });
     }
 
-    const demoReachable = await checkDemoReachable(baseUrl);
-    if (!demoReachable) {
+    const runEnv = buildRunEnvironment(baseUrl);
+    for (const url of uniqueTargetBaseUrls(list, runEnv)) {
+      if (!(await checkTargetReachable(url))) {
+        return reply.code(503).send({ error: `目标环境不可达: ${url}` });
+      }
+    }
+    if (list.some((t) => testNeedsPilotSecrets(t.ir)) && !pilotSecretsConfigured()) {
       return reply.code(503).send({
-        error: "练习应用未就绪（127.0.0.1:4173）。请确认 pnpm dev 已启动且 demo 服务在运行。",
+        error:
+          "试点登录用例需要配置仓库根目录 .env（见 .env.example）：TESTPILOT_ENV_ADMIN_PHONE / TESTPILOT_ENV_ADMIN_PASSWORD",
       });
     }
 
@@ -347,7 +364,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (!body.goal?.trim()) return reply.code(400).send({ error: "goal is required" });
     const project = store.project();
     const url = body.url ?? project.defaultBaseUrl;
-    const reachable = await checkDemoReachable(url);
+    const reachable = await checkTargetReachable(url);
     if (!reachable) {
       return reply.code(503).send({ error: "目标页面不可达，请先启动练习应用" });
     }

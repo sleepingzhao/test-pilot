@@ -22,6 +22,9 @@ export function App() {
     pilotBaselineMinutes?: number | null;
   } | null>(null);
   const [demoOk, setDemoOk] = useState<boolean | null>(null);
+  const [pilotOk, setPilotOk] = useState<boolean | null>(null);
+  const [pilotSecrets, setPilotSecrets] = useState<boolean | null>(null);
+  const [pilotUrl, setPilotUrl] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ completed: number; total: number; title?: string } | null>(
     null,
   );
@@ -58,8 +61,17 @@ export function App() {
       setSummary(null);
     }
     try {
-      const env = await api<{ demoReachable: boolean; demoUrl: string }>("/api/environment");
+      const env = await api<{
+        demoReachable: boolean;
+        demoUrl: string;
+        pilotReachable?: boolean;
+        pilotUrl?: string;
+        pilotSecretsConfigured?: boolean;
+      }>("/api/environment");
       setDemoOk(env.demoReachable);
+      setPilotOk(env.pilotReachable ?? null);
+      setPilotSecrets(env.pilotSecretsConfigured ?? null);
+      setPilotUrl(env.pilotUrl ?? null);
     } catch {
       setDemoOk(null);
     }
@@ -216,7 +228,17 @@ export function App() {
 
       {demoOk === false && (
         <div className="alert-bar">
-          练习应用未启动（端口 4173）。请保持 <code>pnpm dev</code> 运行，或检查终端里 demo 进程是否正常。
+          练习应用未启动（端口 4173）。Demo 用例需 <code>pnpm dev</code>；试点用例不受影响。
+        </div>
+      )}
+      {pilotOk === false && (
+        <div className="alert-bar">
+          试点环境不可达{pilotUrl ? `（${pilotUrl}）` : ""}。请检查网络或 TESTPILOT_PILOT_BASE_URL。
+        </div>
+      )}
+      {pilotSecrets === false && (
+        <div className="alert-bar">
+          试点登录凭据未配置：复制 <code>.env.example</code> 为 <code>.env</code> 并填写管理员手机号与密码，然后重启 API。
         </div>
       )}
 
@@ -228,7 +250,12 @@ export function App() {
               在练习环境里一键回归 {approvedCount} 条已批准用例。Playwright 确定性执行，正常回归不消耗 LLM。
             </p>
             <div className="cta-stack">
-              <button type="button" className="btn btn-primary" disabled={loading || demoOk === false} onClick={runAll}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={loading || (demoOk === false && pilotOk === false)}
+                onClick={runAll}
+              >
                 {loading ? "运行中…" : "运行全部回归"}
               </button>
             </div>
@@ -236,13 +263,16 @@ export function App() {
               <button type="button" className="btn btn-secondary" onClick={() => setView("tests")}>
                 查看用例
               </button>
+              <a className="btn btn-secondary" href="http://127.0.0.1:4173/" target="_blank" rel="noreferrer">
+                打开练习应用
+              </a>
               <a
                 className="btn btn-secondary"
-                href="http://127.0.0.1:4173/"
+                href={pilotUrl ? `${pilotUrl}/admin/login` : "https://your-staging-host.example/admin/login"}
                 target="_blank"
                 rel="noreferrer"
               >
-                打开练习应用
+                打开试点登录
               </a>
             </div>
             {summary && summary.runCount > 0 && (

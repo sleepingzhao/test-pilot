@@ -32,6 +32,8 @@ export function App() {
   const [pilotOk, setPilotOk] = useState<boolean | null>(null);
   const [pilotSecrets, setPilotSecrets] = useState<boolean | null>(null);
   const [pilotUrl, setPilotUrl] = useState<string | null>(null);
+  const [pilotIntakeUrl, setPilotIntakeUrl] = useState<string | null>(null);
+  const [pilotScopeNote, setPilotScopeNote] = useState<string | null>(null);
   const [diagnoseRun, setDiagnoseRun] = useState<StoredRun | null>(null);
   const [diagnoseDetail, setDiagnoseDetail] = useState<{
     failureKind: string | null;
@@ -88,6 +90,7 @@ export function App() {
       setPilotOk(env.pilotReachable ?? null);
       setPilotSecrets(env.pilotSecretsConfigured ?? null);
       setPilotUrl(env.pilotUrl ?? null);
+      setPilotIntakeUrl(env.pilotIntakeUrl ?? null);
       setCreateUrl((prev) => {
         if (prev) return prev;
         if (env.pilotIntakeUrl) return env.pilotIntakeUrl;
@@ -95,6 +98,12 @@ export function App() {
       });
     } catch {
       setDemoOk(null);
+    }
+    try {
+      const c = await api<{ scopeNotes?: string[] }>("/api/pilot-constraints");
+      setPilotScopeNote(c.scopeNotes?.[0] ?? null);
+    } catch {
+      setPilotScopeNote(null);
     }
   }, []);
 
@@ -283,14 +292,18 @@ export function App() {
       notify("试点约束：断言不要包含附件相关文案");
       return;
     }
-    await api(`/api/tests/${editTest.id}`, {
-      method: "PUT",
-      body: JSON.stringify({ ir, intentSummary: reviewIntent }),
-    });
-    await api(`/api/tests/${editTest.id}/approve`, { method: "POST", body: "{}" });
-    setEditTest(null);
-    notify("已保存并批准");
-    await refresh();
+    try {
+      await api(`/api/tests/${editTest.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ ir, intentSummary: reviewIntent }),
+      });
+      await api(`/api/tests/${editTest.id}/approve`, { method: "POST", body: "{}" });
+      setEditTest(null);
+      notify("已保存并批准");
+      await refresh();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const submitIntake = async () => {
@@ -321,6 +334,7 @@ export function App() {
     const testId = `rec-${Date.now().toString(36)}`;
     const url =
       createUrl.trim() ||
+      pilotIntakeUrl ||
       (pilotUrl ? `${pilotUrl.replace(/\/$/, "")}/admin/login` : "http://127.0.0.1:4173/");
     const intentSummary =
       createText.trim() ||
@@ -408,9 +422,9 @@ export function App() {
               </a>
               <a
                 className="btn btn-secondary"
-                href={pilotUrl ? `${pilotUrl}/admin/login` : "#"}
+                href={pilotIntakeUrl ?? pilotUrl ?? "#"}
                 onClick={(e) => {
-                  if (!pilotUrl) {
+                  if (!pilotIntakeUrl && !pilotUrl) {
                     e.preventDefault();
                     notify("请在本机 .env 配置 TESTPILOT_PILOT_BASE_URL");
                   }
@@ -468,6 +482,11 @@ export function App() {
                       <button type="button" className="btn-small" onClick={() => openEdit(t)}>
                         审阅
                       </button>
+                      {last && last.status !== "passed" && (
+                        <button type="button" className="btn-small" onClick={() => void openDiagnose(last)}>
+                          诊断
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -597,6 +616,7 @@ export function App() {
             <h2>审阅用例</h2>
             <p>{editTest.title}</p>
             <p className="hint-inline">{editTest.ir.steps?.length ?? 0} 个步骤 · 来源 {editTest.sourceChannel ?? "未知"}</p>
+            {pilotScopeNote && <p className="hint-inline">试点：{pilotScopeNote}</p>}
             <div className="field">
               <label>测试意图（可编辑，供建议引擎参考）</label>
               <textarea

@@ -67,6 +67,29 @@ async function loadPilotConstraints(): Promise<{ scopeNotes: string[]; forbidden
   return readLocalJson("pilot-constraints.json");
 }
 
+function forbiddenAssertionIssues(
+  ir: StoredTest["ir"],
+  forbidden: string[],
+): Array<{ path: string; message: string }> {
+  if (!forbidden.length) return [];
+  const issues: Array<{ path: string; message: string }> = [];
+  for (const [i, a] of ir.assertions.entries()) {
+    const text = String((a as { contains?: string }).contains ?? "");
+    if (!text) continue;
+    for (const token of forbidden) {
+      const t = token.trim();
+      if (!t) continue;
+      if (text.toLowerCase().includes(t.toLowerCase())) {
+        issues.push({
+          path: `/assertions/${i}/contains`,
+          message: `试点约束：断言不得包含「${t}」`,
+        });
+      }
+    }
+  }
+  return issues;
+}
+
 function makeIntakeTestId(title: string): string {
   const suffix = Date.now().toString(36);
   const slug = title
@@ -290,6 +313,14 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (hasPlaceholder) return reply.code(400).send({ error: "请先完善断言再批准" });
     const semantic = validateSemantics(test.ir);
     if (semantic.length) return reply.code(400).send({ issues: semantic });
+    const constraintsDoc = await loadPilotConstraints();
+    const pilotForbidden = forbiddenAssertionIssues(test.ir, constraintsDoc?.forbiddenAssertions ?? []);
+    if (pilotForbidden.length) {
+      return reply.code(400).send({
+        error: "断言违反试点约束，请修改后再批准",
+        issues: pilotForbidden,
+      });
+    }
     const approved = stampTestMeta(test, { approving: true });
     await store.saveTest(approved);
     return approved;

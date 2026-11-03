@@ -52,7 +52,7 @@
 | `packages/planner` | 规则 suggest + planDraft | LLM Provider |
 | `packages/context-web` | `snapshotPageContext` | scope / token 预算 |
 | `packages/evidence` | trace、network、分型 | HAR、retention |
-| `integrations/gitlab` | `run-regression.sh` 示例 | MR 触发规则 |
+| `integrations/gitlab` | `run-regression.sh` 可轮询 batch 并失败退出 | MR 触发规则 |
 
 ---
 

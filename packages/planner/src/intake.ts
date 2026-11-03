@@ -25,6 +25,70 @@ function textMentionsNoAttachment(text: string, constraints?: string[]): boolean
   return /不要.*附件|不带附件|无附件|忽略附件|不测附件|不上传/.test(blob);
 }
 
+function isAttachmentField(el: { name?: string; inputType?: string; role?: string }): boolean {
+  const name = (el.name ?? "").toLowerCase();
+  if (el.inputType === "file") return true;
+  return /附件|上传|upload|file/.test(name);
+}
+
+function appendTicketFormSteps(
+  steps: TestStep[],
+  context: PageContext,
+  uncertainties: string[],
+  skipAttachment: boolean,
+): void {
+  const fillables = context.elements.filter(
+    (el) =>
+      !isAttachmentField(el) &&
+      (el.role === "textbox" ||
+        el.role === "textarea" ||
+        el.role === "input" ||
+        el.inputType === "text" ||
+        el.inputType === "email" ||
+        el.inputType === "tel"),
+  );
+  let filled = 0;
+  for (const el of fillables.slice(0, 6)) {
+    const label = el.name?.trim();
+    if (!label || label.length > 40) continue;
+    if (/搜索|search/.test(label)) continue;
+    steps.push({
+      id: `fill-${filled + 1}`,
+      action: "fill",
+      target: el.testId ? { testId: el.testId } : { label },
+      value: `TestPilot-{{runId}}`,
+    });
+    filled += 1;
+  }
+  if (filled > 0) {
+    uncertainties.push(`已根据快照自动添加 ${filled} 个填写步骤（不含附件字段）；批准前请在真实页试跑确认。`);
+  } else {
+    uncertainties.push("未识别到可填写的文本字段；若表单在弹层内，请再跑一次 bootstrap 或录制补步。");
+  }
+
+  const submitBtn = context.elements.find(
+    (el) =>
+      el.role === "button" &&
+      el.name &&
+      /^(提交|确定|保存|创建)/.test(el.name) &&
+      !/取消|关闭/.test(el.name),
+  );
+  if (submitBtn?.name) {
+    steps.push({
+      id: "submit-ticket-form",
+      action: "click",
+      target: submitBtn.testId
+        ? { testId: submitBtn.testId }
+        : { role: "button", name: submitBtn.name },
+    });
+    steps.push({ id: "wait-after-submit", action: "wait" });
+  }
+
+  if (skipAttachment) {
+    uncertainties.push("已跳过 input[type=file] 与名称含「附件/上传」的字段。");
+  }
+}
+
 export function planFromIntake(input: IntakeInput): PlannerDraft {
   const uncertainties: string[] = [
     "由规则引擎根据描述 + 页面快照生成草案，批准前请核对步骤与断言。",
@@ -53,7 +117,12 @@ export function planFromIntake(input: IntakeInput): PlannerDraft {
       action: "click",
       target: { role: "button", name: submitTicketBtn.name },
     });
-    uncertainties.push("已识别「提交工单」按钮；表单内步骤请用录制补全，或在下一次迭代中由 LLM 补步。");
+    appendTicketFormSteps(
+      steps,
+      input.context,
+      uncertainties,
+      textMentionsNoAttachment(goal, input.constraints),
+    );
   }
 
   const assertions: TestAssertion[] = [];

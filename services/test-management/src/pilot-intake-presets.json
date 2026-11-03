@@ -1,0 +1,9 @@
+[
+  {
+    "id": "pilot-auto-ticket-no-attachment",
+    "title": "【试点】用例1 — 提交工单（无附件）",
+    "intent": "登录后提交工单，只填必填项，不要上传附件（附件功能暂不测试）。",
+    "pathAfterLogin": "/customer",
+    "refreshDraft": true
+  }
+]

@@ -31,7 +31,7 @@ pnpm dev
 2. 重启 `pnpm dev`，用例列表会出现 **【试点】** 用例
 3. 配置 `.env` 后批准「密码登录」用例，可与 Demo 用例一起回归
 
-试点地址与凭据只放在本地 **`.env`** 和 **`docs/pilot-*.json`**（已 gitignore，见 `*.example.json` 模板）。
+试点地址与凭据只放在本地 **`.env`** 和 **`docs/pilot-*.json`**（已 gitignore，见 `*.example.json` 模板）。配置完成后重启 API，会按 `pilot-intake-presets.json` **自动生成试点草稿**（无需在控制台手动创建）。
 
 生产式单端口（构建后 API 托管静态 Console）：
 

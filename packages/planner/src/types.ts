@@ -2,7 +2,7 @@ import type { TestAssertion, TestStep } from "@testpilot/test-ir";
 
 export type PageContext = {
   url: string;
-  elements: Array<{ role?: string; name?: string; testId?: string }>;
+  elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string }>;
 };
 
 export type PlannerDraft = {

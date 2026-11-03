@@ -8,6 +8,7 @@ import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { registerRoutes } from "./routes.js";
 import { seedIfEmpty, syncCatalogTests, syncPilotCatalogTests } from "./seed.js";
+import { bootstrapPilotIntakes } from "./bootstrap-pilot-intakes.js";
 import { FileStore } from "./store.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -39,6 +40,10 @@ if (synced > 0) app.log.info(`Synced ${synced} catalog tests`);
 
 const pilotSynced = await syncPilotCatalogTests(store);
 if (pilotSynced > 0) app.log.info(`Synced ${pilotSynced} pilot catalog tests`);
+
+void bootstrapPilotIntakes(store, app.log).then((n) => {
+  if (n > 0) app.log.info(`Auto-generated ${n} pilot draft test(s) from presets`);
+});
 
 registerRoutes(app, store, artifactsRoot, dataRoot);
 await mkdir(artifactsRoot, { recursive: true });

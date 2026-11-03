@@ -185,10 +185,11 @@
     <div class="shell">
       <nav aria-label="侧边栏">
         <h2>示例控制台</h2>
-        <a href="#" class="active">用户管理</a>
+        <a href="#" class="nav-link active" data-view="users">用户管理</a>
+        <a href="#" class="nav-link" data-view="tickets">我的工单</a>
         <a href="#" style="opacity: 0.45; pointer-events: none">订单（未开放）</a>
       </nav>
-      <main>
+      <main id="view-users">
         <h1>用户管理</h1>
         <p class="lede">维护控制台账号。下方列表已包含测试账号 <code>duplicate@example.com</code>，用于验证「重复邮箱」场景。</p>
 
@@ -234,6 +235,27 @@
           <div id="alert" role="alert"></div>
         </div>
       </main>
+
+      <main id="view-tickets" hidden>
+        <h1>我的工单</h1>
+        <p class="lede">练习「提交工单」流程（不含附件上传），与业务试点用例结构类似。</p>
+        <div class="card">
+          <button type="button" class="btn btn-primary" id="open-ticket" role="button">提交工单</button>
+          <div class="panel" id="ticket-form" aria-label="提交工单表单">
+            <label for="ticket-title">标题</label>
+            <input id="ticket-title" type="text" placeholder="简要描述问题" />
+            <label for="ticket-body">描述</label>
+            <textarea id="ticket-body" rows="3" placeholder="必填说明" style="width:100%;max-width:480px;padding:12px;border:1px solid var(--line);border-radius:10px;font-family:inherit"></textarea>
+            <label for="ticket-file">附件（练习环境不测试上传）</label>
+            <input id="ticket-file" type="file" disabled />
+            <div style="margin-top:16px">
+              <button type="button" class="btn btn-primary" id="submit-ticket" role="button">提交</button>
+              <button type="button" class="btn btn-secondary" id="cancel-ticket">取消</button>
+            </div>
+          </div>
+          <div id="ticket-alert" role="alert"></div>
+        </div>
+      </main>
     </div>
     <script>
       const EXISTING = "duplicate@example.com";
@@ -277,6 +299,52 @@
         showAlert("success", "用户已创建");
         panel.classList.remove("open");
         emailInput.value = "";
+      });
+
+      document.querySelectorAll(".nav-link").forEach((link) => {
+        link.addEventListener("click", (e) => {
+          e.preventDefault();
+          const view = link.getAttribute("data-view");
+          document.querySelectorAll(".nav-link").forEach((l) => l.classList.remove("active"));
+          link.classList.add("active");
+          document.getElementById("view-users").hidden = view !== "users";
+          document.getElementById("view-tickets").hidden = view !== "tickets";
+        });
+      });
+
+      const openTicket = document.getElementById("open-ticket");
+      const ticketForm = document.getElementById("ticket-form");
+      const ticketAlert = document.getElementById("ticket-alert");
+      const ticketTitle = document.getElementById("ticket-title");
+      const ticketBody = document.getElementById("ticket-body");
+      const submitTicket = document.getElementById("submit-ticket");
+      const cancelTicket = document.getElementById("cancel-ticket");
+
+      function showTicketAlert(kind, text) {
+        ticketAlert.className = kind + " show";
+        ticketAlert.textContent = text;
+      }
+
+      openTicket.addEventListener("click", () => {
+        ticketForm.classList.add("open");
+        ticketAlert.className = "";
+        ticketTitle.focus();
+      });
+      cancelTicket.addEventListener("click", () => {
+        ticketForm.classList.remove("open");
+        ticketTitle.value = "";
+        ticketBody.value = "";
+        ticketAlert.className = "";
+      });
+      submitTicket.addEventListener("click", () => {
+        if (!ticketTitle.value.trim() || !ticketBody.value.trim()) {
+          showTicketAlert("error", "请填写标题和描述");
+          return;
+        }
+        showTicketAlert("success", "工单已提交");
+        ticketForm.classList.remove("open");
+        ticketTitle.value = "";
+        ticketBody.value = "";
       });
     </script>
   </body>

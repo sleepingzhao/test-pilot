@@ -1,0 +1,32 @@
+{
+  "id": "demo-ticket-no-attachment",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open-tickets", "action": "navigate", "path": "/" },
+    { "id": "goto-tickets-view", "action": "click", "target": { "role": "link", "name": "我的工单" } },
+    { "id": "open-form", "action": "click", "target": { "role": "button", "name": "提交工单" } },
+    {
+      "id": "fill-title",
+      "action": "fill",
+      "target": { "label": "标题" },
+      "value": "TestPilot-{{runId}}"
+    },
+    {
+      "id": "fill-body",
+      "action": "fill",
+      "target": { "label": "描述" },
+      "value": "练习环境自动回归"
+    },
+    { "id": "submit", "action": "click", "target": { "role": "button", "name": "提交" } }
+  ],
+  "assertions": [
+    {
+      "id": "ticket-submitted",
+      "type": "ui",
+      "contains": "工单已提交",
+      "oracle": "human-approved"
+    }
+  ],
+  "policy": { "screenshots": "on-failure" }
+}

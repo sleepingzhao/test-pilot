@@ -422,7 +422,7 @@ export function App() {
           <section className="hero">
             <h1>Web 测试，几步就好。</h1>
             <p>
-              在练习环境里一键回归 {approvedCount} 条已批准用例。Playwright 确定性执行，正常回归不消耗 LLM。
+              在练习环境里一键回归 {approvedCount} 条已批准用例。配置试点 `.env` 后，API 启动会自动生成【试点】草稿（如用例1），你只需审阅断言并批准。
             </p>
             <div className="cta-stack">
               <button

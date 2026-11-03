@@ -6,7 +6,7 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { assertPlaywrightReady, recordSession } from "@testpilot/recorder-web";
 import { runTestIR, type RunResult } from "@testpilot/runner-web";
 import { snapshotPageContext } from "@testpilot/context-web";
-import { planDraft, suggestAssertionsForTest } from "@testpilot/planner";
+import { draftToPartialIR, planDraft, planFromIntake, suggestAssertionsForTest } from "@testpilot/planner";
 import { computeIRHash, validateSemantics, validateTestIR } from "@testpilot/test-ir";
 import { classifyFailure } from "@testpilot/evidence";
 import { chromium } from "playwright";
@@ -45,6 +45,38 @@ function stampTestMeta(test: StoredTest, opts?: { approving?: boolean }): Stored
     next.approvedAt = new Date().toISOString();
   }
   return next;
+}
+
+async function loadPilotConstraints(): Promise<{ scopeNotes: string[]; forbiddenAssertions: string[] } | null> {
+  try {
+    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+    const raw = await readFile(join(repoRoot, "docs/pilot-constraints.json"), "utf8");
+    return JSON.parse(raw) as { scopeNotes: string[]; forbiddenAssertions: string[] };
+  } catch {
+    return null;
+  }
+}
+
+function makeIntakeTestId(title: string): string {
+  const suffix = Date.now().toString(36);
+  const slug = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 24);
+  return slug ? `intake-${slug}-${suffix}` : `intake-${suffix}`;
+}
+
+async function snapshotAtUrl(url: string) {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20_000 });
+    return await snapshotPageContext(page);
+  } finally {
+    await browser.close();
+  }
 }
 
 async function loadPilotBaseline(): Promise<{ manualRegressionMinutes?: number; notes?: string } | null> {
@@ -168,13 +200,14 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   app.put("/api/tests/:testId", async (req, reply) => {
     const { testId } = req.params as { testId: string };
-    const body = req.body as { title?: string; ir?: StoredTest["ir"] };
+    const body = req.body as { title?: string; ir?: StoredTest["ir"]; intentSummary?: string };
     const existing = await store.getTest(testId);
     if (!existing) return reply.notFound("test not found");
     const updated = stampTestMeta({
       ...existing,
       title: body.title ?? existing.title,
       ir: body.ir ?? existing.ir,
+      intentSummary: body.intentSummary ?? existing.intentSummary,
       approvalStatus: body.ir ? "draft" : existing.approvalStatus,
       updatedAt: existing.updatedAt,
     });
@@ -209,8 +242,82 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const { testId } = req.params as { testId: string };
     const test = await store.getTest(testId);
     if (!test) return reply.notFound("test not found");
-    const { assertions, uncertainties } = suggestAssertionsForTest(test.title, test.ir);
-    return { assertions, uncertainties, irHash: computeIRHash(test.ir) };
+    const { assertions, uncertainties, help, suggestions } = suggestAssertionsForTest(
+      test.title,
+      test.ir,
+      test.intentSummary,
+    );
+    return { assertions, uncertainties, help, suggestions, irHash: computeIRHash(test.ir) };
+  });
+
+  app.get("/api/pilot-constraints", async () => {
+    const c = await loadPilotConstraints();
+    return c ?? { scopeNotes: [], forbiddenAssertions: [] };
+  });
+
+  app.post("/api/intake", async (req, reply) => {
+    const body = req.body as {
+      title?: string;
+      url?: string;
+      channel?: "intent" | "prd";
+      text?: string;
+    };
+    const title = body.title?.trim() || "未命名用例";
+    const channel = body.channel === "prd" ? "prd" : "intent";
+    const url = body.url?.trim() || `${pilotBaseUrl()}/customer`;
+    try {
+      new URL(url);
+    } catch {
+      return reply.code(400).send({ error: "URL 格式无效" });
+    }
+    const constraintsDoc = await loadPilotConstraints();
+    const constraintLine = constraintsDoc?.scopeNotes?.[0];
+    const text = [body.text?.trim(), constraintLine].filter(Boolean).join("\n");
+    if (!text) {
+      return reply.code(400).send({ error: "请填写测试意图或粘贴 PRD 片段" });
+    }
+
+    let context;
+    try {
+      await assertPlaywrightReady();
+      context = await snapshotAtUrl(url);
+    } catch (err) {
+      return reply.code(503).send({
+        error: err instanceof Error ? err.message : "无法打开页面生成草案",
+      });
+    }
+
+    const draft = planFromIntake({
+      title,
+      channel,
+      text,
+      context,
+      constraints: constraintsDoc?.scopeNotes,
+    });
+    const testId = makeIntakeTestId(title);
+    const partial = draftToPartialIR(testId, draft);
+    const ir = {
+      ...partial,
+      baseUrlRef: url.includes("4173") ? "staging-console" : "pilot-admin",
+      policy: { screenshots: "on-failure" as const },
+    };
+    const validated = validateTestIR(ir);
+    if (!validated.ok) {
+      return reply.code(400).send({ issues: validated.issues });
+    }
+
+    const test = stampTestMeta({
+      id: testId,
+      projectId: "default",
+      title,
+      ir: validated.value,
+      approvalStatus: "draft",
+      intentSummary: body.text?.trim() || text,
+      sourceChannel: channel,
+      updatedAt: new Date().toISOString(),
+    });
+    await store.saveTest(test);
+    return { test, draft: { uncertainties: draft.uncertainties, sources: draft.sources } };
   });
 
   app.get("/api/environment", async () => {
@@ -409,7 +516,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (recordLock) {
       return reply.code(409).send({ error: "已有录制进行中，请先关闭录制浏览器窗口后再试" });
     }
-    const body = req.body as { url?: string; testId?: string; title?: string };
+    const body = req.body as { url?: string; testId?: string; title?: string; intentSummary?: string };
     if (!body?.url?.trim()) {
       return reply.code(400).send({ error: "请提供录制起始 URL" });
     }
@@ -443,6 +550,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
           title: body.title?.trim() || testId,
           ir: validated.value,
           approvalStatus: "draft",
+          intentSummary:
+            body.intentSummary?.trim() ||
+            (body.title?.includes("工单")
+              ? "提交工单流程；不要上传附件，附件功能暂不测试。"
+              : undefined),
+          sourceChannel: "record",
           updatedAt: new Date().toISOString(),
         });
         await store.saveTest(test);

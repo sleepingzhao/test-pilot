@@ -29,7 +29,7 @@
 | P0-3 | **runner-web + CLI** | Playwright + JSON 结果 | partial |
 | P0-3b | Runner 可靠性 | 有界等待、重试、定位器回退链 | partial |
 | P0-4 | **录制 → 测试资产** | 语义 Locator；valueRef；控制台录制 | partial |
-| P0-5 | **AI 规划器** | DOM 裁剪 + draft + uncertainties | partial（`POST /api/plan` + context-web；LLM 未接） |
+| P0-5 | **AI 规划器** | DOM 裁剪 + draft + uncertainties | partial（`POST /api/intake` 多模态 + `/api/plan`；LLM 未接） |
 | P0-6 | **结果证据** | trace + network.json + 失败截图 | partial |
 | P0-7 | **指标对比** | 回归耗时、通过率、与人工基线 | partial（`/api/metrics/summary` + baseline 文件） |
 
@@ -46,7 +46,7 @@
 
 | 模块 | 亮点 | 下一步 |
 |------|------|--------|
-| `apps/console` | 首页 / 用例 / 录制 / 结果；Apple 风布局 | 失败诊断 UI、Planner 入口 |
+| `apps/console` | 首页 / 用例 / **创建**（意图·PRD·录制）/ 结果 | 失败诊断 UI、LLM 草案 |
 | `services/test-management` | 文件存储、异步 batch、产物 API、diagnose | PostgreSQL（V0.2） |
 | `packages/runner-web` | 步骤机、重试、定位回退 | suite 并行 |
 | `packages/planner` | 规则 suggest + planDraft | LLM Provider |

@@ -17,6 +17,8 @@ export type StoredTest = {
   approvalStatus: "draft" | "approved";
   irHash?: string;
   approvedAt?: string;
+  intentSummary?: string;
+  sourceChannel?: "intent" | "prd" | "record";
   updatedAt: string;
 };
 

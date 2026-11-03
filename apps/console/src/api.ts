@@ -4,6 +4,8 @@ export type StoredTest = {
   title: string;
   ir: { id: string; version: number; assertions: unknown[]; steps: unknown[] };
   approvalStatus: "draft" | "approved";
+  intentSummary?: string;
+  sourceChannel?: "intent" | "prd" | "record";
   updatedAt: string;
 };
 

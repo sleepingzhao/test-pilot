@@ -1,0 +1,240 @@
+import type { Locator as TargetLocator, TestIR, TestStep } from "@testpilot/test-ir";
+import { runAssertion } from "@testpilot/assertions";
+import type { RunArtifacts } from "@testpilot/evidence";
+import { classifyFailure, createEvidenceCollector, isTransientFailure } from "@testpilot/evidence";
+import type { RunEnvironment } from "@testpilot/fixtures";
+import { resolveBaseUrl, resolveFixtureRefs, resolveValueRefs } from "@testpilot/fixtures";
+import { chromium, type Browser, type Locator as PwLocator, type Page } from "playwright";
+
+export type RunStatus = "passed" | "failed" | "error";
+
+export type StepResult = {
+  stepId: string;
+  status: "passed" | "failed" | "skipped";
+  durationMs: number;
+  message?: string;
+};
+
+export type RunResult = {
+  runId: string;
+  testId: string;
+  testVersion: number;
+  status: RunStatus;
+  startedAt: string;
+  completedAt: string;
+  steps: StepResult[];
+  assertions: Awaited<ReturnType<typeof runAssertion>>[];
+  artifacts: RunArtifacts;
+  metrics: {
+    durationMs: number;
+    llmTokensUsed: number;
+    failureKind?: string;
+    attemptCount: number;
+  };
+};
+
+export type RunOptions = {
+  runId?: string;
+  headless?: boolean;
+  artifactsDir?: string;
+  env: RunEnvironment;
+};
+
+function locatorCandidates(page: Page, target: TargetLocator): PwLocator[] {
+  const out: PwLocator[] = [];
+  if (target.testId) out.push(page.getByTestId(target.testId));
+  if (target.role) {
+    out.push(
+      target.name
+        ? page.getByRole(target.role as Parameters<Page["getByRole"]>[0], { name: target.name })
+        : page.getByRole(target.role as Parameters<Page["getByRole"]>[0]),
+    );
+  }
+  if (target.label) out.push(page.getByLabel(target.label));
+  if (target.placeholder) out.push(page.getByPlaceholder(target.placeholder));
+  if (target.css) out.push(page.locator(target.css));
+  if (out.length === 0) throw new Error("unsupported locator");
+  return out;
+}
+
+async function resolveStepLocator(page: Page, target: TargetLocator, timeoutMs = 4_000) {
+  const candidates = locatorCandidates(page, target);
+  for (let i = 0; i < candidates.length; i++) {
+    const loc = candidates[i]!;
+    try {
+      await loc.first().waitFor({ state: "visible", timeout: i === 0 ? 15_000 : timeoutMs });
+      return loc.first();
+    } catch {
+      if (i === candidates.length - 1) throw new Error(`locator not found: ${JSON.stringify(target)}`);
+    }
+  }
+  return candidates[0]!.first();
+}
+
+async function executeStep(
+  page: Page,
+  step: TestStep,
+  baseUrl: string,
+  refs: Record<string, string>,
+  runId: string,
+) {
+  const started = Date.now();
+  try {
+    switch (step.action) {
+      case "navigate": {
+        const path = step.path ?? "/";
+        const url = path.startsWith("http") ? path : new URL(path, baseUrl).toString();
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        break;
+      }
+      case "click": {
+        if (!step.target) throw new Error("click requires target");
+        const loc = await resolveStepLocator(page, step.target);
+        await loc.click({ timeout: 15_000 });
+        break;
+      }
+      case "fill": {
+        if (!step.target) throw new Error("fill requires target");
+        const raw = step.value ?? (step.valueRef ? refs[step.valueRef] : undefined);
+        if (raw === undefined) throw new Error("fill requires value or resolvable valueRef");
+        const value = raw.replace(/\{\{runId\}\}/g, runId);
+        const loc = await resolveStepLocator(page, step.target);
+        await loc.fill(value, { timeout: 15_000 });
+        break;
+      }
+      case "press": {
+        if (!step.key) throw new Error("press requires key");
+        await page.keyboard.press(step.key);
+        break;
+      }
+      case "wait": {
+        if (step.target) {
+          await resolveStepLocator(page, step.target, 15_000);
+        } else {
+          await page.waitForLoadState("domcontentloaded");
+        }
+        break;
+      }
+      default:
+        throw new Error(`unknown action: ${(step as TestStep).action}`);
+    }
+    return { stepId: step.id, status: "passed" as const, durationMs: Date.now() - started };
+  } catch (err) {
+    return {
+      stepId: step.id,
+      status: "failed" as const,
+      durationMs: Date.now() - started,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export async function runTestIR(ir: TestIR, options: RunOptions): Promise<RunResult> {
+  const maxAttempts = (ir.policy?.retry?.attempts ?? 0) + 1;
+  let last: RunResult | undefined;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    last = await runTestIROnce(ir, {
+      ...options,
+      runId: attempt === 1 ? options.runId : `${options.runId ?? `run_${Date.now()}`}_r${attempt}`,
+    });
+    last.metrics.attemptCount = attempt;
+    if (last.status === "passed") return last;
+    const msg = last.steps.find((s) => s.message)?.message ?? last.artifacts.notes;
+    if (attempt >= maxAttempts || !isTransientFailure(msg)) return last;
+  }
+  return last!;
+}
+
+async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult> {
+  const wallStart = Date.now();
+  const runId = options.runId ?? `run_${Date.now()}`;
+  const startedAt = new Date().toISOString();
+  const baseUrl = resolveBaseUrl(ir, options.env);
+  const refs = resolveValueRefs(ir, options.env);
+  resolveFixtureRefs(ir.fixture, options.env);
+
+  const evidence = createEvidenceCollector({
+    runId,
+    dir: options.artifactsDir ?? "artifacts",
+    screenshots: ir.policy?.screenshots ?? "on-failure",
+  });
+
+  let browser: Browser | undefined;
+  const steps: StepResult[] = [];
+  const assertionResults: Awaited<ReturnType<typeof runAssertion>>[] = [];
+  let status: RunStatus = "passed";
+
+  try {
+    browser = await chromium.launch({ headless: options.headless ?? true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await evidence.attachPage(context, page);
+
+    for (const step of ir.steps) {
+      const result = await executeStep(page, step, baseUrl, refs, runId);
+      steps.push(result);
+      if (result.status === "failed") {
+        status = "failed";
+        await evidence.captureFailure(page, result.stepId);
+        break;
+      }
+    }
+
+    if (status === "passed") {
+      for (const assertion of ir.assertions) {
+        const outcome = await runAssertion(assertion, { page });
+        assertionResults.push(outcome);
+        if (!outcome.passed) {
+          status = "failed";
+          await evidence.captureFailure(page, outcome.assertionId);
+        }
+      }
+    }
+
+    const artifacts = await evidence.finalize(status);
+    const failMsg = steps.find((s) => s.message)?.message ?? assertionResults.find((a) => !a.passed)?.message;
+    return {
+      runId,
+      testId: ir.id,
+      testVersion: ir.version,
+      status,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      steps,
+      assertions: assertionResults,
+      artifacts,
+      metrics: {
+        durationMs: Date.now() - wallStart,
+        llmTokensUsed: 0,
+        failureKind: status === "passed" ? undefined : classifyFailure({ stepError: failMsg, assertionMessage: failMsg }),
+        attemptCount: 1,
+      },
+    };
+  } catch (err) {
+    status = "error";
+    const artifacts = await evidence.finalize(status);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    return {
+      runId,
+      testId: ir.id,
+      testVersion: ir.version,
+      status,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      steps,
+      assertions: assertionResults,
+      artifacts: {
+        ...artifacts,
+        notes: errMsg,
+      },
+      metrics: {
+        durationMs: Date.now() - wallStart,
+        llmTokensUsed: 0,
+        failureKind: classifyFailure({ stepError: errMsg }),
+        attemptCount: 1,
+      },
+    };
+  } finally {
+    await browser?.close();
+  }
+}

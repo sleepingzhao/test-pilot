@@ -1,0 +1,17 @@
+{
+  "id": "demo-open-add-panel",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open-users", "action": "navigate", "path": "/" },
+    { "id": "add-user", "action": "click", "target": { "testId": "add-user-btn" } }
+  ],
+  "assertions": [
+    {
+      "id": "email-field",
+      "type": "ui",
+      "target": { "label": "邮箱" },
+      "oracle": "human-approved"
+    }
+  ]
+}

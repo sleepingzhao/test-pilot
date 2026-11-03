@@ -1,0 +1,19 @@
+{
+  "id": "demo-form-validation",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open-users", "action": "navigate", "path": "/" },
+    { "id": "add-user", "action": "click", "target": { "role": "button", "name": "添加用户" } },
+    { "id": "save-empty", "action": "click", "target": { "role": "button", "name": "保存" } }
+  ],
+  "assertions": [
+    {
+      "id": "empty-email",
+      "type": "ui",
+      "contains": "请输入邮箱",
+      "oracle": "human-approved"
+    }
+  ],
+  "policy": { "screenshots": "on-failure" }
+}

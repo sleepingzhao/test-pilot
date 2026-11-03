@@ -1,0 +1,9 @@
+{
+  "id": "demo-list-admin",
+  "version": 1,
+  "platform": "web",
+  "steps": [{ "id": "open", "action": "navigate", "path": "/" }],
+  "assertions": [
+    { "id": "admin-row", "type": "ui", "contains": "admin@example.com", "oracle": "requirement" }
+  ]
+}

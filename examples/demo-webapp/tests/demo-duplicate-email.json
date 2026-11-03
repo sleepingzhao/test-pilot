@@ -1,0 +1,25 @@
+{
+  "id": "demo-duplicate-email",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open-users", "action": "navigate", "path": "/" },
+    { "id": "create-user", "action": "click", "target": { "role": "button", "name": "添加用户" } },
+    {
+      "id": "fill-email",
+      "action": "fill",
+      "target": { "label": "邮箱" },
+      "value": "duplicate@example.com"
+    },
+    { "id": "submit", "action": "click", "target": { "role": "button", "name": "保存" } }
+  ],
+  "assertions": [
+    {
+      "id": "duplicate-alert",
+      "type": "ui",
+      "contains": "邮箱已被使用",
+      "oracle": "human-approved"
+    }
+  ],
+  "policy": { "screenshots": "on-failure", "dataIsolation": "per-run" }
+}

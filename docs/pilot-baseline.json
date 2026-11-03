@@ -1,0 +1,6 @@
+{
+  "module": "demo-webapp（练习环境，待替换为真实业务模块）",
+  "manualRegressionMinutes": 25,
+  "manualCaseCount": 10,
+  "notes": "人工全量点检 10 条路径的参考基线；接入真实试点后更新此文件。自动化对比见控制台 metrics /api/metrics/summary。"
+}

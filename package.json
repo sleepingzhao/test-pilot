@@ -1,0 +1,25 @@
+{
+  "name": "testpilot",
+  "private": true,
+  "version": "0.2.0",
+  "description": "TestPilot — turn manual QA workflows into reliable automated tests",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "cli": "node packages/cli/dist/cli.js",
+    "validate:ir": "pnpm --filter @testpilot/test-ir run validate --",
+    "dev": "pnpm --filter @testpilot/evidence --filter @testpilot/runner-web build && concurrently -n demo,api,ui,open -c blue,magenta,green,yellow \"pnpm --filter @testpilot/demo-webapp start\" \"pnpm --filter @testpilot/test-management dev\" \"pnpm --filter @testpilot/console dev\" \"node scripts/open-console.mjs\"",
+    "start": "pnpm build && concurrently -k -n demo,server -c blue,magenta \"pnpm --filter @testpilot/demo-webapp start\" \"pnpm --filter @testpilot/test-management dev\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3"
+  }
+}

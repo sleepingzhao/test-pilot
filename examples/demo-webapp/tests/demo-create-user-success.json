@@ -1,0 +1,25 @@
+{
+  "id": "demo-create-user-success",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open-users", "action": "navigate", "path": "/" },
+    { "id": "add-user", "action": "click", "target": { "role": "button", "name": "添加用户" } },
+    {
+      "id": "fill-email",
+      "action": "fill",
+      "target": { "label": "邮箱" },
+      "value": "new-user-{{runId}}@example.com"
+    },
+    { "id": "save", "action": "click", "target": { "role": "button", "name": "保存" } }
+  ],
+  "assertions": [
+    {
+      "id": "created-alert",
+      "type": "ui",
+      "contains": "用户已创建",
+      "oracle": "human-approved"
+    }
+  ],
+  "policy": { "screenshots": "on-failure", "retry": { "attempts": 1, "on": ["transient-network"] } }
+}

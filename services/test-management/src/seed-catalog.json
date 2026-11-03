@@ -1,0 +1,12 @@
+[
+  { "file": "examples/demo-webapp/tests/demo-duplicate-email.json", "title": "重复邮箱被拒绝" },
+  { "file": "examples/demo-webapp/tests/demo-create-user-success.json", "title": "创建用户成功" },
+  { "file": "examples/demo-webapp/tests/demo-users-smoke.json", "title": "用户管理页加载（不测添加按钮）" },
+  { "file": "examples/demo-webapp/tests/demo-form-validation.json", "title": "空邮箱校验" },
+  { "file": "examples/demo-webapp/tests/demo-open-add-panel.json", "title": "点击「添加用户」展开表单" },
+  { "file": "examples/demo-webapp/tests/demo-cancel-add.json", "title": "取消添加" },
+  { "file": "examples/demo-webapp/tests/demo-list-admin.json", "title": "列表含 admin 账号" },
+  { "file": "examples/demo-webapp/tests/demo-practice-banner.json", "title": "练习环境说明展示" },
+  { "file": "examples/demo-webapp/tests/demo-hint-text.json", "title": "表单提示文案" },
+  { "file": "examples/demo-webapp/tests/demo-add-button-visible.json", "title": "添加按钮可见" }
+]

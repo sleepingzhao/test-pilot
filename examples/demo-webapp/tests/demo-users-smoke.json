@@ -1,0 +1,21 @@
+{
+  "id": "demo-users-smoke",
+  "version": 1,
+  "platform": "web",
+  "steps": [{ "id": "open-users", "action": "navigate", "path": "/" }],
+  "assertions": [
+    {
+      "id": "heading",
+      "type": "ui",
+      "contains": "用户管理",
+      "oracle": "requirement"
+    },
+    {
+      "id": "practice-banner",
+      "type": "ui",
+      "contains": "TestPilot 练习环境",
+      "oracle": "requirement"
+    }
+  ],
+  "policy": { "screenshots": "on-failure" }
+}

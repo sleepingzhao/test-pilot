@@ -1,0 +1,12 @@
+{
+  "name": "@testpilot/demo-webapp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m http.server 4173",
+    "build": "echo 'static demo'",
+    "typecheck": "echo 'n/a'",
+    "test": "echo 'n/a'",
+    "lint": "echo 'n/a'"
+  }
+}

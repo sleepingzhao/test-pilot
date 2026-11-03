@@ -1,0 +1,14 @@
+{
+  "id": "demo-add-button-visible",
+  "version": 1,
+  "platform": "web",
+  "steps": [{ "id": "open", "action": "navigate", "path": "/" }],
+  "assertions": [
+    {
+      "id": "btn",
+      "type": "ui",
+      "target": { "role": "button", "name": "添加用户" },
+      "oracle": "requirement"
+    }
+  ]
+}

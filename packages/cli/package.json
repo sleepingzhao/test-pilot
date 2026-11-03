@@ -1,0 +1,25 @@
+{
+  "name": "@testpilot/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "testpilot": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo 'no tests yet'",
+    "lint": "echo 'no lint configured'"
+  },
+  "dependencies": {
+    "@testpilot/fixtures": "workspace:*",
+    "@testpilot/recorder-web": "workspace:*",
+    "@testpilot/runner-web": "workspace:*",
+    "@testpilot/test-ir": "workspace:*",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

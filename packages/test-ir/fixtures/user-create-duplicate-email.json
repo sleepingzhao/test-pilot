@@ -1,0 +1,47 @@
+{
+  "id": "user-create-duplicate-email",
+  "version": 1,
+  "platform": "web",
+  "baseUrlRef": "staging-console",
+  "fixture": "user-admin-session",
+  "steps": [
+    { "id": "open-users", "action": "navigate", "path": "/users" },
+    {
+      "id": "create-user",
+      "action": "click",
+      "target": { "role": "button", "name": "Add user" }
+    },
+    {
+      "id": "fill-email",
+      "action": "fill",
+      "target": { "label": "Email" },
+      "valueRef": "fixture.existingEmail"
+    },
+    {
+      "id": "submit",
+      "action": "click",
+      "target": { "role": "button", "name": "Save" }
+    }
+  ],
+  "assertions": [
+    {
+      "id": "duplicate-alert",
+      "type": "ui",
+      "target": { "role": "alert" },
+      "contains": "Email already exists",
+      "oracle": "human-approved"
+    },
+    {
+      "id": "no-new-user",
+      "type": "api",
+      "requestRef": "users-lookup-existing-email",
+      "expect": { "userCountDelta": 0 },
+      "oracle": "api-contract"
+    }
+  ],
+  "policy": {
+    "screenshots": "on-failure",
+    "retry": { "attempts": 1, "on": ["transient-network"] },
+    "dataIsolation": "per-run"
+  }
+}

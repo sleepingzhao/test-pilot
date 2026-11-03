@@ -1,0 +1,9 @@
+{
+  "id": "demo-practice-banner",
+  "version": 1,
+  "platform": "web",
+  "steps": [{ "id": "open", "action": "navigate", "path": "/" }],
+  "assertions": [
+    { "id": "banner", "type": "ui", "contains": "TestPilot 练习环境", "oracle": "requirement" }
+  ]
+}

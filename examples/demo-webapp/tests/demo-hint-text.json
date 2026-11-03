@@ -1,0 +1,12 @@
+{
+  "id": "demo-hint-text",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open", "action": "navigate", "path": "/" },
+    { "id": "add", "action": "click", "target": { "role": "button", "name": "添加用户" } }
+  ],
+  "assertions": [
+    { "id": "hint", "type": "ui", "contains": "duplicate@example.com", "oracle": "requirement" }
+  ]
+}

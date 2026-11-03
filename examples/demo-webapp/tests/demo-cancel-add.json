@@ -1,0 +1,13 @@
+{
+  "id": "demo-cancel-add",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open", "action": "navigate", "path": "/" },
+    { "id": "add", "action": "click", "target": { "role": "button", "name": "添加用户" } },
+    { "id": "cancel", "action": "click", "target": { "role": "button", "name": "取消" } }
+  ],
+  "assertions": [
+    { "id": "no-error", "type": "ui", "contains": "用户管理", "oracle": "requirement" }
+  ]
+}

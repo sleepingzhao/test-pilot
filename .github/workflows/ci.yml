@@ -39,3 +39,10 @@ jobs:
       - name: planner unit tests
         working-directory: packages/planner
         run: pnpm test
+
+      - name: Install Playwright Chromium
+        working-directory: services/test-management
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Demo Playwright smoke
+        run: pnpm smoke:demo

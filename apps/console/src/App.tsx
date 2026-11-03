@@ -684,59 +684,72 @@ export function App() {
 
       {editTest && (
         <div className="overlay" onClick={() => setEditTest(null)}>
-          <div className="sheet sheet-wide" onClick={(e) => e.stopPropagation()}>
-            <h2>审阅用例</h2>
-            <p>{editTest.title}</p>
-            <p className="hint-inline">{editTest.ir.steps?.length ?? 0} 个步骤 · 来源 {editTest.sourceChannel ?? "未知"}</p>
-            {pilotScopeNote && <p className="hint-inline">试点：{pilotScopeNote}</p>}
-            {editTest.plannerNotes && editTest.plannerNotes.length > 0 && (
-              <ul className="diagnose-list planner-notes">
-                {editTest.plannerNotes.map((n) => (
-                  <li key={n}>{n}</li>
-                ))}
-              </ul>
-            )}
-            {(editTest.ir.steps?.length ?? 0) > 0 && (
-              <ul className="step-list">
-                {(editTest.ir.steps as Parameters<typeof describeStep>[0][]).map((step, i) => (
-                  <li key={(step as { id?: string }).id ?? i}>{describeStep(step, i)}</li>
-                ))}
-              </ul>
-            )}
-            <div className="field">
-              <label>测试意图（可编辑，供建议引擎参考）</label>
-              <textarea
-                className="textarea"
-                rows={2}
-                value={reviewIntent}
-                onChange={(e) => setReviewIntent(e.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label>页面应包含</label>
-              <p className="hint-inline">{assertionHelp || "填写操作成功后页面上可见的稳定文案。"}</p>
-              <input value={assertionText} onChange={(e) => setAssertionText(e.target.value)} />
-              {assertionSuggestions.length > 0 && (
-                <div className="chips">
-                  {assertionSuggestions.map((s) => (
-                    <button key={s} type="button" className="chip" onClick={() => setAssertionText(s)}>
-                      {s}
-                    </button>
+          <div className="sheet sheet-wide sheet-review" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="review-title">
+            <header className="sheet-review-header">
+              <div className="sheet-review-header-row">
+                <h2 id="review-title">审阅用例</h2>
+                <button type="button" className="sheet-close" aria-label="关闭" onClick={() => setEditTest(null)}>
+                  ×
+                </button>
+              </div>
+              <p className="sheet-review-subtitle">{editTest.title}</p>
+              <p className="hint-inline sheet-review-meta">
+                {editTest.ir.steps?.length ?? 0} 个步骤 · 来源 {editTest.sourceChannel ?? "未知"}
+              </p>
+            </header>
+            <div className="sheet-review-body">
+              {pilotScopeNote && <p className="hint-inline">试点：{pilotScopeNote}</p>}
+              {editTest.plannerNotes && editTest.plannerNotes.length > 0 && (
+                <ul className="diagnose-list planner-notes">
+                  {editTest.plannerNotes.map((n) => (
+                    <li key={n}>{n}</li>
                   ))}
-                </div>
+                </ul>
               )}
+              {(editTest.ir.steps?.length ?? 0) > 0 && (
+                <ul className="step-list">
+                  {(editTest.ir.steps as Parameters<typeof describeStep>[0][]).map((step, i) => (
+                    <li key={(step as { id?: string }).id ?? i}>{describeStep(step, i)}</li>
+                  ))}
+                </ul>
+              )}
+              <div className="field">
+                <label>测试意图（可编辑，供建议引擎参考）</label>
+                <textarea
+                  className="textarea"
+                  rows={2}
+                  value={reviewIntent}
+                  onChange={(e) => setReviewIntent(e.target.value)}
+                />
+              </div>
+              <div className="field field-last">
+                <label>页面应包含</label>
+                <p className="hint-inline">{assertionHelp || "填写操作成功后页面上可见的稳定文案。"}</p>
+                <input value={assertionText} onChange={(e) => setAssertionText(e.target.value)} />
+                {assertionSuggestions.length > 0 && (
+                  <div className="chips">
+                    {assertionSuggestions.map((s) => (
+                      <button key={s} type="button" className="chip" onClick={() => setAssertionText(s)}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="cta-stack">
-              <button type="button" className="btn btn-primary" onClick={saveAndApprove}>
-                保存并批准
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={saveDraft}>
-                仅保存草稿
-              </button>
-              <button type="button" className="btn-link" onClick={applySuggest}>
-                刷新建议
-              </button>
-            </div>
+            <footer className="sheet-review-footer">
+              <div className="sheet-actions">
+                <button type="button" className="btn btn-primary" onClick={saveAndApprove}>
+                  保存并批准
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={saveDraft}>
+                  仅保存草稿
+                </button>
+                <button type="button" className="btn btn-tertiary sheet-action-span" onClick={applySuggest}>
+                  刷新建议
+                </button>
+              </div>
+            </footer>
           </div>
         </div>
       )}

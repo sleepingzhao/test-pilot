@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type StoredRun, type StoredTest } from "./api";
-import { describeStep, failureKindLabel, failureScreenshotPath } from "./stepSummary";
+import { describeStep, failureKindLabel, failureScreenshotPath, summarizeAssertion } from "./stepSummary";
+
+type IrAssertion = {
+  id?: string;
+  type?: string;
+  contains?: string;
+  requestRef?: string;
+  expect?: Record<string, unknown>;
+  target?: unknown;
+  oracle?: string;
+};
 
 type View = "home" | "tests" | "create" | "history";
 type CreateChannel = "intent" | "prd" | "record";
@@ -16,6 +26,7 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [editTest, setEditTest] = useState<StoredTest | null>(null);
   const [assertionText, setAssertionText] = useState("");
+  const [apiExpectJson, setApiExpectJson] = useState("");
   const [assertionHelp, setAssertionHelp] = useState("");
   const [assertionSuggestions, setAssertionSuggestions] = useState<string[]>([]);
   const [reviewIntent, setReviewIntent] = useState("");
@@ -140,9 +151,11 @@ export function App() {
   const openReview = async (t: StoredTest, withHints = true) => {
     setEditTest(t);
     setReviewIntent(t.intentSummary ?? "");
-    const a = t.ir.assertions?.[0] as { contains?: string } | undefined;
+    const a = t.ir.assertions?.find((x) => (x as IrAssertion).type === "ui") as { contains?: string } | undefined;
     const raw = a?.contains ?? "";
     setAssertionText(raw.includes("REPLACE") ? "" : raw);
+    const apiA = t.ir.assertions?.find((x) => (x as IrAssertion).type === "api") as IrAssertion | undefined;
+    setApiExpectJson(apiA?.expect ? JSON.stringify(apiA.expect, null, 2) : "");
     if (withHints) {
       try {
         await loadAssertionHints(t);
@@ -292,24 +305,56 @@ export function App() {
 
   const buildReviewIr = () => {
     if (!editTest) return null;
-    return {
-      ...editTest.ir,
-      assertions: [
-        {
-          id: "review-assertion",
-          type: "ui" as const,
-          contains: assertionText,
-          oracle: "human-approved" as const,
-        },
-      ],
+    const base = [...((editTest.ir.assertions ?? []) as IrAssertion[])];
+    let uiIdx = base.findIndex((a) => a.type === "ui");
+    const uiPatch: IrAssertion = {
+      ...(uiIdx >= 0 ? base[uiIdx]! : { id: "review-assertion", type: "ui", oracle: "human-approved" }),
+      type: "ui",
+      contains: assertionText,
+      oracle: "human-approved",
     };
+    if (uiIdx >= 0) base[uiIdx] = uiPatch;
+    else base.unshift(uiPatch);
+
+    if (apiExpectJson.trim()) {
+      try {
+        const expect = JSON.parse(apiExpectJson) as Record<string, unknown>;
+        let apiIdx = base.findIndex((a) => a.type === "api");
+        if (apiIdx < 0) {
+          base.push({
+            id: "api-contract",
+            type: "api",
+            requestRef: "users-create-attempt",
+            expect,
+            oracle: "api-contract",
+          });
+        } else {
+          base[apiIdx] = { ...base[apiIdx]!, expect: { ...(base[apiIdx]!.expect ?? {}), ...expect } };
+        }
+      } catch {
+        return null;
+      }
+    }
+    return { ...editTest.ir, assertions: base };
+  };
+
+  const reviewIrValid = () => {
+    if (!assertionText.trim() && !apiExpectJson.trim()) return false;
+    if (apiExpectJson.trim()) {
+      try {
+        JSON.parse(apiExpectJson);
+      } catch {
+        return false;
+      }
+    }
+    return Boolean(buildReviewIr());
   };
 
   const saveDraft = async () => {
     if (!editTest) return;
     const ir = buildReviewIr();
-    if (!ir || !assertionText.trim()) {
-      notify("请填写断言文案");
+    if (!ir || !reviewIrValid()) {
+      notify("请填写 UI 断言文案，或填写合法的 API expect JSON");
       return;
     }
     await api(`/api/tests/${editTest.id}`, {
@@ -324,8 +369,8 @@ export function App() {
   const saveAndApprove = async () => {
     if (!editTest) return;
     const ir = buildReviewIr();
-    if (!ir || !assertionText.trim()) {
-      notify("请填写断言文案");
+    if (!ir || !reviewIrValid()) {
+      notify("请填写 UI 断言文案，或填写合法的 API expect JSON");
       return;
     }
     if (/附件|upload/i.test(assertionText)) {
@@ -434,6 +479,11 @@ export function App() {
       </aside>
 
       <div className="content-column">
+      {draftCount > 0 && (
+        <div className="alert-bar alert-bar-draft">
+          有 <strong>{draftCount}</strong> 条用例待审阅（含试点 auto-intake）。请打开「用例 → 草稿」，核对 UI / API 断言后点「保存并批准」；未批准不会进入「运行全部」。
+        </div>
+      )}
       {demoOk === false && (
         <div className="alert-bar">
           练习应用未启动（端口 4173）。Demo 用例需 <code>pnpm dev</code>；试点用例不受影响。
@@ -789,11 +839,24 @@ export function App() {
                 </ul>
               )}
               {(editTest.ir.steps?.length ?? 0) > 0 && (
-                <ul className="step-list">
-                  {(editTest.ir.steps as Parameters<typeof describeStep>[0][]).map((step, i) => (
-                    <li key={(step as { id?: string }).id ?? i}>{describeStep(step, i)}</li>
-                  ))}
-                </ul>
+                <>
+                  <p className="hint-inline">步骤预览</p>
+                  <ul className="step-list">
+                    {(editTest.ir.steps as Parameters<typeof describeStep>[0][]).map((step, i) => (
+                      <li key={(step as { id?: string }).id ?? i}>{describeStep(step, i)}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {(editTest.ir.assertions?.length ?? 0) > 0 && (
+                <>
+                  <p className="hint-inline">当前断言（保存时会更新 UI 文案与 API expect，不会删掉 API 断言）</p>
+                  <ul className="step-list assertion-list">
+                    {(editTest.ir.assertions as IrAssertion[]).map((a, i) => (
+                      <li key={a.id ?? i}>{summarizeAssertion(a, i)}</li>
+                    ))}
+                  </ul>
+                </>
               )}
               <div className="field">
                 <label>测试意图（可编辑，供建议引擎参考）</label>
@@ -804,8 +867,8 @@ export function App() {
                   onChange={(e) => setReviewIntent(e.target.value)}
                 />
               </div>
-              <div className="field field-last">
-                <label>页面应包含</label>
+              <div className="field">
+                <label>页面应包含（UI 断言）</label>
                 <p className="hint-inline">{assertionHelp || "填写操作成功后页面上可见的稳定文案。"}</p>
                 <input value={assertionText} onChange={(e) => setAssertionText(e.target.value)} />
                 {assertionSuggestions.length > 0 && (
@@ -817,6 +880,20 @@ export function App() {
                     ))}
                   </div>
                 )}
+              </div>
+              <div className="field field-last">
+                <label>API expect（JSON，可选）</label>
+                <p className="hint-inline">
+                  支持 <code>statusCode</code>、<code>jsonBody</code>（请求体字段）、<code>requestBodyContains</code>（子串）。例：{" "}
+                  {`{"statusCode":409,"jsonBody":{"error":"duplicate"}}`}
+                </p>
+                <textarea
+                  className="textarea"
+                  rows={4}
+                  value={apiExpectJson}
+                  onChange={(e) => setApiExpectJson(e.target.value)}
+                  placeholder='{"statusCode": 201, "requestBodyContains": "@example.com"}'
+                />
               </div>
             </div>
             <footer className="sheet-review-footer">

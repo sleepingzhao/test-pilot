@@ -41,9 +41,26 @@ if (synced > 0) app.log.info(`Synced ${synced} catalog tests`);
 const pilotSynced = await syncPilotCatalogTests(store);
 if (pilotSynced > 0) app.log.info(`Synced ${pilotSynced} pilot catalog tests`);
 
-void bootstrapPilotIntakes(store, app.log).then((n) => {
+  void bootstrapPilotIntakes(store, app.log).then((n) => {
   if (n > 0) app.log.info(`Auto-generated ${n} pilot draft test(s) from presets`);
 });
+
+/** One-time style fix: pilot tests without approvedAt revert to draft (human gate). */
+async function reconcilePilotDraftGate(store: FileStore): Promise<number> {
+  const tests = await store.listTests();
+  let n = 0;
+  for (const t of tests) {
+    const pilot = t.title.includes("【试点】") || t.id.startsWith("pilot-auto-");
+    if (!pilot || t.approvedAt) continue;
+    if (t.approvalStatus === "draft") continue;
+    await store.saveTest({ ...t, approvalStatus: "draft", updatedAt: new Date().toISOString() });
+    n += 1;
+  }
+  return n;
+}
+
+const reconciled = await reconcilePilotDraftGate(store);
+if (reconciled > 0) app.log.info(`Reverted ${reconciled} pilot test(s) to draft pending approval`);
 
 registerRoutes(app, store, artifactsRoot, dataRoot);
 await mkdir(artifactsRoot, { recursive: true });

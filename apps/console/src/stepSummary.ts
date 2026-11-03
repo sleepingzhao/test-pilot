@@ -37,6 +37,33 @@ export function failureKindLabel(kind?: string | null): string | null {
   return map[kind] ?? kind;
 }
 
+export type AssertionSummary = {
+  id?: string;
+  type?: string;
+  contains?: string;
+  requestRef?: string;
+  expect?: Record<string, unknown>;
+  target?: unknown;
+};
+
+export function summarizeAssertion(a: AssertionSummary, index: number): string {
+  const label = a.id ?? `assertion-${index + 1}`;
+  if (a.type === "api") {
+    const parts: string[] = [];
+    if (a.requestRef) parts.push(`ref=${a.requestRef}`);
+    const exp = a.expect ?? {};
+    if (typeof exp.statusCode === "number") parts.push(`HTTP ${exp.statusCode}`);
+    if (exp.jsonBody) parts.push(`body≈${JSON.stringify(exp.jsonBody)}`);
+    if (typeof exp.requestBodyContains === "string") parts.push(`body∋"${exp.requestBodyContains}"`);
+    return `${label} [API] ${parts.join(" · ") || "（未配置 expect）"}`;
+  }
+  if (a.type === "ui") {
+    const where = a.target ? "（区域）" : "（整页）";
+    return `${label} [UI]${where} 包含「${a.contains ?? "…"}」`;
+  }
+  return `${label} [${a.type ?? "?"}]`;
+}
+
 export function failureScreenshotPath(run: {
   runId: string;
   artifacts?: { artifacts?: Array<{ kind: string; path: string }> };

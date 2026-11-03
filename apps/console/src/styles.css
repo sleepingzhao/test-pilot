@@ -857,6 +857,12 @@ main {
   border-bottom: 1px solid #ffd6b8;
 }
 
+.alert-bar-draft {
+  background: #fff8e6;
+  color: #6e5c00;
+  border-bottom-color: #e6c200;
+}
+
 .alert-bar code {
   font-family: ui-monospace, monospace;
   font-size: 13px;

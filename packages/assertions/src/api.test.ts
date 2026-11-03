@@ -30,6 +30,31 @@ test("runApiAssertion matches statusCode on requestRef", async () => {
   assert.equal(outcome.passed, true);
 });
 
+test("runApiAssertion matches jsonBody on request payload", async () => {
+  const outcome = await runApiAssertion(
+    {
+      id: "dup",
+      type: "api",
+      requestRef: "users-create-attempt",
+      expect: { statusCode: 409, jsonBody: { email: "duplicate@example.com" } },
+      oracle: "api-contract",
+    },
+    {
+      page: {} as import("playwright").Page,
+      network: [
+        {
+          url: "http://127.0.0.1:4173/api/users",
+          method: "POST",
+          status: 409,
+          requestBody: JSON.stringify({ email: "duplicate@example.com" }),
+        },
+      ],
+      resolveRequestRef: () => ({ urlIncludes: "/api/users", method: "POST" }),
+    },
+  );
+  assert.equal(outcome.passed, true);
+});
+
 test("runApiAssertion userCountDelta 0 rejects 201", async () => {
   const outcome = await runApiAssertion(
     {

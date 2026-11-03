@@ -24,7 +24,7 @@
       "id": "created-api",
       "type": "api",
       "requestRef": "users-create-attempt",
-      "expect": { "statusCode": 201 },
+      "expect": { "statusCode": 201, "requestBodyContains": "@example.com" },
       "oracle": "api-contract"
     }
   ],

@@ -24,7 +24,7 @@
       "id": "duplicate-api",
       "type": "api",
       "requestRef": "users-create-attempt",
-      "expect": { "statusCode": 409 },
+      "expect": { "statusCode": 409, "jsonBody": { "email": "duplicate@example.com" } },
       "oracle": "api-contract"
     }
   ],

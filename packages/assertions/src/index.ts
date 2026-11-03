@@ -1,11 +1,13 @@
 import type { Locator, TestAssertion } from "@testpilot/test-ir";
 import type { Page } from "playwright";
+import { partialJsonMatch } from "./api-match.js";
 
 export type CapturedNetworkEntry = {
   url: string;
   method: string;
   status?: number;
   resourceType?: string;
+  requestBody?: string;
 };
 
 export type RequestRefSpec = {
@@ -190,15 +192,73 @@ export async function runApiAssertion(
   const matched = matchNetwork(network, spec);
   const expect = assertion.expect ?? {};
 
-  if (typeof expect.statusCode === "number") {
-    const hit = matched.some((n) => n.status === expect.statusCode);
+  if (matched.length === 0) {
+    return {
+      assertionId: id,
+      passed: false,
+      expected: spec,
+      actual: [],
+      errorKind: "PRODUCT_DEFECT",
+      message: `no network entry matched requestRef ${ref}`,
+    };
+  }
+
+  const pickForStatus =
+    typeof expect.statusCode === "number"
+      ? matched.filter((n) => n.status === expect.statusCode)
+      : matched;
+
+  if (typeof expect.statusCode === "number" && pickForStatus.length === 0) {
+    return {
+      assertionId: id,
+      passed: false,
+      expected: { requestRef: ref, statusCode: expect.statusCode },
+      actual: matched.map((n) => ({ url: n.url, status: n.status })),
+      errorKind: "PRODUCT_DEFECT",
+      message: `no ${spec.method ?? "request"} ${ref} with status ${expect.statusCode}`,
+    };
+  }
+
+  const primary = pickForStatus[pickForStatus.length - 1]!;
+
+  if (expect.jsonBody && typeof expect.jsonBody === "object" && !Array.isArray(expect.jsonBody)) {
+    let bodyParsed: unknown;
+    try {
+      bodyParsed = primary.requestBody ? JSON.parse(primary.requestBody) : undefined;
+    } catch {
+      bodyParsed = undefined;
+    }
+    const passed = partialJsonMatch(expect.jsonBody as Record<string, unknown>, bodyParsed);
+    return {
+      assertionId: id,
+      passed,
+      expected: { requestRef: ref, statusCode: expect.statusCode, jsonBody: expect.jsonBody },
+      actual: bodyParsed ?? primary.requestBody?.slice(0, 200),
+      errorKind: passed ? undefined : "PRODUCT_DEFECT",
+      message: passed ? undefined : "request JSON body did not match expect.jsonBody",
+    };
+  }
+
+  if (typeof expect.requestBodyContains === "string") {
+    const needle = expect.requestBodyContains;
+    const pool = pickForStatus.length ? pickForStatus : matched;
+    const hit = pool.some((n) => n.requestBody?.includes(needle));
     return {
       assertionId: id,
       passed: hit,
-      expected: { requestRef: ref, statusCode: expect.statusCode },
-      actual: matched.map((n) => ({ url: n.url, status: n.status })),
+      expected: { requestRef: ref, requestBodyContains: needle },
+      actual: pool.map((n) => n.requestBody?.slice(0, 120)),
       errorKind: hit ? undefined : "PRODUCT_DEFECT",
-      message: hit ? undefined : `no ${spec.method ?? "request"} ${ref} with status ${expect.statusCode}`,
+      message: hit ? undefined : `request body does not contain "${needle}"`,
+    };
+  }
+
+  if (typeof expect.statusCode === "number") {
+    return {
+      assertionId: id,
+      passed: true,
+      expected: { requestRef: ref, statusCode: expect.statusCode },
+      actual: pickForStatus.map((n) => ({ url: n.url, status: n.status, requestBody: n.requestBody?.slice(0, 80) })),
     };
   }
 

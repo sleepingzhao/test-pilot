@@ -25,6 +25,8 @@ export type NetworkEntry = {
   method: string;
   status?: number;
   resourceType: string;
+  /** Truncated POST/PUT body for api-contract assertions (secrets redacted). */
+  requestBody?: string;
 };
 
 export function createEvidenceCollector(options: EvidenceOptions) {
@@ -57,12 +59,19 @@ export function createEvidenceCollector(options: EvidenceOptions) {
       page.on("response", (res: Response) => {
         const req = res.request();
         if (network.length > 200) return;
-        network.push({
+        const post = req.postData();
+        const entry: NetworkEntry = {
           url: req.url().slice(0, 500),
           method: req.method(),
           status: res.status(),
           resourceType: req.resourceType(),
-        });
+        };
+        if (post && post.length > 0 && post.length <= 8000) {
+          entry.requestBody = post
+            .replace(/"(password|token|secret|api[_-]?key)"\s*:\s*"[^"]*"/gi, '"$1":"***"')
+            .slice(0, 4000);
+        }
+        network.push(entry);
       });
     },
 

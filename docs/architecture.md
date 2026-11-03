@@ -32,7 +32,13 @@ Self-heal: AI may propose new locators; **approved IR is not auto-rewritten** on
 
 ### API assertions (roadmap §8, V0.3 scaffold)
 
-During a run, Playwright responses are captured in `network.json`. Assertions with `type: "api"` and `requestRef` (resolved via `@testpilot/fixtures`) match entries by URL fragment and method; `expect.statusCode` or `expect.userCountDelta` are evaluated with **no extra HTTP** at assertion time. Demo: `POST /api/users` on the练习 server (`examples/demo-webapp/server.mjs`).
+During a run, Playwright responses are captured in `network.json`. Assertions with `type: "api"` and `requestRef` (resolved via `@testpilot/fixtures`) match entries by URL fragment and method; `expect` supports:
+
+- `statusCode` — HTTP status of the matched call
+- `jsonBody` — partial match on **request** JSON body (e.g. `{ "email": "duplicate@example.com" }`)
+- `requestBodyContains` — substring in raw request body
+
+Evaluation uses captured traffic only (no extra HTTP at assertion time). Demo: `POST /api/users` on the练习 server (`examples/demo-webapp/server.mjs`).
 
 ## Data model (logical)
 

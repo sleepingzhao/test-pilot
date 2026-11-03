@@ -100,7 +100,7 @@ export async function bootstrapPilotIntakes(store: FileStore, log: FastifyBaseLo
 
   for (const preset of presets) {
     const existing = await store.getTest(preset.id);
-    if (existing?.approvalStatus === "approved") continue;
+    if (existing?.approvalStatus === "approved" && existing.approvedAt) continue;
     if (existing && !preset.refreshDraft) continue;
 
     try {

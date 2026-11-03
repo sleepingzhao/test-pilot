@@ -46,7 +46,7 @@ function locatorCandidates(page: Page, target: TargetLocator): PwLocator[] {
   if (target.role) {
     out.push(
       target.name
-        ? page.getByRole(target.role as Parameters<Page["getByRole"]>[0], { name: target.name })
+        ? page.getByRole(target.role as Parameters<Page["getByRole"]>[0], { name: target.name, exact: true })
         : page.getByRole(target.role as Parameters<Page["getByRole"]>[0]),
     );
     if (target.name) {

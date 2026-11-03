@@ -64,7 +64,7 @@ export async function runUiAssertion(
       if (t.testId) el = ctx.page.getByTestId(t.testId);
       else if (t.role)
         el = t.name
-          ? ctx.page.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name })
+          ? ctx.page.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name, exact: true })
           : ctx.page.getByRole(t.role as Parameters<Page["getByRole"]>[0]);
       else if (t.label) el = ctx.page.getByLabel(t.label);
       else if (t.placeholder) el = ctx.page.getByPlaceholder(t.placeholder);

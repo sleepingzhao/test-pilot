@@ -240,20 +240,20 @@
         <h1>我的工单</h1>
         <p class="lede">练习「提交工单」流程（不含附件上传），与业务试点用例结构类似。</p>
         <div class="card">
-          <button type="button" class="btn btn-primary" id="open-ticket" role="button">提交工单</button>
+          <button type="button" class="btn btn-primary" id="open-ticket" data-testid="open-ticket" role="button">提交工单</button>
           <div class="panel" id="ticket-form" aria-label="提交工单表单">
             <label for="ticket-title">标题</label>
-            <input id="ticket-title" type="text" placeholder="简要描述问题" />
+            <input id="ticket-title" type="text" data-testid="ticket-title" placeholder="简要描述问题" />
             <label for="ticket-body">描述</label>
-            <textarea id="ticket-body" rows="3" placeholder="必填说明" style="width:100%;max-width:480px;padding:12px;border:1px solid var(--line);border-radius:10px;font-family:inherit"></textarea>
+            <textarea id="ticket-body" data-testid="ticket-body" rows="3" placeholder="必填说明" style="width:100%;max-width:480px;padding:12px;border:1px solid var(--line);border-radius:10px;font-family:inherit"></textarea>
             <label for="ticket-file">附件（练习环境不测试上传）</label>
             <input id="ticket-file" type="file" disabled />
             <div style="margin-top:16px">
-              <button type="button" class="btn btn-primary" id="submit-ticket" role="button">提交</button>
+              <button type="button" class="btn btn-primary" id="submit-ticket" data-testid="submit-ticket" role="button">提交</button>
               <button type="button" class="btn btn-secondary" id="cancel-ticket">取消</button>
             </div>
           </div>
-          <div id="ticket-alert" role="alert"></div>
+          <div id="ticket-alert" data-testid="ticket-alert" role="alert"></div>
         </div>
       </main>
     </div>

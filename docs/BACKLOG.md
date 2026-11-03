@@ -27,7 +27,7 @@
 | P0-2 | **Test IR v1** | JSON Schema + validator；缺断言拒绝 | partial |
 | P0-2b | IR 编译 / 哈希 / 审批流 | `computeIRHash`、`approvedAt`、批准语义校验 | partial |
 | P0-3 | **runner-web + CLI** | Playwright + JSON 结果 | partial |
-| P0-3b | Runner 可靠性 | 有界等待、重试、定位器回退链 | partial |
+| P0-3b | Runner 可靠性 | 有界等待、重试、定位器回退链 | partial（role/name 后 text 回退） |
 | P0-4 | **录制 → 测试资产** | 语义 Locator；valueRef；控制台录制 | partial |
 | P0-5 | **AI 规划器** | DOM 裁剪 + draft + uncertainties | partial（`POST /api/intake` + `/api/plan`；可选 `TESTPILOT_LLM_*`） |
 | P0-6 | **结果证据** | trace + network.json + 失败截图 | partial |
@@ -61,7 +61,7 @@
 | 版本 | 焦点 | 状态 |
 |------|------|------|
 | **V0.1** | 单机 Web + 控制台 + 录制回放 | **进行中（练习环境已闭环）** |
-| V0.2 | 持久化 DB、Locator 回退完善、diagnose+LLM 建议 | 起步（diagnose API 无 LLM） |
+| V0.2 | 持久化 DB、Locator 回退完善、diagnose+LLM 建议 | 起步（诊断可选 LLM；回归仍 0 LLM） |
 | V0.3 | API 断言、GitLab CI、MR 触发 | todo |
 | V1.0 | 文档、Docker、多项目 | todo |
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type StoredRun, type StoredTest } from "./api";
+import { describeStep, failureScreenshotPath } from "./stepSummary";
 
 type View = "home" | "tests" | "create" | "history";
 type CreateChannel = "intent" | "prd" | "record";
@@ -27,6 +28,8 @@ export function App() {
     runCount: number;
     lastBatchDurationMs?: number | null;
     pilotBaselineMinutes?: number | null;
+    minutesSavedVsBaseline?: number | null;
+    lastBatchMinutes?: number | null;
   } | null>(null);
   const [demoOk, setDemoOk] = useState<boolean | null>(null);
   const [pilotOk, setPilotOk] = useState<boolean | null>(null);
@@ -40,6 +43,7 @@ export function App() {
     stepError?: string;
     assertionMessage?: string;
     suggestions: string[];
+    llmUsed?: boolean;
   } | null>(null);
   const [diagnoseLoading, setDiagnoseLoading] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ completed: number; total: number; title?: string } | null>(
@@ -72,6 +76,8 @@ export function App() {
         runCount: number;
         lastBatchDurationMs?: number | null;
         pilotBaselineMinutes?: number | null;
+        minutesSavedVsBaseline?: number | null;
+        lastBatchMinutes?: number | null;
       }>("/api/metrics/summary");
       setSummary(m);
     } catch {
@@ -244,6 +250,7 @@ export function App() {
         stepError?: string;
         assertionMessage?: string;
         suggestions: string[];
+        llmUsed?: boolean;
       }>(`/api/runs/${run.runId}/diagnose`);
       setDiagnoseDetail(d);
     } catch (e) {
@@ -459,6 +466,11 @@ export function App() {
                 {"pilotBaselineMinutes" in summary && summary.pilotBaselineMinutes != null
                   ? ` · 人工基线约 ${(summary as { pilotBaselineMinutes: number }).pilotBaselineMinutes} 分钟`
                   : ""}
+                {"minutesSavedVsBaseline" in summary &&
+                summary.minutesSavedVsBaseline != null &&
+                summary.minutesSavedVsBaseline > 0
+                  ? ` · 较基线节省约 ${summary.minutesSavedVsBaseline} 分钟`
+                  : ""}
               </p>
             )}
           </section>
@@ -615,7 +627,9 @@ export function App() {
             <h2 className="section-title">结果</h2>
             <p className="section-lede">Trace 与 network.json 每次运行都会生成（新运行的记录可下载）。</p>
             <div className="list">
-              {runs.map((r) => (
+              {runs.map((r) => {
+                const shotHref = failureScreenshotPath(r);
+                return (
                 <div className="row row-history" key={r.runId}>
                   <div className="row-main">
                     <h3>{r.testTitle}</h3>
@@ -634,6 +648,11 @@ export function App() {
                     <a className="btn-small" href={`/api/runs/${r.runId}/artifacts/network.json`}>
                       网络
                     </a>
+                    {shotHref && (
+                      <a className="btn-small" href={shotHref} target="_blank" rel="noreferrer">
+                        截图
+                      </a>
+                    )}
                     {r.status !== "passed" && (
                       <button type="button" className="btn-small primary" onClick={() => void openDiagnose(r)}>
                         诊断
@@ -641,7 +660,8 @@ export function App() {
                     )}
                   </div>
                 </div>
-              ))}
+              );
+              })}
               {runs.length === 0 && <p className="section-lede">尚无执行记录</p>}
             </div>
           </section>
@@ -659,6 +679,13 @@ export function App() {
               <ul className="diagnose-list planner-notes">
                 {editTest.plannerNotes.map((n) => (
                   <li key={n}>{n}</li>
+                ))}
+              </ul>
+            )}
+            {(editTest.ir.steps?.length ?? 0) > 0 && (
+              <ul className="step-list">
+                {(editTest.ir.steps as Parameters<typeof describeStep>[0][]).map((step, i) => (
+                  <li key={(step as { id?: string }).id ?? i}>{describeStep(step, i)}</li>
                 ))}
               </ul>
             )}
@@ -744,7 +771,11 @@ export function App() {
                     <li key={s}>{s}</li>
                   ))}
                 </ul>
-                <p className="hint-inline">回归执行仍不调用 LLM；配置 TESTPILOT_LLM_API_KEY 仅增强「生成草稿」。</p>
+                <p className="hint-inline">
+                  {diagnoseDetail.llmUsed
+                    ? "已合并 LLM 建议（仅诊断，回归仍不调用 LLM）。"
+                    : "回归执行不调用 LLM；配置 TESTPILOT_LLM_API_KEY 可增强诊断与草稿。"}
+                </p>
               </>
             )}
             <button type="button" className="btn btn-secondary" onClick={() => setDiagnoseRun(null)}>

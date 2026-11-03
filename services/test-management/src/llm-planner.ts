@@ -73,3 +73,62 @@ Existing uncertainties: ${input.ruleDraft.uncertainties.join(" | ")}`;
   const draft = mergeLlmHints(input.ruleDraft, hints);
   return { draft, tokensUsed: body.usage?.total_tokens ?? 0 };
 }
+
+export async function suggestDiagnoseWithLlm(
+  config: LlmPlannerConfig,
+  input: {
+    testTitle: string;
+    failureKind: string | null;
+    stepError?: string;
+    assertionMessage?: string;
+    ruleSuggestions: string[];
+  },
+): Promise<{ suggestions: string[]; tokensUsed: number }> {
+  const system = `You help QA engineers fix flaky UI tests. Reply JSON only: {"suggestions": string[]}. Max 4 items, concise Chinese, no markdown. Do not mention uploading attachments.`;
+
+  const user = `Test: ${input.testTitle}
+Failure kind: ${input.failureKind ?? "UNKNOWN"}
+Step error: ${input.stepError ?? "(none)"}
+Assertion: ${input.assertionMessage ?? "(none)"}
+Existing hints: ${input.ruleSuggestions.join(" | ")}`;
+
+  const res = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`LLM HTTP ${res.status}`);
+  }
+
+  const body = (await res.json()) as {
+    usage?: { total_tokens?: number };
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const raw = body.choices?.[0]?.message?.content ?? "{}";
+  let extra: string[] = [];
+  try {
+    const parsed = JSON.parse(raw) as { suggestions?: string[] };
+    extra = (parsed.suggestions ?? []).map((s) => s.trim()).filter(Boolean);
+  } catch {
+    extra = [];
+  }
+  const merged = [...input.ruleSuggestions];
+  for (const s of extra) {
+    if (!merged.includes(s)) merged.push(s);
+  }
+  return { suggestions: merged.slice(0, 8), tokensUsed: body.usage?.total_tokens ?? 0 };
+}

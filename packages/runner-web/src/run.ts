@@ -49,6 +49,11 @@ function locatorCandidates(page: Page, target: TargetLocator): PwLocator[] {
         ? page.getByRole(target.role as Parameters<Page["getByRole"]>[0], { name: target.name })
         : page.getByRole(target.role as Parameters<Page["getByRole"]>[0]),
     );
+    if (target.name) {
+      out.push(page.getByText(target.name, { exact: false }));
+    }
+  } else if (target.name) {
+    out.push(page.getByText(target.name, { exact: false }));
   }
   if (target.label) out.push(page.getByLabel(target.label));
   if (target.placeholder) out.push(page.getByPlaceholder(target.placeholder));

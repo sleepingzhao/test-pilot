@@ -11,7 +11,7 @@ import { computeIRHash, validateSemantics, validateTestIR } from "@testpilot/tes
 import { classifyFailure } from "@testpilot/evidence";
 import { chromium } from "playwright";
 import type { FileStore, RecordJob, StoredRun, StoredTest } from "./store.js";
-import { enhanceDraftWithLlm, llmPlannerConfigFromEnv } from "./llm-planner.js";
+import { enhanceDraftWithLlm, llmPlannerConfigFromEnv, suggestDiagnoseWithLlm } from "./llm-planner.js";
 import {
   buildRunEnvironment,
   pilotBaseUrl,
@@ -311,6 +311,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       String((a as { contains?: string }).contains ?? "").includes("REPLACE"),
     );
     if (hasPlaceholder) return reply.code(400).send({ error: "请先完善断言再批准" });
+    if (!test.ir.steps?.length) {
+      return reply.code(400).send({ error: "用例至少需要一个步骤；请录制或编辑 IR" });
+    }
     const semantic = validateSemantics(test.ir);
     if (semantic.length) return reply.code(400).send({ issues: semantic });
     const constraintsDoc = await loadPilotConstraints();
@@ -445,6 +448,10 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const approved = tests.filter((t) => t.approvalStatus === "approved").length;
     const baseline = await loadPilotBaseline();
     const lastBatchMs = estimateLastBatchDurationMs(runs);
+    const batchMinutes = lastBatchMs != null ? lastBatchMs / 60_000 : null;
+    const baselineMin = baseline?.manualRegressionMinutes ?? null;
+    const minutesSavedVsBaseline =
+      batchMinutes != null && baselineMin != null ? Math.max(0, Math.round((baselineMin - batchMinutes) * 10) / 10) : null;
     return {
       runCount: runs.length,
       passRate: runs.length ? passed / runs.length : 0,
@@ -452,8 +459,10 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       llmTokensTotal: 0,
       approvedTestCount: approved,
       lastBatchDurationMs: lastBatchMs,
-      pilotBaselineMinutes: baseline?.manualRegressionMinutes ?? null,
+      lastBatchMinutes: batchMinutes != null ? Math.round(batchMinutes * 10) / 10 : null,
+      pilotBaselineMinutes: baselineMin,
       pilotBaselineNotes: baseline?.notes ?? null,
+      minutesSavedVsBaseline,
     };
   });
 
@@ -560,6 +569,26 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     } else {
       suggestions.push("下载 Trace 与 network.json；必要时重新录制步骤。");
     }
+    let llmUsed = false;
+    let llmTokensUsed = 0;
+    const llmConfig = llmPlannerConfigFromEnv();
+    if (llmConfig) {
+      try {
+        const enhanced = await suggestDiagnoseWithLlm(llmConfig, {
+          testTitle: run.testTitle,
+          failureKind,
+          stepError: stepMsg,
+          assertionMessage: assertionMsg,
+          ruleSuggestions: suggestions,
+        });
+        suggestions.length = 0;
+        suggestions.push(...enhanced.suggestions);
+        llmUsed = true;
+        llmTokensUsed = enhanced.tokensUsed;
+      } catch {
+        /* keep rule-only suggestions */
+      }
+    }
     return {
       runId,
       status: run.status,
@@ -567,7 +596,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       stepError: stepMsg,
       assertionMessage: assertionMsg,
       suggestions,
-      llmUsed: false,
+      llmUsed,
+      llmTokensUsed,
       plannerLlmAvailable: !!llmPlannerConfigFromEnv(),
     };
   });

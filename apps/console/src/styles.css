@@ -514,6 +514,20 @@ main {
   margin-bottom: 8px;
 }
 
+.step-list {
+  margin: 0 0 16px;
+  padding: 12px 16px 12px 28px;
+  background: #f5f5f7;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.step-list li {
+  margin-bottom: 4px;
+}
+
 .planner-notes {
   margin-top: 0;
   margin-bottom: 16px;

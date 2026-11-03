@@ -20,7 +20,7 @@ export type EvidenceOptions = {
   screenshots: "never" | "on-failure" | "always";
 };
 
-type NetworkEntry = {
+export type NetworkEntry = {
   url: string;
   method: string;
   status?: number;
@@ -46,6 +46,10 @@ export function createEvidenceCollector(options: EvidenceOptions) {
   }
 
   return {
+    getNetworkLog(): NetworkEntry[] {
+      return [...network];
+    },
+
     async attachPage(ctx: BrowserContext, page: Page) {
       context = ctx;
       await mkdir(runDir, { recursive: true });

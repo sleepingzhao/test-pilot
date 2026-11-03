@@ -12,9 +12,10 @@ const demoDir = join(root, "examples/demo-webapp");
 const tests = [
   "examples/demo-webapp/tests/demo-users-smoke.json",
   "examples/demo-webapp/tests/demo-ticket-no-attachment.json",
+  "examples/demo-webapp/tests/demo-duplicate-email.json",
 ];
 
-const demo = spawn("python3", ["-m", "http.server", "4173"], {
+const demo = spawn("node", ["server.mjs"], {
   cwd: demoDir,
   stdio: "ignore",
 });

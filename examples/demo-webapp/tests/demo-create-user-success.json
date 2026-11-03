@@ -19,6 +19,13 @@
       "type": "ui",
       "contains": "用户已创建",
       "oracle": "human-approved"
+    },
+    {
+      "id": "created-api",
+      "type": "api",
+      "requestRef": "users-create-attempt",
+      "expect": { "statusCode": 201 },
+      "oracle": "api-contract"
     }
   ],
   "policy": { "screenshots": "on-failure", "retry": { "attempts": 1, "on": ["transient-network"] } }

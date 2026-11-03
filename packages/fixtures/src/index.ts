@@ -4,6 +4,8 @@ export type RunEnvironment = {
   baseUrl: string;
   /** Named env refs, e.g. staging-console → URL */
   baseUrlRefs?: Record<string, string>;
+  /** Maps requestRef in IR to URL/method patterns (roadmap §8). */
+  requestRefs?: Record<string, { urlIncludes: string; method?: string }>;
   /** Fixture-scoped values; secrets via env, never in IR */
   fixtureValues?: Record<string, string>;
   commitSha?: string;
@@ -34,4 +36,17 @@ export function resolveBaseUrl(ir: TestIR, env: RunEnvironment): string {
     return env.baseUrlRefs[ir.baseUrlRef];
   }
   return env.baseUrl;
+}
+
+const DEFAULT_REQUEST_REFS: Record<string, { urlIncludes: string; method?: string }> = {
+  "users-create-attempt": { urlIncludes: "/api/users", method: "POST" },
+  "users-lookup-existing-email": { urlIncludes: "/api/users", method: "POST" },
+};
+
+export function resolveRequestRef(
+  ref: string,
+  env: RunEnvironment,
+): { urlIncludes: string; method?: string } | undefined {
+  if (env.requestRefs?.[ref]) return env.requestRefs[ref];
+  return DEFAULT_REQUEST_REFS[ref];
 }

@@ -19,6 +19,13 @@
       "type": "ui",
       "contains": "邮箱已被使用",
       "oracle": "human-approved"
+    },
+    {
+      "id": "duplicate-api",
+      "type": "api",
+      "requestRef": "users-create-attempt",
+      "expect": { "statusCode": 409 },
+      "oracle": "api-contract"
     }
   ],
   "policy": { "screenshots": "on-failure", "dataIsolation": "per-run" }

@@ -40,6 +40,10 @@ jobs:
         working-directory: packages/planner
         run: pnpm test
 
+      - name: assertions unit tests
+        working-directory: packages/assertions
+        run: pnpm test
+
       - name: Install Playwright Chromium
         working-directory: services/test-management
         run: pnpm exec playwright install chromium --with-deps

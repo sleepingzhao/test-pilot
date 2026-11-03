@@ -30,7 +30,7 @@
 | P0-3b | Runner 可靠性 | 有界等待、重试、定位器回退链；**role+name 精确匹配** | partial（testId 优先 + exact name + text 回退） |
 | P0-4 | **录制 → 测试资产** | 语义 Locator；valueRef；控制台录制 | partial（recorder testId-first；API bootstrap 试点草稿） |
 | P0-5 | **AI 规划器** | DOM 裁剪 + draft + uncertainties | partial（规则 intake + 可选 DeepSeek；见 `docs/llm.md`） |
-| P0-6 | **结果证据** | trace + network.json + 失败截图 | partial |
+| P0-6 | **结果证据** | trace + network.json + 失败截图 | partial（network 驱动 API 断言） |
 | P0-7 | **指标对比** | 回归耗时、通过率、与人工基线 | partial（`/api/metrics/summary` + baseline 文件） |
 
 **V0.1 发布门槛**
@@ -63,7 +63,7 @@
 |------|------|------|
 | **V0.1** | 单机 Web + 控制台 + 录制回放 | **done**（练习 + 试点草稿通道） |
 | **V0.2** | 持久化 DB、Locator 回退完善、diagnose+LLM | 进行中（诊断可选 LLM；回归仍 0 LLM） |
-| **V0.3** | API 断言、GitLab CI、MR 触发 | todo |
+| **V0.3** | API 断言、GitLab CI、MR 触发 | partial（练习环境 `/api/users` + `requestRef` + network 断言） |
 | **V1.0** | 文档、Docker、多项目 | todo |
 
 ---
@@ -94,6 +94,7 @@ V0.3  API 断言（oracle: api-contract）+ GitLab `run-regression.sh` + 趋势
 | §6 IR oracle 字段 | `packages/test-ir` + 控制台审阅 |
 | §7.2 REST 草案 | `services/test-management/src/routes.ts`（子集） |
 | §8 失败分型 | `packages/evidence` classifyFailure |
+| §8 API 断言 | `packages/assertions` `runApiAssertion` + `requestRef` in `packages/fixtures` |
 | §9 密钥不进 Git/LLM | `.env` + `valueRef` |
 
 ---

@@ -258,7 +258,6 @@
       </main>
     </div>
     <script>
-      const EXISTING = "duplicate@example.com";
       const addBtn = document.getElementById("add-user");
       const panel = document.getElementById("user-form");
       const alertEl = document.getElementById("alert");
@@ -286,19 +285,32 @@
         emailInput.value = "";
         hideAlert();
       });
-      saveBtn.addEventListener("click", () => {
+      saveBtn.addEventListener("click", async () => {
         const email = emailInput.value.trim();
         if (!email) {
           showAlert("error", "请输入邮箱");
           return;
         }
-        if (email === EXISTING) {
-          showAlert("error", "邮箱已被使用");
-          return;
+        try {
+          const res = await fetch("/api/users", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email }),
+          });
+          if (res.status === 409) {
+            showAlert("error", "邮箱已被使用");
+            return;
+          }
+          if (!res.ok) {
+            showAlert("error", "创建失败");
+            return;
+          }
+          showAlert("success", "用户已创建");
+          panel.classList.remove("open");
+          emailInput.value = "";
+        } catch {
+          showAlert("error", "网络错误");
         }
-        showAlert("success", "用户已创建");
-        panel.classList.remove("open");
-        emailInput.value = "";
       });
 
       document.querySelectorAll(".nav-link").forEach((link) => {

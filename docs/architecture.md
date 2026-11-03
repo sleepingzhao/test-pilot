@@ -30,6 +30,10 @@ Priority when recording or resolving steps:
 
 Self-heal: AI may propose new locators; **approved IR is not auto-rewritten** on failure.
 
+### API assertions (roadmap §8, V0.3 scaffold)
+
+During a run, Playwright responses are captured in `network.json`. Assertions with `type: "api"` and `requestRef` (resolved via `@testpilot/fixtures`) match entries by URL fragment and method; `expect.statusCode` or `expect.userCountDelta` are evaluated with **no extra HTTP** at assertion time. Demo: `POST /api/users` on the练习 server (`examples/demo-webapp/server.mjs`).
+
 ## Data model (logical)
 
 Roadmap §7.1 entities (`Project`, `TestCase`, `TestVersion`, `Run`, …) will live in `services/test-management` once PostgreSQL is added in V0.2.

@@ -1,6 +1,18 @@
 import type { Locator, TestAssertion } from "@testpilot/test-ir";
 import type { Page } from "playwright";
 
+export type CapturedNetworkEntry = {
+  url: string;
+  method: string;
+  status?: number;
+  resourceType?: string;
+};
+
+export type RequestRefSpec = {
+  urlIncludes: string;
+  method?: string;
+};
+
 export type FailureKind =
   | "PRODUCT_DEFECT"
   | "LOCATOR_BREAKAGE"
@@ -20,6 +32,8 @@ export type AssertionOutcome = {
 
 export type AssertionContext = {
   page: Page;
+  network?: CapturedNetworkEntry[];
+  resolveRequestRef?: (ref: string) => RequestRefSpec | undefined;
   resolveRef?: (ref: string) => unknown;
 };
 
@@ -75,8 +89,17 @@ export async function runUiAssertion(
     }
 
     if (assertion.contains && assertion.target) {
-      const sel = locatorToPlaywright(assertion.target);
-      const el = ctx.page.locator(sel);
+      let el;
+      const t = assertion.target;
+      if (t.testId) el = ctx.page.getByTestId(t.testId);
+      else if (t.role)
+        el = t.name
+          ? ctx.page.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name, exact: true })
+          : ctx.page.getByRole(t.role as Parameters<Page["getByRole"]>[0]);
+      else if (t.label) el = ctx.page.getByLabel(t.label);
+      else if (t.placeholder) el = ctx.page.getByPlaceholder(t.placeholder);
+      else if (t.css) el = ctx.page.locator(t.css);
+      else throw new Error("empty target");
       await el.waitFor({ state: "visible", timeout: 10_000 });
       const text = await el.innerText();
       const passed = text.includes(assertion.contains);
@@ -119,6 +142,98 @@ export async function runUiAssertion(
   }
 }
 
+function matchNetwork(
+  network: CapturedNetworkEntry[],
+  spec: RequestRefSpec,
+): CapturedNetworkEntry[] {
+  return network.filter(
+    (n) =>
+      n.url.includes(spec.urlIncludes) && (!spec.method || n.method.toUpperCase() === spec.method.toUpperCase()),
+  );
+}
+
+export async function runApiAssertion(
+  assertion: TestAssertion,
+  ctx: AssertionContext,
+): Promise<AssertionOutcome> {
+  const id = assertion.id ?? "api-assertion";
+  if (assertion.type !== "api") {
+    return {
+      assertionId: id,
+      passed: false,
+      errorKind: "ASSERTION_ORACLE",
+      message: `expected api assertion, got ${assertion.type}`,
+    };
+  }
+
+  const network = ctx.network ?? [];
+  const ref = assertion.requestRef;
+  if (!ref) {
+    return {
+      assertionId: id,
+      passed: false,
+      errorKind: "ASSERTION_ORACLE",
+      message: "api assertion requires requestRef",
+    };
+  }
+
+  const spec = ctx.resolveRequestRef?.(ref);
+  if (!spec) {
+    return {
+      assertionId: id,
+      passed: false,
+      errorKind: "ASSERTION_ORACLE",
+      message: `unknown requestRef: ${ref}`,
+    };
+  }
+
+  const matched = matchNetwork(network, spec);
+  const expect = assertion.expect ?? {};
+
+  if (typeof expect.statusCode === "number") {
+    const hit = matched.some((n) => n.status === expect.statusCode);
+    return {
+      assertionId: id,
+      passed: hit,
+      expected: { requestRef: ref, statusCode: expect.statusCode },
+      actual: matched.map((n) => ({ url: n.url, status: n.status })),
+      errorKind: hit ? undefined : "PRODUCT_DEFECT",
+      message: hit ? undefined : `no ${spec.method ?? "request"} ${ref} with status ${expect.statusCode}`,
+    };
+  }
+
+  if (expect.userCountDelta === 0) {
+    const created = matched.filter((n) => n.status === 201);
+    const passed = created.length === 0;
+    return {
+      assertionId: id,
+      passed,
+      expected: { userCountDelta: 0 },
+      actual: { create201Count: created.length },
+      errorKind: passed ? undefined : "PRODUCT_DEFECT",
+      message: passed ? undefined : "unexpected user create (HTTP 201)",
+    };
+  }
+
+  if (matched.length === 0) {
+    return {
+      assertionId: id,
+      passed: false,
+      expected: spec,
+      actual: [],
+      errorKind: "PRODUCT_DEFECT",
+      message: `no network entry matched requestRef ${ref}`,
+    };
+  }
+
+  return {
+    assertionId: id,
+    passed: true,
+    expected: spec,
+    actual: matched.slice(-3),
+  };
+}
+
 export async function runAssertion(
   assertion: TestAssertion,
   ctx: AssertionContext,
@@ -127,12 +242,7 @@ export async function runAssertion(
     case "ui":
       return runUiAssertion(assertion, ctx);
     case "api":
-      return {
-        assertionId: assertion.id ?? "api-assertion",
-        passed: false,
-        errorKind: "UNKNOWN",
-        message: "api assertions not implemented in v0.1 scaffold",
-      };
+      return runApiAssertion(assertion, ctx);
     default:
       return {
         assertionId: assertion.id ?? assertion.type,

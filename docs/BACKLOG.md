@@ -29,7 +29,7 @@
 | P0-3 | **runner-web + CLI** | Playwright + JSON 结果 | partial |
 | P0-3b | Runner 可靠性 | 有界等待、重试、定位器回退链 | partial（role/name 后 text 回退） |
 | P0-4 | **录制 → 测试资产** | 语义 Locator；valueRef；控制台录制 | partial（API 启动 auto-intake 试点草稿 + 录制） |
-| P0-5 | **AI 规划器** | DOM 裁剪 + draft + uncertainties | partial（`POST /api/intake` + `/api/plan`；可选 `TESTPILOT_LLM_*`） |
+| P0-5 | **AI 规划器** | DOM 裁剪 + draft + uncertainties | partial（DeepSeek 默认可配；见 `docs/llm.md`） |
 | P0-6 | **结果证据** | trace + network.json + 失败截图 | partial |
 | P0-7 | **指标对比** | 回归耗时、通过率、与人工基线 | partial（`/api/metrics/summary` + baseline 文件） |
 

@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { snapshotPageContext } from "@testpilot/context-web";
 import { draftToPartialIR, planFromIntake } from "@testpilot/planner";
+import { applyOptionalLlmDraft } from "./llm-planner.js";
 import { assertPlaywrightReady } from "@testpilot/recorder-web";
 import { validateTestIR, type TestStep } from "@testpilot/test-ir";
 import { chromium } from "playwright";
@@ -111,13 +112,19 @@ export async function bootstrapPilotIntakes(store: FileStore, log: FastifyBaseLo
         constraints: constraints?.scopeNotes,
       });
 
+      const { draft: enrichedDraft } = await applyOptionalLlmDraft({
+        goal: text,
+        context,
+        ruleDraft,
+      });
+
       const loginSteps = await pilotLoginSteps();
       const mergedSteps: TestStep[] = [
         ...loginSteps.map((s) => ({ ...s, id: `login-${s.id}` })),
-        ...ruleDraft.steps.filter((s) => s.id !== "open-target"),
+        ...enrichedDraft.steps.filter((s) => s.id !== "open-target"),
       ];
 
-      const draft = { ...ruleDraft, steps: mergedSteps };
+      const draft = { ...enrichedDraft, steps: mergedSteps };
       const partial = draftToPartialIR(preset.id, draft);
       const ir = {
         ...partial,

@@ -40,6 +40,8 @@ pnpm start
 # 打开 http://127.0.0.1:8787
 ```
 
+LLM（DeepSeek 等）配置见 [`docs/llm.md`](docs/llm.md)；密钥只写在 **`.env`** 的 `TESTPILOT_LLM_API_KEY`。
+
 ## 架构（与 design 图对齐）
 
 - **Interface**：Web Console（`apps/console`）· CLI 仍保留给 CI

@@ -37,6 +37,7 @@ export function App() {
   const [pilotUrl, setPilotUrl] = useState<string | null>(null);
   const [pilotIntakeUrl, setPilotIntakeUrl] = useState<string | null>(null);
   const [pilotScopeNote, setPilotScopeNote] = useState<string | null>(null);
+  const [llmInfo, setLlmInfo] = useState<{ enabled: boolean; provider?: string; model?: string } | null>(null);
   const [diagnoseRun, setDiagnoseRun] = useState<StoredRun | null>(null);
   const [diagnoseDetail, setDiagnoseDetail] = useState<{
     failureKind: string | null;
@@ -91,11 +92,13 @@ export function App() {
         pilotUrl?: string;
         pilotIntakeUrl?: string | null;
         pilotSecretsConfigured?: boolean;
+        llm?: { enabled: boolean; provider?: string; model?: string };
       }>("/api/environment");
       setDemoOk(env.demoReachable);
       setPilotOk(env.pilotReachable ?? null);
       setPilotSecrets(env.pilotSecretsConfigured ?? null);
       setPilotUrl(env.pilotUrl ?? null);
+      setLlmInfo(env.llm ?? null);
       setPilotIntakeUrl(env.pilotIntakeUrl ?? null);
       setCreateUrl((prev) => {
         if (prev) return prev;
@@ -416,6 +419,11 @@ export function App() {
           试点登录凭据未配置：复制 <code>.env.example</code> 为 <code>.env</code> 并填写管理员手机号与密码，然后重启 API。
         </div>
       )}
+      {llmInfo && !llmInfo.enabled && (
+        <div className="alert-bar" style={{ background: "#f5f5f7", color: "#6e6e73", borderColor: "#d2d2d7" }}>
+          LLM 未启用：在 <code>.env</code> 中设置 <code>TESTPILOT_LLM_API_KEY</code>（见 <code>.env.example</code> / <code>docs/llm.md</code>）。
+        </div>
+      )}
 
       <main>
         {view === "home" && (
@@ -423,6 +431,12 @@ export function App() {
             <h1>Web 测试，几步就好。</h1>
             <p>
               在练习环境里一键回归 {approvedCount} 条已批准用例。配置试点 `.env` 后，API 启动会自动生成【试点】草稿（如用例1），你只需审阅断言并批准。
+              {llmInfo?.enabled ? (
+                <>
+                  {" "}
+                  LLM 已启用（{llmInfo.provider}/{llmInfo.model}），仅用于草稿与诊断。
+                </>
+              ) : null}
             </p>
             <div className="cta-stack">
               <button
@@ -774,7 +788,7 @@ export function App() {
                 <p className="hint-inline">
                   {diagnoseDetail.llmUsed
                     ? "已合并 LLM 建议（仅诊断，回归仍不调用 LLM）。"
-                    : "回归执行不调用 LLM；配置 TESTPILOT_LLM_API_KEY 可增强诊断与草稿。"}
+                    : "回归执行不调用 LLM；在 .env 配置 TESTPILOT_LLM_API_KEY 见 docs/llm.md。"}
                 </p>
               </>
             )}

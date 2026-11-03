@@ -1,20 +1,78 @@
 import type { PageContext, PlannerDraft } from "@testpilot/planner";
 import { mergeLlmHints, type LlmPlannerHints } from "@testpilot/planner";
+import { planFromIntake } from "@testpilot/planner";
+import { llmPlannerConfigFromEnv, type LlmPlannerConfig } from "./llm-config.js";
 
-export type LlmPlannerConfig = {
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-};
+export { llmPlannerConfigFromEnv, llmPlannerPublicInfo, type LlmPlannerConfig, type LlmPlannerPublicInfo } from "./llm-config.js";
 
-export function llmPlannerConfigFromEnv(): LlmPlannerConfig | null {
-  const apiKey = process.env.TESTPILOT_LLM_API_KEY?.trim();
-  if (!apiKey) return null;
-  return {
-    apiKey,
-    baseUrl: (process.env.TESTPILOT_LLM_BASE_URL?.trim() || "https://api.openai.com/v1").replace(/\/$/, ""),
-    model: process.env.TESTPILOT_LLM_MODEL?.trim() || "gpt-4o-mini",
+async function chatCompletionsJson<T>(
+  config: LlmPlannerConfig,
+  input: {
+    system: string;
+    user: string;
+    timeoutMs?: number;
+  },
+): Promise<{ parsed: T; tokensUsed: number }> {
+  const res = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      temperature: config.temperature,
+      max_tokens: config.maxTokens,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: input.system },
+        { role: "user", content: input.user },
+      ],
+    }),
+    signal: AbortSignal.timeout(input.timeoutMs ?? config.timeoutMs),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`LLM HTTP ${res.status}: ${text.slice(0, 240)}`);
+  }
+
+  const body = (await res.json()) as {
+    usage?: { total_tokens?: number };
+    choices?: Array<{ message?: { content?: string } }>;
   };
+  const raw = body.choices?.[0]?.message?.content ?? "{}";
+  const parsed = JSON.parse(raw) as T;
+  return { parsed, tokensUsed: body.usage?.total_tokens ?? 0 };
+}
+
+export async function applyOptionalLlmDraft(input: {
+  goal: string;
+  context: PageContext;
+  ruleDraft: ReturnType<typeof planFromIntake>;
+}): Promise<{ draft: ReturnType<typeof planFromIntake>; llmTokensUsed: number; llmUsed: boolean }> {
+  const config = llmPlannerConfigFromEnv();
+  if (!config) {
+    return { draft: input.ruleDraft, llmTokensUsed: 0, llmUsed: false };
+  }
+  try {
+    const enhanced = await enhanceDraftWithLlm(config, {
+      goal: input.goal,
+      context: input.context,
+      ruleDraft: input.ruleDraft,
+    });
+    return { draft: enhanced.draft, llmTokensUsed: enhanced.tokensUsed, llmUsed: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      draft: {
+        ...input.ruleDraft,
+        uncertainties: [...input.ruleDraft.uncertainties, `LLM 不可用，已仅用规则引擎：${message}`],
+      },
+      llmTokensUsed: 0,
+      llmUsed: false,
+    };
+  }
 }
 
 export async function enhanceDraftWithLlm(
@@ -36,42 +94,23 @@ ${elementSample || "(none)"}
 Existing rule steps: ${input.ruleDraft.steps.map((s) => s.id).join(", ") || "none"}
 Existing uncertainties: ${input.ruleDraft.uncertainties.join(" | ")}`;
 
-  const res = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: config.model,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
-    signal: AbortSignal.timeout(45_000),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`LLM HTTP ${res.status}: ${text.slice(0, 200)}`);
-  }
-
-  const body = (await res.json()) as {
-    usage?: { total_tokens?: number };
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const raw = body.choices?.[0]?.message?.content ?? "{}";
-  let hints: LlmPlannerHints = {};
+  let hints: LlmPlannerHints;
+  let tokensUsed: number;
   try {
-    hints = JSON.parse(raw) as LlmPlannerHints;
-  } catch {
-    hints = { uncertainties: ["LLM 返回非 JSON，已忽略。"] };
+    const out = await chatCompletionsJson<LlmPlannerHints>(config, { system, user });
+    hints = out.parsed;
+    tokensUsed = out.tokensUsed;
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      hints = { uncertainties: ["LLM 返回非 JSON，已忽略。"] };
+      tokensUsed = 0;
+    } else {
+      throw err;
+    }
   }
+
   const draft = mergeLlmHints(input.ruleDraft, hints);
-  return { draft, tokensUsed: body.usage?.total_tokens ?? 0 };
+  return { draft, tokensUsed };
 }
 
 export async function suggestDiagnoseWithLlm(
@@ -92,43 +131,23 @@ Step error: ${input.stepError ?? "(none)"}
 Assertion: ${input.assertionMessage ?? "(none)"}
 Existing hints: ${input.ruleSuggestions.join(" | ")}`;
 
-  const res = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: config.model,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-
-  if (!res.ok) {
-    throw new Error(`LLM HTTP ${res.status}`);
-  }
-
-  const body = (await res.json()) as {
-    usage?: { total_tokens?: number };
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const raw = body.choices?.[0]?.message?.content ?? "{}";
   let extra: string[] = [];
+  let tokensUsed = 0;
   try {
-    const parsed = JSON.parse(raw) as { suggestions?: string[] };
-    extra = (parsed.suggestions ?? []).map((s) => s.trim()).filter(Boolean);
+    const out = await chatCompletionsJson<{ suggestions?: string[] }>(config, {
+      system,
+      user,
+      timeoutMs: Math.min(config.timeoutMs, 30_000),
+    });
+    extra = (out.parsed.suggestions ?? []).map((s) => s.trim()).filter(Boolean);
+    tokensUsed = out.tokensUsed;
   } catch {
     extra = [];
   }
+
   const merged = [...input.ruleSuggestions];
   for (const s of extra) {
     if (!merged.includes(s)) merged.push(s);
   }
-  return { suggestions: merged.slice(0, 8), tokensUsed: body.usage?.total_tokens ?? 0 };
+  return { suggestions: merged.slice(0, 8), tokensUsed };
 }

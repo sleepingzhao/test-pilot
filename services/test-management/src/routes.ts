@@ -11,7 +11,12 @@ import { computeIRHash, validateSemantics, validateTestIR } from "@testpilot/tes
 import { classifyFailure } from "@testpilot/evidence";
 import { chromium } from "playwright";
 import type { FileStore, RecordJob, StoredRun, StoredTest } from "./store.js";
-import { enhanceDraftWithLlm, llmPlannerConfigFromEnv, suggestDiagnoseWithLlm } from "./llm-planner.js";
+import {
+  applyOptionalLlmDraft,
+  llmPlannerConfigFromEnv,
+  llmPlannerPublicInfo,
+  suggestDiagnoseWithLlm,
+} from "./llm-planner.js";
 import {
   buildRunEnvironment,
   pilotBaseUrl,
@@ -138,35 +143,6 @@ async function pilotIntakeDefaultUrl(): Promise<string> {
   const path = baseline?.loginPath?.trim() || "/customer";
   const normalized = path.startsWith("/") ? path : `/${path}`;
   return `${base.replace(/\/$/, "")}${normalized}`;
-}
-
-async function applyOptionalLlmDraft(input: {
-  goal: string;
-  context: Awaited<ReturnType<typeof snapshotAtUrl>>;
-  ruleDraft: ReturnType<typeof planFromIntake>;
-}): Promise<{ draft: ReturnType<typeof planFromIntake>; llmTokensUsed: number; llmUsed: boolean }> {
-  const config = llmPlannerConfigFromEnv();
-  if (!config) {
-    return { draft: input.ruleDraft, llmTokensUsed: 0, llmUsed: false };
-  }
-  try {
-    const enhanced = await enhanceDraftWithLlm(config, {
-      goal: input.goal,
-      context: input.context,
-      ruleDraft: input.ruleDraft,
-    });
-    return { draft: enhanced.draft, llmTokensUsed: enhanced.tokensUsed, llmUsed: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      draft: {
-        ...input.ruleDraft,
-        uncertainties: [...input.ruleDraft.uncertainties, `LLM 不可用，已仅用规则引擎：${message}`],
-      },
-      llmTokensUsed: 0,
-      llmUsed: false,
-    };
-  }
 }
 
 /** Sum duration of runs started within 2 minutes of the latest run (typical「运行全部」批次). */
@@ -435,7 +411,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       pilotIntakeUrl: pilotIntakeUrl || null,
       pilotReachable,
       pilotSecretsConfigured: pilotSecretsConfigured(),
-      llmPlannerEnabled: !!llmPlannerConfigFromEnv(),
+      llm: llmPlannerPublicInfo(),
       apiVersion: "0.2.0",
     };
   });

@@ -29,7 +29,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     const text = await res.text();
     try {
       const body = JSON.parse(text) as { error?: string; message?: string };
-      throw new Error(body.error ?? body.message ?? text);
+      throw new Error(body.message ?? body.error ?? text);
     } catch (e) {
       if (e instanceof Error && e.message !== text) throw e;
       throw new Error(text || res.statusText);

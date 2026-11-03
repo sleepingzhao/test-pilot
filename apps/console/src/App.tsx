@@ -13,6 +13,7 @@ export function App() {
   const [editTest, setEditTest] = useState<StoredTest | null>(null);
   const [assertionText, setAssertionText] = useState("");
   const [recordTitle, setRecordTitle] = useState("");
+  const [recordUrl, setRecordUrl] = useState("");
   const [recordJob, setRecordJob] = useState<string | null>(null);
   const [summary, setSummary] = useState<{
     passRate: number;
@@ -72,6 +73,9 @@ export function App() {
       setPilotOk(env.pilotReachable ?? null);
       setPilotSecrets(env.pilotSecretsConfigured ?? null);
       setPilotUrl(env.pilotUrl ?? null);
+      if (!recordUrl && env.pilotUrl) {
+        setRecordUrl(`${env.pilotUrl.replace(/\/$/, "")}/admin/login`);
+      }
     } catch {
       setDemoOk(null);
     }
@@ -79,7 +83,7 @@ export function App() {
 
   useEffect(() => {
     refresh().catch((e) => notify(String(e)));
-  }, [refresh]);
+  }, [refresh, recordUrl]);
 
   useEffect(() => {
     if (!recordJob) return;
@@ -190,16 +194,23 @@ export function App() {
 
   const startRecord = async () => {
     const testId = `rec-${Date.now().toString(36)}`;
-    const res = await api<{ jobId: string }>("/api/record", {
-      method: "POST",
-      body: JSON.stringify({
-        url: "http://127.0.0.1:4173/",
-        testId,
-        title: recordTitle || "录制用例",
-      }),
-    });
-    setRecordJob(res.jobId);
-    notify("请在弹出窗口中操作，完成后关闭窗口");
+    const url =
+      recordUrl.trim() ||
+      (pilotUrl ? `${pilotUrl.replace(/\/$/, "")}/admin/login` : "http://127.0.0.1:4173/");
+    try {
+      const res = await api<{ jobId: string }>("/api/record", {
+        method: "POST",
+        body: JSON.stringify({
+          url,
+          testId,
+          title: recordTitle || "录制用例",
+        }),
+      });
+      setRecordJob(res.jobId);
+      notify("录制窗口即将打开，操作完成后请关闭该窗口");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const approvedCount = tests.filter((t) => t.approvalStatus === "approved").length;
@@ -333,7 +344,17 @@ export function App() {
         {view === "record" && (
           <section>
             <h2 className="section-title">录制</h2>
-            <p className="section-lede">在示例控制台里走一遍流程。关闭浏览器后自动保存为草稿。</p>
+            <p className="section-lede">
+              在目标页面走一遍流程。关闭录制浏览器后自动保存为草稿（密码字段会记为 valueRef，不进 IR 明文）。
+            </p>
+            <div className="field">
+              <label>起始 URL</label>
+              <input
+                value={recordUrl}
+                onChange={(e) => setRecordUrl(e.target.value)}
+                placeholder="https://your-staging-host.example/admin/login"
+              />
+            </div>
             <div className="field">
               <label>用例名称</label>
               <input

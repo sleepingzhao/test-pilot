@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { recordSession } from "@testpilot/recorder-web";
+import { assertPlaywrightReady, recordSession } from "@testpilot/recorder-web";
 import { runTestIR, type RunResult } from "@testpilot/runner-web";
 import { snapshotPageContext } from "@testpilot/context-web";
 import { planDraft, suggestAssertionsForTest } from "@testpilot/planner";
@@ -406,8 +406,24 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
   });
 
   app.post("/api/record", async (req, reply) => {
-    if (recordLock) return reply.conflict("recording already in progress");
-    const body = req.body as { url: string; testId: string; title?: string };
+    if (recordLock) {
+      return reply.code(409).send({ error: "已有录制进行中，请先关闭录制浏览器窗口后再试" });
+    }
+    const body = req.body as { url?: string; testId?: string; title?: string };
+    if (!body?.url?.trim()) {
+      return reply.code(400).send({ error: "请提供录制起始 URL" });
+    }
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(body.url.trim());
+    } catch {
+      return reply.code(400).send({ error: "URL 格式无效" });
+    }
+    const testId = (body.testId?.trim() || `rec-${Date.now()}`).toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(testId)) {
+      return reply.code(400).send({ error: "testId 只能包含小写字母、数字和连字符" });
+    }
+
     const jobId = `rec_${Date.now()}`;
     const job: RecordJob = { id: jobId, status: "running", startedAt: new Date().toISOString() };
     recordJobs.set(jobId, job);
@@ -415,18 +431,23 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
     void (async () => {
       try {
-        const { ir, warnings } = await recordSession({ url: body.url, testId: body.testId });
+        await assertPlaywrightReady();
+        const { ir, warnings } = await recordSession({ url: parsedUrl.toString(), testId });
+        const validated = validateTestIR(ir);
+        if (!validated.ok) {
+          throw new Error(`录制 IR 校验失败: ${validated.issues.map((i) => i.message).join("; ")}`);
+        }
         const test = stampTestMeta({
-          id: body.testId,
+          id: testId,
           projectId: "default",
-          title: body.title ?? body.testId,
-          ir,
+          title: body.title?.trim() || testId,
+          ir: validated.value,
           approvalStatus: "draft",
           updatedAt: new Date().toISOString(),
         });
         await store.saveTest(test);
         job.status = "completed";
-        job.testId = body.testId;
+        job.testId = testId;
         job.completedAt = new Date().toISOString();
         job.error = warnings.length ? warnings.join("; ") : undefined;
       } catch (err) {

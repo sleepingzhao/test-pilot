@@ -16,6 +16,17 @@ export type RecordSessionResult = {
   warnings: string[];
 };
 
+function baseUrlRefFor(startUrl: string): string {
+  try {
+    const u = new URL(startUrl);
+    if (u.hostname === "127.0.0.1" && u.port === "4173") return "staging-console";
+    if (u.port === "4173") return "staging-console";
+    return "pilot-admin";
+  } catch {
+    return "default-env";
+  }
+}
+
 function slug(s: string): string {
   return s
     .toLowerCase()
@@ -92,7 +103,7 @@ export function eventsToIR(testId: string, baseUrl: string, events: RecordedEven
     id: testId,
     version: 1,
     platform: "web",
-    baseUrlRef: "default-env",
+    baseUrlRef: baseUrlRefFor(baseUrl),
     steps,
     assertions: [
       {
@@ -107,6 +118,23 @@ export function eventsToIR(testId: string, baseUrl: string, events: RecordedEven
 
   void origin;
   return ir;
+}
+
+export async function assertPlaywrightReady(): Promise<void> {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/Executable doesn't exist|playwright install/i.test(msg)) {
+      throw new Error(
+        "Playwright 浏览器未安装。请在 test-pilot 目录执行：pnpm exec playwright install chromium",
+      );
+    }
+    throw err;
+  } finally {
+    await browser?.close().catch(() => {});
+  }
 }
 
 export async function recordSession(options: RecordSessionOptions): Promise<RecordSessionResult> {

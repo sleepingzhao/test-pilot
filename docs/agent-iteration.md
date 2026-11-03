@@ -6,13 +6,11 @@
 
 | 项 | 位置 |
 |----|------|
-| 试点 URL | `.env` → `TESTPILOT_PILOT_BASE_URL` |
-| 试点账号 | `.env` → `TESTPILOT_ENV_ADMIN_*` |
-| LLM Key | `.env` → `TESTPILOT_LLM_API_KEY`（见 `.env.example`） |
+| 试点 URL / 账号 / LLM Key | 仓库根 **`.env`**（复制自 `.env.example`，**配好后一般不用改**） |
 | 人工基线 / 约束 | `docs/pilot-baseline.json`、`docs/pilot-constraints.json`（gitignore） |
-| **批准**自动生成的试点草稿 | Web 控制台 → 审阅断言 → 保存并批准 |
+| **批准**新的 auto-intake 草稿 | 控制台 → 审阅 → 保存并批准（每条用例一次） |
 
-改 `.env` 或拉取含 API 变更的代码后：**重启 `pnpm dev`**（或 API 进程）。
+拉取**含 API 服务代码变更**的 Git 更新后：重启 `pnpm dev` 即可；**不必**反复改 `.env`。
 
 ## Agent 默认会做
 

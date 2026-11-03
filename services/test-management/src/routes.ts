@@ -423,7 +423,10 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const passed = runs.filter((r) => r.status === "passed").length;
     const totalMs = runs.reduce((s, r) => s + (r.metrics?.durationMs ?? 0), 0);
     const tests = await store.listTests();
-    const approved = tests.filter((t) => t.approvalStatus === "approved").length;
+    const approvedList = tests.filter((t) => t.approvalStatus === "approved");
+    const approved = approvedList.length;
+    const approvedPilotCount = approvedList.filter((t) => t.title.includes("【试点】")).length;
+    const approvedDemoCount = approved - approvedPilotCount;
     const baseline = await loadPilotBaseline();
     const lastBatchMs = estimateLastBatchDurationMs(runs);
     const batchMinutes = lastBatchMs != null ? lastBatchMs / 60_000 : null;
@@ -438,6 +441,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       llmTokensTotal: llmUsage.tokensTotal,
       llmCallCount: llmUsage.callCount,
       approvedTestCount: approved,
+      approvedPilotCount,
+      approvedDemoCount,
       lastBatchDurationMs: lastBatchMs,
       lastBatchMinutes: batchMinutes != null ? Math.round(batchMinutes * 10) / 10 : null,
       pilotBaselineMinutes: baselineMin,

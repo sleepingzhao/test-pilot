@@ -79,6 +79,8 @@ export function App() {
         pilotBaselineMinutes?: number | null;
         minutesSavedVsBaseline?: number | null;
         lastBatchMinutes?: number | null;
+        approvedPilotCount?: number;
+        approvedDemoCount?: number;
       }>("/api/metrics/summary");
       setSummary(m);
     } catch {
@@ -168,6 +170,17 @@ export function App() {
     return () => clearInterval(timer);
   }, [recordJob, refresh]);
 
+  const summarizeRuns = (runs: StoredRun[]) => {
+    const passed = runs.filter((r) => r.status === "passed").length;
+    const failed = runs.filter((r) => r.status !== "passed");
+    if (failed.length === 0) {
+      return `回归完成：${passed}/${runs.length} 通过`;
+    }
+    const names = failed.slice(0, 3).map((r) => r.testTitle);
+    const more = failed.length > 3 ? ` 等 ${failed.length} 条` : "";
+    return `回归 ${passed}/${runs.length} 通过；失败：${names.join("、")}${more}`;
+  };
+
   const pollBatch = async (jobId: string) => {
     for (;;) {
       const job = await api<{
@@ -186,7 +199,7 @@ export function App() {
       setBatchProgress(null);
       if (job.status === "failed") throw new Error(job.error ?? "批量运行失败");
       const passed = job.runs.filter((r) => r.status === "passed").length;
-      notify(`回归完成：${passed}/${job.runs.length} 通过`);
+      notify(summarizeRuns(job.runs));
       await refresh();
       if (passed < job.runs.length) setView("history");
       return;
@@ -205,8 +218,8 @@ export function App() {
         await pollBatch(res.jobId);
       } else {
         const rs = res.runs ?? [];
-        const passed = rs.filter((r) => r.status === "passed").length;
-        notify(`回归完成：${passed}/${rs.length} 通过`);
+        notify(summarizeRuns(rs));
+        if (rs.some((r) => r.status !== "passed")) setView("history");
         await refresh();
       }
     } catch (e) {
@@ -381,6 +394,8 @@ export function App() {
   };
 
   const approvedCount = tests.filter((t) => t.approvalStatus === "approved").length;
+  const approvedPilot = tests.filter((t) => t.approvalStatus === "approved" && t.title.includes("【试点】")).length;
+  const approvedDemo = approvedCount - approvedPilot;
 
   return (
     <div className="shell">
@@ -419,7 +434,7 @@ export function App() {
           试点登录凭据未配置：复制 <code>.env.example</code> 为 <code>.env</code> 并填写管理员手机号与密码，然后重启 API。
         </div>
       )}
-      {llmInfo && !llmInfo.enabled && (
+      {llmInfo && !llmInfo.enabled && pilotOk !== false && (
         <div className="alert-bar" style={{ background: "#f5f5f7", color: "#6e6e73", borderColor: "#d2d2d7" }}>
           LLM 未启用：在 <code>.env</code> 中设置 <code>TESTPILOT_LLM_API_KEY</code>（见 <code>.env.example</code> / <code>docs/llm.md</code>）。
         </div>
@@ -430,7 +445,9 @@ export function App() {
           <section className="hero">
             <h1>Web 测试，几步就好。</h1>
             <p>
-              在练习环境里一键回归 {approvedCount} 条已批准用例。配置试点 `.env` 后，API 启动会自动生成【试点】草稿（如用例1），你只需审阅断言并批准。
+              在练习环境里一键回归 {approvedCount} 条已批准用例
+              {approvedPilot > 0 ? `（试点 ${approvedPilot} · 练习 ${approvedDemo}）` : ""}
+              。试点草稿由 API 自动生成，新用例审阅批准一次即可。
               {llmInfo?.enabled ? (
                 <>
                   {" "}

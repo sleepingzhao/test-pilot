@@ -1,10 +1,10 @@
 [
   {
-    "file": "examples/pilot-pilot-admin/tests/pilot-admin-login-page.json",
+    "file": "examples/pilot-admin/tests/pilot-admin-login-page.json",
     "title": "【试点】管理员登录页加载"
   },
   {
-    "file": "examples/pilot-pilot-admin/tests/pilot-admin-password-login.json",
+    "file": "examples/pilot-admin/tests/pilot-admin-password-login.json",
     "title": "【试点】密码登录进入控制台"
   }
 ]

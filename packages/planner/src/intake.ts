@@ -88,7 +88,7 @@ export function planFromIntake(input: IntakeInput): PlannerDraft {
     assertions.push({
       id: "goal-smoke",
       type: "ui",
-      contains: snippet.length >= 4 ? goal.slice(0, 24) : "业务试点",
+      contains: snippet.length >= 4 ? goal.slice(0, 24) : "管理控制台",
       oracle: "requirement",
     });
     uncertainties.push("未能匹配专用模板，请改用最显眼的成功提示文案作为断言。");

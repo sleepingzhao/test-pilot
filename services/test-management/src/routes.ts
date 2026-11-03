@@ -6,7 +6,7 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { assertPlaywrightReady, recordSession } from "@testpilot/recorder-web";
 import { runTestIR, type RunResult } from "@testpilot/runner-web";
 import { snapshotPageContext } from "@testpilot/context-web";
-import { draftToPartialIR, planDraft, planFromIntake, suggestAssertionsForTest } from "@testpilot/planner";
+import { draftToPartialIR, planDraft, planFromIntake, suggestAssertionsForTest, filterForbiddenSuggestionTokens } from "@testpilot/planner";
 import { computeIRHash, validateSemantics, validateTestIR } from "@testpilot/test-ir";
 import { classifyFailure } from "@testpilot/evidence";
 import { chromium } from "playwright";
@@ -335,7 +335,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       test.ir,
       test.intentSummary,
     );
-    return { assertions, uncertainties, help, suggestions, irHash: computeIRHash(test.ir) };
+    const constraintsDoc = await loadPilotConstraints();
+    const filtered = filterForbiddenSuggestionTokens(suggestions, constraintsDoc?.forbiddenAssertions ?? []);
+    return { assertions, uncertainties, help, suggestions: filtered, irHash: computeIRHash(test.ir) };
   });
 
   app.get("/api/pilot-constraints", async () => {
@@ -410,6 +412,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       approvalStatus: "draft",
       intentSummary: body.text?.trim() || text,
       sourceChannel: channel,
+      plannerNotes: draft.uncertainties,
       updatedAt: new Date().toISOString(),
     });
     await store.saveTest(test);
@@ -664,6 +667,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
               ? "提交工单流程；不要上传附件，附件功能暂不测试。"
               : undefined),
           sourceChannel: "record",
+          plannerNotes: warnings.length ? warnings : undefined,
           updatedAt: new Date().toISOString(),
         });
         await store.saveTest(test);

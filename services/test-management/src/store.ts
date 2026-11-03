@@ -19,6 +19,8 @@ export type StoredTest = {
   approvedAt?: string;
   intentSummary?: string;
   sourceChannel?: "intent" | "prd" | "record";
+  /** Planner uncertainties shown in review (not used at runtime). */
+  plannerNotes?: string[];
   updatedAt: string;
 };
 

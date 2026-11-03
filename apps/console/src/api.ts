@@ -6,6 +6,7 @@ export type StoredTest = {
   approvalStatus: "draft" | "approved";
   intentSummary?: string;
   sourceChannel?: "intent" | "prd" | "record";
+  plannerNotes?: string[];
   updatedAt: string;
 };
 

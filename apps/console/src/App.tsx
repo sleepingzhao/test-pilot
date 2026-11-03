@@ -179,6 +179,7 @@ export function App() {
       const passed = job.runs.filter((r) => r.status === "passed").length;
       notify(`回归完成：${passed}/${job.runs.length} 通过`);
       await refresh();
+      if (passed < job.runs.length) setView("history");
       return;
     }
   };
@@ -210,9 +211,22 @@ export function App() {
   const runOne = async (id: string) => {
     setLoading(true);
     try {
-      await api("/api/projects/default/runs", { method: "POST", body: JSON.stringify({ testId: id }) });
-      notify("执行完成");
+      const res = await api<{ runs: StoredRun[] }>("/api/projects/default/runs", {
+        method: "POST",
+        body: JSON.stringify({ testId: id }),
+      });
+      const run = res.runs?.[0];
       await refresh();
+      if (run?.status === "passed") {
+        notify("通过");
+        return;
+      }
+      if (run) {
+        notify("未通过，打开诊断");
+        void openDiagnose(run);
+      } else {
+        notify("执行完成");
+      }
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e));
     } finally {
@@ -538,6 +552,30 @@ export function App() {
             {createChannel !== "record" && (
               <div className="field">
                 <label>{createChannel === "prd" ? "粘贴 PRD / 需求片段" : "你想测什么？"}</label>
+                <div className="chips">
+                  <button
+                    type="button"
+                    className="chip"
+                    onClick={() => {
+                      setCreateTitle("用例1 — 提交工单（无附件）");
+                      setCreateText(
+                        "登录后进入工单页，点击提交工单，只填写必填项并提交，不要上传附件，附件功能暂不测试。",
+                      );
+                    }}
+                  >
+                    用例1：提交工单
+                  </button>
+                  <button
+                    type="button"
+                    className="chip"
+                    onClick={() => {
+                      setCreateTitle("试点 — 密码登录");
+                      setCreateText("使用管理员手机号和密码登录，进入首页。");
+                    }}
+                  >
+                    密码登录
+                  </button>
+                </div>
                 <textarea
                   className="textarea"
                   rows={5}
@@ -617,6 +655,13 @@ export function App() {
             <p>{editTest.title}</p>
             <p className="hint-inline">{editTest.ir.steps?.length ?? 0} 个步骤 · 来源 {editTest.sourceChannel ?? "未知"}</p>
             {pilotScopeNote && <p className="hint-inline">试点：{pilotScopeNote}</p>}
+            {editTest.plannerNotes && editTest.plannerNotes.length > 0 && (
+              <ul className="diagnose-list planner-notes">
+                {editTest.plannerNotes.map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            )}
             <div className="field">
               <label>测试意图（可编辑，供建议引擎参考）</label>
               <textarea

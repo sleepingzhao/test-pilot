@@ -130,3 +130,14 @@ export function suggestAssertionHints(
 
   return { suggestions: [...new Set(suggestions)], help, uncertainties };
 }
+
+export function filterForbiddenSuggestionTokens(suggestions: string[], forbidden: string[]): string[] {
+  if (!forbidden.length) return suggestions;
+  return suggestions.filter((s) => {
+    const lower = s.toLowerCase();
+    return !forbidden.some((token) => {
+      const t = token.trim();
+      return t && lower.includes(t.toLowerCase());
+    });
+  });
+}

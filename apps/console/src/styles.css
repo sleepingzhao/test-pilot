@@ -513,3 +513,10 @@ main {
 .diagnose-list li {
   margin-bottom: 8px;
 }
+
+.planner-notes {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: var(--muted);
+  font-size: 13px;
+}

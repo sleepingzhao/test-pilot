@@ -35,3 +35,7 @@ jobs:
       - name: test-ir unit tests
         working-directory: packages/test-ir
         run: pnpm exec tsx --test src/validate.test.ts
+
+      - name: planner unit tests
+        working-directory: packages/planner
+        run: pnpm test

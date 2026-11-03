@@ -34,4 +34,4 @@ jobs:
 
       - name: test-ir unit tests
         working-directory: packages/test-ir
-        run: pnpm exec tsx --test dist/validate.test.js
+        run: pnpm exec tsx --test src/validate.test.ts

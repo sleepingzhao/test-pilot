@@ -11,6 +11,7 @@ import { computeIRHash, validateSemantics, validateTestIR } from "@testpilot/tes
 import { classifyFailure } from "@testpilot/evidence";
 import { chromium } from "playwright";
 import type { FileStore, RecordJob, StoredRun, StoredTest } from "./store.js";
+import { enhanceDraftWithLlm, llmPlannerConfigFromEnv } from "./llm-planner.js";
 import {
   buildRunEnvironment,
   pilotBaseUrl,
@@ -88,15 +89,61 @@ async function snapshotAtUrl(url: string) {
   }
 }
 
-async function loadPilotBaseline(): Promise<{ manualRegressionMinutes?: number; notes?: string; baseUrl?: string } | null> {
-  const doc = await readLocalJson<{ manualRegressionMinutes?: number; notes?: string; baseUrl?: string }>(
-    "pilot-baseline.json",
-  );
+async function loadPilotBaseline(): Promise<{
+  manualRegressionMinutes?: number;
+  notes?: string;
+  baseUrl?: string;
+  loginPath?: string;
+} | null> {
+  const doc = await readLocalJson<{
+    manualRegressionMinutes?: number;
+    notes?: string;
+    baseUrl?: string;
+    loginPath?: string;
+  }>("pilot-baseline.json");
   if (!doc) return null;
   return {
     ...doc,
     baseUrl: process.env.TESTPILOT_PILOT_BASE_URL || doc.baseUrl,
   };
+}
+
+async function pilotIntakeDefaultUrl(): Promise<string> {
+  const base = pilotBaseUrl();
+  if (!base) return "";
+  const baseline = await loadPilotBaseline();
+  const path = baseline?.loginPath?.trim() || "/customer";
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return `${base.replace(/\/$/, "")}${normalized}`;
+}
+
+async function applyOptionalLlmDraft(input: {
+  goal: string;
+  context: Awaited<ReturnType<typeof snapshotAtUrl>>;
+  ruleDraft: ReturnType<typeof planFromIntake>;
+}): Promise<{ draft: ReturnType<typeof planFromIntake>; llmTokensUsed: number; llmUsed: boolean }> {
+  const config = llmPlannerConfigFromEnv();
+  if (!config) {
+    return { draft: input.ruleDraft, llmTokensUsed: 0, llmUsed: false };
+  }
+  try {
+    const enhanced = await enhanceDraftWithLlm(config, {
+      goal: input.goal,
+      context: input.context,
+      ruleDraft: input.ruleDraft,
+    });
+    return { draft: enhanced.draft, llmTokensUsed: enhanced.tokensUsed, llmUsed: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      draft: {
+        ...input.ruleDraft,
+        uncertainties: [...input.ruleDraft.uncertainties, `LLM 不可用，已仅用规则引擎：${message}`],
+      },
+      llmTokensUsed: 0,
+      llmUsed: false,
+    };
+  }
 }
 
 /** Sum duration of runs started within 2 minutes of the latest run (typical「运行全部」批次). */
@@ -274,7 +321,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     };
     const title = body.title?.trim() || "未命名用例";
     const channel = body.channel === "prd" ? "prd" : "intent";
-    const url = body.url?.trim() || (pilotBaseUrl() ? `${pilotBaseUrl()}/customer` : "");
+    const url = body.url?.trim() || (await pilotIntakeDefaultUrl());
     if (!url) {
       return reply.code(400).send({ error: "请在本机 .env 配置 TESTPILOT_PILOT_BASE_URL，或在请求中传入 url" });
     }
@@ -300,12 +347,17 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       });
     }
 
-    const draft = planFromIntake({
+    const ruleDraft = planFromIntake({
       title,
       channel,
       text,
       context,
       constraints: constraintsDoc?.scopeNotes,
+    });
+    const { draft, llmTokensUsed, llmUsed } = await applyOptionalLlmDraft({
+      goal: text,
+      context,
+      ruleDraft,
     });
     const testId = makeIntakeTestId(title);
     const partial = draftToPartialIR(testId, draft);
@@ -330,20 +382,23 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       updatedAt: new Date().toISOString(),
     });
     await store.saveTest(test);
-    return { test, draft: { uncertainties: draft.uncertainties, sources: draft.sources } };
+    return { test, draft: { uncertainties: draft.uncertainties, sources: draft.sources }, llmUsed, llmTokensUsed };
   });
 
   app.get("/api/environment", async () => {
     const project = store.project();
     const pilotUrl = pilotBaseUrl();
+    const pilotIntakeUrl = pilotUrl ? await pilotIntakeDefaultUrl() : "";
     const demoReachable = await checkTargetReachable(DEMO_BASE_URL);
     const pilotReachable = pilotUrl ? await checkTargetReachable(pilotUrl) : false;
     return {
       demoUrl: project.defaultBaseUrl,
       demoReachable,
       pilotUrl,
+      pilotIntakeUrl: pilotIntakeUrl || null,
       pilotReachable,
       pilotSecretsConfigured: pilotSecretsConfigured(),
+      llmPlannerEnabled: !!llmPlannerConfigFromEnv(),
       apiVersion: "0.2.0",
     };
   });
@@ -463,6 +518,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       suggestions.push("可在 IR 步骤 target 上同时保留 testId 与 role+name 作为回退。");
     } else if (failureKind === "ENVIRONMENT") {
       suggestions.push("确认练习应用 4173 与 baseUrl 可达；查看 network.json 与 trace。");
+      if (pilotBaseUrl() && run.testTitle.includes("试点")) {
+        suggestions.push("试点：检查 TESTPILOT_PILOT_BASE_URL、本机网络与 .env 中的管理员凭据。");
+      }
     } else if (failureKind === "PRODUCT_DEFECT") {
       suggestions.push("断言与产品行为不一致：确认是否为真实缺陷或断言过时。");
     } else {
@@ -476,6 +534,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       assertionMessage: assertionMsg,
       suggestions,
       llmUsed: false,
+      plannerLlmAvailable: !!llmPlannerConfigFromEnv(),
     };
   });
 
@@ -498,8 +557,13 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
-    const draft = planDraft({ goal: body.goal.trim(), context });
-    return { draft, contextElementCount: context.elements.length, llmTokensUsed: 0 };
+    const ruleDraft = planDraft({ goal: body.goal.trim(), context });
+    const { draft, llmTokensUsed, llmUsed } = await applyOptionalLlmDraft({
+      goal: body.goal.trim(),
+      context,
+      ruleDraft,
+    });
+    return { draft, contextElementCount: context.elements.length, llmTokensUsed, llmUsed };
   });
 
   app.get("/api/runs/:runId/artifacts/*", async (req, reply) => {

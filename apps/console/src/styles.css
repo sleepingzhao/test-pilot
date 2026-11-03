@@ -489,3 +489,27 @@ main {
   background: var(--blue);
   transition: width 0.3s ease;
 }
+
+.diagnose-sheet .diagnose-kind {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.diagnose-msg {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0 0 8px;
+  word-break: break-word;
+}
+
+.diagnose-list {
+  margin: 0 0 20px 1.1em;
+  padding: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.diagnose-list li {
+  margin-bottom: 8px;
+}

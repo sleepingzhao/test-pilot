@@ -32,6 +32,14 @@ export function App() {
   const [pilotOk, setPilotOk] = useState<boolean | null>(null);
   const [pilotSecrets, setPilotSecrets] = useState<boolean | null>(null);
   const [pilotUrl, setPilotUrl] = useState<string | null>(null);
+  const [diagnoseRun, setDiagnoseRun] = useState<StoredRun | null>(null);
+  const [diagnoseDetail, setDiagnoseDetail] = useState<{
+    failureKind: string | null;
+    stepError?: string;
+    assertionMessage?: string;
+    suggestions: string[];
+  } | null>(null);
+  const [diagnoseLoading, setDiagnoseLoading] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ completed: number; total: number; title?: string } | null>(
     null,
   );
@@ -73,6 +81,7 @@ export function App() {
         demoUrl: string;
         pilotReachable?: boolean;
         pilotUrl?: string;
+        pilotIntakeUrl?: string | null;
         pilotSecretsConfigured?: boolean;
       }>("/api/environment");
       setDemoOk(env.demoReachable);
@@ -81,6 +90,7 @@ export function App() {
       setPilotUrl(env.pilotUrl ?? null);
       setCreateUrl((prev) => {
         if (prev) return prev;
+        if (env.pilotIntakeUrl) return env.pilotIntakeUrl;
         return env.pilotUrl ? `${env.pilotUrl.replace(/\/$/, "")}/customer` : "http://127.0.0.1:4173/";
       });
     } catch {
@@ -198,6 +208,26 @@ export function App() {
       notify(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openDiagnose = async (run: StoredRun) => {
+    setDiagnoseRun(run);
+    setDiagnoseDetail(null);
+    setDiagnoseLoading(true);
+    try {
+      const d = await api<{
+        failureKind: string | null;
+        stepError?: string;
+        assertionMessage?: string;
+        suggestions: string[];
+      }>(`/api/runs/${run.runId}/diagnose`);
+      setDiagnoseDetail(d);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e));
+      setDiagnoseRun(null);
+    } finally {
+      setDiagnoseLoading(false);
     }
   };
 
@@ -547,6 +577,11 @@ export function App() {
                     <a className="btn-small" href={`/api/runs/${r.runId}/artifacts/network.json`}>
                       网络
                     </a>
+                    {r.status !== "passed" && (
+                      <button type="button" className="btn-small primary" onClick={() => void openDiagnose(r)}>
+                        诊断
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -616,6 +651,40 @@ export function App() {
                 }}
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {diagnoseRun && (
+        <div className="overlay" onClick={() => setDiagnoseRun(null)}>
+          <div className="sheet sheet-wide diagnose-sheet" onClick={(e) => e.stopPropagation()}>
+            <h2>失败诊断</h2>
+            <p>{diagnoseRun.testTitle}</p>
+            {diagnoseLoading && <p className="hint-inline">分析中…</p>}
+            {diagnoseDetail && (
+              <>
+                {diagnoseDetail.failureKind && (
+                  <p className="diagnose-kind">
+                    分型：<strong>{diagnoseDetail.failureKind}</strong>
+                  </p>
+                )}
+                {diagnoseDetail.stepError && (
+                  <p className="diagnose-msg">步骤：{diagnoseDetail.stepError}</p>
+                )}
+                {diagnoseDetail.assertionMessage && (
+                  <p className="diagnose-msg">断言：{diagnoseDetail.assertionMessage}</p>
+                )}
+                <ul className="diagnose-list">
+                  {diagnoseDetail.suggestions.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ul>
+                <p className="hint-inline">回归执行仍不调用 LLM；配置 TESTPILOT_LLM_API_KEY 仅增强「生成草稿」。</p>
+              </>
+            )}
+            <button type="button" className="btn btn-secondary" onClick={() => setDiagnoseRun(null)}>
+              关闭
+            </button>
           </div>
         </div>
       )}

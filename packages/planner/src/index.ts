@@ -13,6 +13,7 @@ export function planDraft(input: PlannerInput) {
 }
 
 export { planFromIntake, suggestAssertionHints, type IntakeChannel, type IntakeInput } from "./intake.js";
+export { mergeLlmHints, type LlmPlannerHints } from "./llm-merge.js";
 
 export function suggestAssertionsForTest(
   title: string,

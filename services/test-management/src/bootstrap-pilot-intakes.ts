@@ -54,18 +54,21 @@ async function capturePlanningContext(base: string, pathAfterLogin: string, inte
 
     await page.getByLabel("手机号").fill(phone);
     await page.getByLabel("密码").fill(password);
-    await page.getByRole("button", { name: "登录" }).click();
+    await page.getByRole("button", { name: "登录", exact: true }).click();
     await page.waitForLoadState("domcontentloaded");
 
     const targetUrl = `${baseNorm}${pathAfterLogin.startsWith("/") ? pathAfterLogin : `/${pathAfterLogin}`}`;
     await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 25_000 });
 
     if (/工单|ticket/.test(intent)) {
-      const submit = page.getByRole("button", { name: /提交工单/ });
-      if (await submit.isVisible().catch(() => false)) {
-        await submit.click();
-        await page.waitForTimeout(800);
+      const openByTestId = page.getByTestId("open-ticket");
+      const openByRole = page.getByRole("button", { name: "提交工单", exact: true });
+      if (await openByTestId.isVisible().catch(() => false)) {
+        await openByTestId.click();
+      } else if (await openByRole.isVisible().catch(() => false)) {
+        await openByRole.click();
       }
+      await page.waitForTimeout(800);
     }
 
     return await snapshotPageContext(page);

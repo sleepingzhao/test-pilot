@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/llm-merge.test.ts",
+    "test": "node --import tsx --test src/llm-merge.test.ts src/intake.test.ts",
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {

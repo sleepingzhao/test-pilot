@@ -20,6 +20,16 @@ Design rules:
 - Secrets use `valueRef` / env + fixtures — never embedded in IR or LLM prompts.
 - Approved versions replay with **zero LLM** calls on the happy path.
 
+### Locator strategy (roadmap §5)
+
+Priority when recording or resolving steps:
+
+1. `data-testid` → `testId` in IR (recorder stops at testId; runner tries testId first).
+2. `role` + accessible **exact** name (`runner-web` / `assertions` use Playwright `exact: true` to avoid「提交」matching「提交工单」).
+3. `label` / `placeholder`, then limited `css`.
+
+Self-heal: AI may propose new locators; **approved IR is not auto-rewritten** on failure.
+
 ## Data model (logical)
 
 Roadmap §7.1 entities (`Project`, `TestCase`, `TestVersion`, `Run`, …) will live in `services/test-management` once PostgreSQL is added in V0.2.

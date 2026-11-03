@@ -31,6 +31,18 @@ function isAttachmentField(el: { name?: string; inputType?: string; role?: strin
   return /附件|上传|upload|file/.test(name);
 }
 
+/** Form submit — not nav actions like「提交工单」(design §5: prefer testId, avoid substring role names). */
+function findFormSubmitButton(context: PageContext) {
+  const buttons = context.elements.filter((el) => el.role === "button" && el.name?.trim());
+  const exact = buttons.find((el) => /^(提交|确定|保存|创建)$/.test(el.name!.trim()));
+  if (exact) return exact;
+  return buttons.find(
+    (el) =>
+      /^(提交|确定|保存|创建)/.test(el.name!.trim()) &&
+      !/工单|取消|关闭|上传/.test(el.name!),
+  );
+}
+
 function appendTicketFormSteps(
   steps: TestStep[],
   context: PageContext,
@@ -66,22 +78,21 @@ function appendTicketFormSteps(
     uncertainties.push("未识别到可填写的文本字段；若表单在弹层内，请再跑一次 bootstrap 或录制补步。");
   }
 
-  const submitBtn = context.elements.find(
-    (el) =>
-      el.role === "button" &&
-      el.name &&
-      /^(提交|确定|保存|创建)/.test(el.name) &&
-      !/取消|关闭/.test(el.name),
-  );
+  const submitBtn = findFormSubmitButton(context);
   if (submitBtn?.name) {
     steps.push({
       id: "submit-ticket-form",
       action: "click",
       target: submitBtn.testId
         ? { testId: submitBtn.testId }
-        : { role: "button", name: submitBtn.name },
+        : { role: "button", name: submitBtn.name.trim() },
     });
-    steps.push({ id: "wait-after-submit", action: "wait" });
+    const alert = context.elements.find((el) => el.testId === "ticket-alert" || el.role === "alert");
+    steps.push({
+      id: "wait-after-submit",
+      action: "wait",
+      ...(alert?.testId ? { target: { testId: alert.testId } } : {}),
+    });
   }
 
   if (skipAttachment) {
@@ -115,7 +126,9 @@ export function planFromIntake(input: IntakeInput): PlannerDraft {
     steps.push({
       id: "open-submit-ticket",
       action: "click",
-      target: { role: "button", name: submitTicketBtn.name },
+      target: submitTicketBtn.testId
+        ? { testId: submitTicketBtn.testId }
+        : { role: "button", name: submitTicketBtn.name.trim() },
     });
     appendTicketFormSteps(
       steps,
@@ -131,17 +144,21 @@ export function planFromIntake(input: IntakeInput): PlannerDraft {
   }
 
   if (ticketFlow) {
-    assertions.push({
-      id: "ticket-context",
-      type: "ui",
-      contains: "工单",
-      oracle: "human-approved",
-    });
     if (textMentionsNoAttachment(goal, input.constraints)) {
+      const alert = input.context.elements.find((el) => el.testId === "ticket-alert" || el.role === "alert");
       assertions.push({
-        id: "submit-without-attachment",
+        id: "ticket-submitted",
         type: "ui",
-        contains: "提交",
+        ...(alert?.testId ? { target: { testId: alert.testId } } : {}),
+        contains: "工单已提交",
+        oracle: "human-approved",
+      });
+      uncertainties.push("断言示例为「工单已提交」；若试点文案不同，批准前请改成真实成功提示。");
+    } else {
+      assertions.push({
+        id: "ticket-context",
+        type: "ui",
+        contains: "工单",
         oracle: "human-approved",
       });
     }

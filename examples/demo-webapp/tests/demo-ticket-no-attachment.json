@@ -5,7 +5,7 @@
   "steps": [
     { "id": "open-tickets", "action": "navigate", "path": "/" },
     { "id": "goto-tickets-view", "action": "click", "target": { "role": "link", "name": "我的工单" } },
-    { "id": "open-form", "action": "click", "target": { "role": "button", "name": "提交工单" } },
+    { "id": "open-form", "action": "click", "target": { "testId": "open-ticket" } },
     {
       "id": "fill-title",
       "action": "fill",

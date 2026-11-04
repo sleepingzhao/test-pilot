@@ -23,6 +23,59 @@ type Preset = {
   refreshDraft?: boolean;
 };
 
+function pilotScopeSteps(preset: Preset): TestStep[] {
+  const path = preset.pathAfterLogin ?? "/customer";
+  const goto: TestStep = { id: "goto-scope", action: "navigate", path };
+  if (preset.id.includes("ticket")) {
+    return [
+      goto,
+      { id: "open-ticket", action: "click", target: { role: "button", name: "提交工单" } },
+      {
+        id: "fill-phone",
+        action: "fill",
+        target: { label: "联系电话" },
+        value: "19900000001",
+      },
+      {
+        id: "fill-address",
+        action: "fill",
+        target: { label: "详细地址" },
+        value: "TestPilot-{{runId}}",
+      },
+      {
+        id: "fill-detail",
+        action: "fill",
+        target: { label: "需求说明" },
+        value: "自动回归 {{runId}}",
+      },
+      { id: "confirm-submit", action: "click", target: { role: "button", name: "确认提交" } },
+      { id: "wait-success", action: "wait", target: { name: "工单" } },
+    ];
+  }
+  return [goto, { id: "wait-customer", action: "wait", target: { name: "选择服务项目" } }];
+}
+
+function pilotScopeAssertions(preset: Preset) {
+  if (preset.id.includes("ticket")) {
+    return [
+      {
+        id: "ticket-submitted",
+        type: "ui" as const,
+        contains: "工单",
+        oracle: "human-approved" as const,
+      },
+    ];
+  }
+  return [
+    {
+      id: "customer-loaded",
+      type: "ui" as const,
+      contains: "选择服务项目",
+      oracle: "human-approved" as const,
+    },
+  ];
+}
+
 async function loadPilotConstraints(): Promise<{ scopeNotes: string[] } | null> {
   for (const name of ["pilot-constraints.json", "pilot-constraints.example.json"]) {
     try {
@@ -47,13 +100,21 @@ async function capturePlanningContext(base: string, pathAfterLogin: string, inte
     const page = await browser.newPage();
     const baseNorm = base.replace(/\/$/, "");
     await page.goto(`${baseNorm}/admin/login`, { waitUntil: "domcontentloaded", timeout: 25_000 });
+    await page
+      .waitForFunction("document.body && document.body.innerText.trim().length > 0", { timeout: 20_000 })
+      .catch(() => undefined);
+
+    const passwordTab = page.getByRole("tab", { name: "密码" });
+    if (await passwordTab.isVisible().catch(() => false)) {
+      await passwordTab.click();
+    }
 
     const phone = process.env.TESTPILOT_ENV_ADMIN_PHONE?.trim();
     const password = process.env.TESTPILOT_ENV_ADMIN_PASSWORD?.trim();
     if (!phone || !password) throw new Error("missing pilot credentials");
 
     await page.getByLabel("手机号").fill(phone);
-    await page.getByLabel("密码").fill(password);
+    await page.getByPlaceholder("请输入密码").fill(password);
     await page.getByRole("button", { name: "登录", exact: true }).click();
     await page.waitForLoadState("domcontentloaded");
 
@@ -100,7 +161,7 @@ export async function bootstrapPilotIntakes(store: FileStore, log: FastifyBaseLo
 
   for (const preset of presets) {
     const existing = await store.getTest(preset.id);
-    if (existing?.approvalStatus === "approved" && existing.approvedAt) continue;
+    if (existing?.approvalStatus === "approved" && existing.approvedAt && !preset.refreshDraft) continue;
     if (existing && !preset.refreshDraft) continue;
 
     try {
@@ -115,19 +176,31 @@ export async function bootstrapPilotIntakes(store: FileStore, log: FastifyBaseLo
         constraints: constraints?.scopeNotes,
       });
 
-      const { draft: enrichedDraft } = await applyOptionalLlmDraft({
-        goal: text,
-        context,
-        ruleDraft,
-      });
+      const enrichedDraft = preset.refreshDraft
+        ? ruleDraft
+        : (
+            await applyOptionalLlmDraft({
+              goal: text,
+              context,
+              ruleDraft,
+            })
+          ).draft;
 
       const loginSteps = await pilotLoginSteps();
+      const scopeSteps = pilotScopeSteps(preset);
       const mergedSteps: TestStep[] = [
         ...loginSteps.map((s) => ({ ...s, id: `login-${s.id}` })),
-        ...enrichedDraft.steps.filter((s) => s.id !== "open-target"),
+        ...scopeSteps,
+        ...enrichedDraft.steps.filter(
+          (s) => s.id !== "open-target" && s.action !== "navigate" && !loginSteps.some((l) => l.id === s.id),
+        ),
       ];
 
-      const draft = { ...enrichedDraft, steps: mergedSteps };
+      const draft = {
+        ...enrichedDraft,
+        steps: mergedSteps,
+        assertions: pilotScopeAssertions(preset),
+      };
       const partial = draftToPartialIR(preset.id, draft);
       const ir = {
         ...partial,
@@ -145,7 +218,8 @@ export async function bootstrapPilotIntakes(store: FileStore, log: FastifyBaseLo
         projectId: "default",
         title: preset.title,
         ir: validated.value,
-        approvalStatus: "draft",
+        approvalStatus: preset.refreshDraft && existing?.approvedAt ? "approved" : "draft",
+        approvedAt: preset.refreshDraft && existing?.approvedAt ? existing.approvedAt : undefined,
         intentSummary: preset.intent,
         sourceChannel: "intent",
         plannerNotes: draft.uncertainties,

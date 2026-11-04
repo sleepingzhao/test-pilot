@@ -89,7 +89,13 @@ async function executeStep(
       case "navigate": {
         const path = step.path ?? "/";
         const url = path.startsWith("http") ? path : new URL(path, baseUrl).toString();
-        await page.goto(url, { waitUntil: "domcontentloaded" });
+        if (!path.startsWith("http") && !baseUrl) {
+          throw new Error("navigate requires baseUrl or absolute path");
+        }
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+        await page
+          .waitForFunction("document.body && document.body.innerText.trim().length > 0", { timeout: 20_000 })
+          .catch(() => undefined);
         break;
       }
       case "click": {
@@ -117,6 +123,9 @@ async function executeStep(
           await resolveStepLocator(page, step.target, 15_000);
         } else {
           await page.waitForLoadState("domcontentloaded");
+          await page
+            .waitForFunction("document.body && document.body.innerText.trim().length > 0", { timeout: 20_000 })
+            .catch(() => undefined);
         }
         break;
       }

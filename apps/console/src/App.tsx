@@ -16,12 +16,20 @@ type View = "home" | "tests" | "create" | "history";
 type CreateChannel = "intent" | "prd" | "record";
 type TestFilter = "all" | "draft" | "pilot" | "demo";
 
+function isPilotTest(t: StoredTest): boolean {
+  if (t.title.includes("【试点】")) return true;
+  if (t.id.startsWith("pilot-auto-") || t.id.startsWith("pilot-admin-")) return true;
+  if (t.ir?.baseUrlRef === "pilot-admin") return true;
+  return false;
+}
+
 export function App() {
   const [view, setView] = useState<View>("home");
   const [testFilter, setTestFilter] = useState<TestFilter>("all");
   const [tests, setTests] = useState<StoredTest[]>([]);
   const [runs, setRuns] = useState<StoredRun[]>([]);
   const [lastByTest, setLastByTest] = useState<Record<string, StoredRun>>({});
+  const [bootstrapped, setBootstrapped] = useState(false);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [editTest, setEditTest] = useState<StoredTest | null>(null);
@@ -94,6 +102,7 @@ export function App() {
         lastBatchMinutes?: number | null;
         approvedPilotCount?: number;
         approvedDemoCount?: number;
+        approvedTestCount?: number;
         recentBatches?: Array<{ startedAt: string; total: number; passed: number; durationMs: number }>;
       }>("/api/metrics/summary");
       setSummary(m);
@@ -129,6 +138,8 @@ export function App() {
       setPilotScopeNote(c.scopeNotes?.[0] ?? null);
     } catch {
       setPilotScopeNote(null);
+    } finally {
+      setBootstrapped(true);
     }
   }, []);
 
@@ -441,10 +452,16 @@ export function App() {
     }
   };
 
-  const approvedCount = tests.filter((t) => t.approvalStatus === "approved").length;
+  const approvedCount = bootstrapped
+    ? tests.filter((t) => t.approvalStatus === "approved").length
+    : (summary?.approvedTestCount ?? null);
   const draftCount = tests.filter((t) => t.approvalStatus === "draft").length;
-  const approvedPilot = tests.filter((t) => t.approvalStatus === "approved" && t.title.includes("【试点】")).length;
-  const approvedDemo = approvedCount - approvedPilot;
+  const approvedPilot =
+    summary?.approvedPilotCount ??
+    tests.filter((t) => t.approvalStatus === "approved" && isPilotTest(t)).length;
+  const approvedDemo =
+    summary?.approvedDemoCount ??
+    (typeof approvedCount === "number" ? approvedCount - approvedPilot : 0);
   const sortedTests = [...tests].sort((a, b) => {
     if (a.approvalStatus === "draft" && b.approvalStatus !== "draft") return -1;
     if (a.approvalStatus !== "draft" && b.approvalStatus === "draft") return 1;
@@ -452,8 +469,8 @@ export function App() {
   });
   const filteredTests = sortedTests.filter((t) => {
     if (testFilter === "draft") return t.approvalStatus === "draft";
-    if (testFilter === "pilot") return t.title.includes("【试点】");
-    if (testFilter === "demo") return !t.title.includes("【试点】");
+    if (testFilter === "pilot") return isPilotTest(t);
+    if (testFilter === "demo") return !isPilotTest(t);
     return true;
   });
 
@@ -510,7 +527,7 @@ export function App() {
           <section className="hero">
             <h1>Web 测试，几步就好。</h1>
             <p>
-              在练习环境里一键回归 {approvedCount} 条已批准用例
+              在练习环境里一键回归 {approvedCount ?? "…"} 条已批准用例
               {approvedPilot > 0 ? `（试点 ${approvedPilot} · 练习 ${approvedDemo}）` : ""}
               。试点草稿由 API 自动生成，新用例审阅批准一次即可。
               {llmInfo?.enabled ? (

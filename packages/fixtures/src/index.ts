@@ -17,12 +17,22 @@ export function resolveFixtureRefs(fixtureName: string | undefined, env: RunEnvi
   void env;
 }
 
+/** Maps IR valueRef → process.env key (secrets stay out of repo IR). */
+const VALUE_REF_ENV_KEYS: Record<string, string> = {
+  "env.adminPhone": "TESTPILOT_ENV_ADMIN_PHONE",
+  "env.adminPassword": "TESTPILOT_ENV_ADMIN_PASSWORD",
+};
+
+export function resolveValueRefEnvKey(valueRef: string): string {
+  return VALUE_REF_ENV_KEYS[valueRef] ?? `TESTPILOT_${valueRef.replace(/\./g, "_").toUpperCase()}`;
+}
+
 export function resolveValueRefs(ir: TestIR, env: RunEnvironment): Record<string, string> {
   const map: Record<string, string> = { ...(env.fixtureValues ?? {}) };
   for (const step of ir.steps) {
     if (!step.valueRef) continue;
     if (map[step.valueRef] !== undefined) continue;
-    const envKey = `TESTPILOT_${step.valueRef.replace(/\./g, "_").toUpperCase()}`;
+    const envKey = resolveValueRefEnvKey(step.valueRef);
     const fromEnv = process.env[envKey];
     if (fromEnv !== undefined && fromEnv !== "") {
       map[step.valueRef] = fromEnv;

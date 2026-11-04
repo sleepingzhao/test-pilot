@@ -9,6 +9,8 @@ export function pilotBaseUrl(): string {
 
 export function buildRunEnvironment(primaryBaseUrl?: string): RunEnvironment {
   const primary = primaryBaseUrl ?? DEMO_BASE_URL;
+  const adminPhone = process.env.TESTPILOT_ENV_ADMIN_PHONE?.trim();
+  const adminPassword = process.env.TESTPILOT_ENV_ADMIN_PASSWORD?.trim();
   return {
     baseUrl: primary,
     baseUrlRefs: {
@@ -16,8 +18,22 @@ export function buildRunEnvironment(primaryBaseUrl?: string): RunEnvironment {
       "default-env": primary,
       "pilot-admin": pilotBaseUrl(),
     },
-    fixtureValues: {},
+    fixtureValues: {
+      ...(adminPhone ? { "env.adminPhone": adminPhone } : {}),
+      ...(adminPassword ? { "env.adminPassword": adminPassword } : {}),
+    },
   };
+}
+
+export function isPilotTest(test: {
+  id: string;
+  title: string;
+  ir?: { baseUrlRef?: string };
+}): boolean {
+  if (test.title.includes("【试点】")) return true;
+  if (test.id.startsWith("pilot-auto-") || test.id.startsWith("pilot-admin-")) return true;
+  if (test.ir?.baseUrlRef === "pilot-admin") return true;
+  return false;
 }
 
 export function pilotSecretsConfigured(): boolean {

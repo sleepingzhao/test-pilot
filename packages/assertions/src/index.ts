@@ -116,6 +116,9 @@ export async function runUiAssertion(
     }
 
     if (assertion.contains) {
+      await ctx.page
+        .waitForFunction("document.body && document.body.innerText.trim().length > 0", { timeout: 20_000 })
+        .catch(() => undefined);
       const body = ctx.page.locator("body");
       const text = await body.innerText();
       const passed = text.includes(assertion.contains);

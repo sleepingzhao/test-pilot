@@ -2,7 +2,7 @@
 
 对照 `design/TestPilot_Roadmap_v0.2.docx` 与 `design/架构图.png`。状态：**done** / **partial** / **todo**。
 
-> **当前阶段（2026-11-04）**：V0.1 完成；V0.3 API 断言已在练习环境落地。试点 **auto-intake 用例1～2**（工单 / 客户页 smoke）。**下一冲刺**：批准试点草稿、GitLab 回归、趋势统计。
+> **当前阶段（2026-11-04）**：V0.1 完成；V0.3 API 断言已在练习环境落地。试点 catalog + **用例1/2 auto-intake** 已批准，本地全量回归 15 条（含 4 条试点）。**下一冲刺**：GitLab 回归、趋势统计、响应体 API 断言。
 
 ---
 

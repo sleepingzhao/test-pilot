@@ -9,6 +9,7 @@ import Fastify from "fastify";
 import { registerRoutes } from "./routes.js";
 import { seedIfEmpty, syncCatalogTests, syncPilotCatalogTests } from "./seed.js";
 import { bootstrapPilotIntakes } from "./bootstrap-pilot-intakes.js";
+import { isPilotTest } from "./run-env.js";
 import { FileStore } from "./store.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -50,7 +51,7 @@ async function reconcilePilotDraftGate(store: FileStore): Promise<number> {
   const tests = await store.listTests();
   let n = 0;
   for (const t of tests) {
-    const pilot = t.title.includes("【试点】") || t.id.startsWith("pilot-auto-");
+    const pilot = isPilotTest(t);
     if (!pilot || t.approvedAt) continue;
     if (t.approvalStatus === "draft") continue;
     await store.saveTest({ ...t, approvalStatus: "draft", updatedAt: new Date().toISOString() });

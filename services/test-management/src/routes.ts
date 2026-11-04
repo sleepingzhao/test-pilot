@@ -20,6 +20,7 @@ import {
 } from "./llm-planner.js";
 import {
   buildRunEnvironment,
+  isPilotTest,
   pilotBaseUrl,
   pilotSecretsConfigured,
   testNeedsPilotSecrets,
@@ -416,7 +417,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const tests = await store.listTests();
     const approvedList = tests.filter((t) => t.approvalStatus === "approved");
     const approved = approvedList.length;
-    const approvedPilotCount = approvedList.filter((t) => t.title.includes("【试点】")).length;
+    const approvedPilotCount = approvedList.filter((t) => isPilotTest(t)).length;
     const approvedDemoCount = approved - approvedPilotCount;
     const baseline = await loadPilotBaseline();
     const lastBatchMs = estimateLastBatchDurationMs(runs);

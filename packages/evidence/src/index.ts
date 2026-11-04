@@ -27,13 +27,31 @@ export type NetworkEntry = {
   resourceType: string;
   /** Truncated POST/PUT body for api-contract assertions (secrets redacted). */
   requestBody?: string;
+  responseBody?: string;
+  responseHeaders?: Record<string, string>;
 };
+
+function sanitizeResponseBody(raw: string): string {
+  return raw
+    .replace(/"(password|token|secret|api[_-]?key)"\s*:\s*"[^"]*"/gi, '"$1":"***"')
+    .slice(0, 4000);
+}
+
+function pickResponseHeaders(headers: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (Object.keys(out).length >= 24) break;
+    out[k] = v.slice(0, 500);
+  }
+  return out;
+}
 
 export function createEvidenceCollector(options: EvidenceOptions) {
   const runDir = join(options.dir, options.runId);
   const artifacts: ArtifactRef[] = [];
   let context: BrowserContext | undefined;
   const network: NetworkEntry[] = [];
+  const networkPending: Promise<void>[] = [];
 
   async function writeNetworkLog() {
     const path = join(runDir, "network.json");
@@ -50,6 +68,10 @@ export function createEvidenceCollector(options: EvidenceOptions) {
   return {
     getNetworkLog(): NetworkEntry[] {
       return [...network];
+    },
+
+    async waitForNetworkCapture(): Promise<void> {
+      await Promise.all(networkPending);
     },
 
     async attachPage(ctx: BrowserContext, page: Page) {
@@ -71,7 +93,27 @@ export function createEvidenceCollector(options: EvidenceOptions) {
             .replace(/"(password|token|secret|api[_-]?key)"\s*:\s*"[^"]*"/gi, '"$1":"***"')
             .slice(0, 4000);
         }
+        try {
+          entry.responseHeaders = pickResponseHeaders(res.headers());
+        } catch {
+          /* ignore */
+        }
         network.push(entry);
+        networkPending.push(
+          (async () => {
+            try {
+              const lenHeader = res.headers()["content-length"];
+              const len = lenHeader ? Number(lenHeader) : 0;
+              if (len > 8000) return;
+              const text = await res.text();
+              if (text.length > 0 && text.length <= 8000) {
+                entry.responseBody = sanitizeResponseBody(text);
+              }
+            } catch {
+              /* response may be aborted */
+            }
+          })(),
+        );
       });
     },
 

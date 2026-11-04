@@ -1,5 +1,5 @@
 import type { TestAssertion, TestIR, ValidationIssue } from "@testpilot/test-ir";
-import type { AssertionContext, AssertionOutcome } from "./index.js";
+import type { AssertionContext, AssertionOutcome } from "./types.js";
 
 export type AssertionProvider = {
   id: string;

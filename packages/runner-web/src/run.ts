@@ -198,6 +198,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
       if (ir.assertions.some((a) => a.type === "api")) {
         await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => undefined);
       }
+      await evidence.waitForNetworkCapture();
       const networkLog = evidence.getNetworkLog();
       const assertionCtx = {
         page,

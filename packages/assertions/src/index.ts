@@ -1,13 +1,23 @@
 import type { Locator, TestAssertion } from "@testpilot/test-ir";
 import type { Page } from "playwright";
-import { partialJsonMatch } from "./api-match.js";
+import { runCapturedHttpAssertion, validateCapturedHttpAssertion } from "./captured-http.js";
 import {
   getAssertionProvider,
   registerAssertionProvider,
   resolveAssertionProviderId,
 } from "./providers.js";
+import type { AssertionContext, AssertionOutcome } from "./types.js";
 
+export type {
+  AssertionContext,
+  AssertionOutcome,
+  CapturedNetworkEntry,
+  FailureKind,
+  RequestRefSpec,
+} from "./types.js";
+export { runApiAssertion, runCapturedHttpAssertion, validateCapturedHttpAssertion } from "./captured-http.js";
 export type { AssertionProvider } from "./providers.js";
+
 export {
   getAssertionProvider,
   listAssertionProviders,
@@ -15,43 +25,6 @@ export {
   resolveAssertionProviderId,
   validateAssertionProviders,
 } from "./providers.js";
-
-export type CapturedNetworkEntry = {
-  url: string;
-  method: string;
-  status?: number;
-  resourceType?: string;
-  requestBody?: string;
-};
-
-export type RequestRefSpec = {
-  urlIncludes: string;
-  method?: string;
-};
-
-export type FailureKind =
-  | "PRODUCT_DEFECT"
-  | "LOCATOR_BREAKAGE"
-  | "ENVIRONMENT"
-  | "TEST_DATA"
-  | "ASSERTION_ORACLE"
-  | "UNKNOWN";
-
-export type AssertionOutcome = {
-  assertionId: string;
-  passed: boolean;
-  expected?: unknown;
-  actual?: unknown;
-  errorKind?: FailureKind;
-  message?: string;
-};
-
-export type AssertionContext = {
-  page: Page;
-  network?: CapturedNetworkEntry[];
-  resolveRequestRef?: (ref: string) => RequestRefSpec | undefined;
-  resolveRef?: (ref: string) => unknown;
-};
 
 export function locatorToPlaywright(locator: Locator): string {
   if (locator.testId) {
@@ -161,156 +134,6 @@ export async function runUiAssertion(
   }
 }
 
-function matchNetwork(
-  network: CapturedNetworkEntry[],
-  spec: RequestRefSpec,
-): CapturedNetworkEntry[] {
-  return network.filter(
-    (n) =>
-      n.url.includes(spec.urlIncludes) && (!spec.method || n.method.toUpperCase() === spec.method.toUpperCase()),
-  );
-}
-
-export async function runApiAssertion(
-  assertion: TestAssertion,
-  ctx: AssertionContext,
-): Promise<AssertionOutcome> {
-  const id = assertion.id ?? "api-assertion";
-  if (assertion.type !== "api") {
-    return {
-      assertionId: id,
-      passed: false,
-      errorKind: "ASSERTION_ORACLE",
-      message: `expected api assertion, got ${assertion.type}`,
-    };
-  }
-
-  const network = ctx.network ?? [];
-  const ref = assertion.requestRef;
-  if (!ref) {
-    return {
-      assertionId: id,
-      passed: false,
-      errorKind: "ASSERTION_ORACLE",
-      message: "api assertion requires requestRef",
-    };
-  }
-
-  const spec = ctx.resolveRequestRef?.(ref);
-  if (!spec) {
-    return {
-      assertionId: id,
-      passed: false,
-      errorKind: "ASSERTION_ORACLE",
-      message: `unknown requestRef: ${ref}`,
-    };
-  }
-
-  const matched = matchNetwork(network, spec);
-  const expect = assertion.expect ?? {};
-
-  if (matched.length === 0) {
-    return {
-      assertionId: id,
-      passed: false,
-      expected: spec,
-      actual: [],
-      errorKind: "PRODUCT_DEFECT",
-      message: `no network entry matched requestRef ${ref}`,
-    };
-  }
-
-  const pickForStatus =
-    typeof expect.statusCode === "number"
-      ? matched.filter((n) => n.status === expect.statusCode)
-      : matched;
-
-  if (typeof expect.statusCode === "number" && pickForStatus.length === 0) {
-    return {
-      assertionId: id,
-      passed: false,
-      expected: { requestRef: ref, statusCode: expect.statusCode },
-      actual: matched.map((n) => ({ url: n.url, status: n.status })),
-      errorKind: "PRODUCT_DEFECT",
-      message: `no ${spec.method ?? "request"} ${ref} with status ${expect.statusCode}`,
-    };
-  }
-
-  const primary = pickForStatus[pickForStatus.length - 1]!;
-
-  if (expect.jsonBody && typeof expect.jsonBody === "object" && !Array.isArray(expect.jsonBody)) {
-    let bodyParsed: unknown;
-    try {
-      bodyParsed = primary.requestBody ? JSON.parse(primary.requestBody) : undefined;
-    } catch {
-      bodyParsed = undefined;
-    }
-    const passed = partialJsonMatch(expect.jsonBody as Record<string, unknown>, bodyParsed);
-    return {
-      assertionId: id,
-      passed,
-      expected: { requestRef: ref, statusCode: expect.statusCode, jsonBody: expect.jsonBody },
-      actual: bodyParsed ?? primary.requestBody?.slice(0, 200),
-      errorKind: passed ? undefined : "PRODUCT_DEFECT",
-      message: passed ? undefined : "request JSON body did not match expect.jsonBody",
-    };
-  }
-
-  if (typeof expect.requestBodyContains === "string") {
-    const needle = expect.requestBodyContains;
-    const pool = pickForStatus.length ? pickForStatus : matched;
-    const hit = pool.some((n) => n.requestBody?.includes(needle));
-    return {
-      assertionId: id,
-      passed: hit,
-      expected: { requestRef: ref, requestBodyContains: needle },
-      actual: pool.map((n) => n.requestBody?.slice(0, 120)),
-      errorKind: hit ? undefined : "PRODUCT_DEFECT",
-      message: hit ? undefined : `request body does not contain "${needle}"`,
-    };
-  }
-
-  if (typeof expect.statusCode === "number") {
-    return {
-      assertionId: id,
-      passed: true,
-      expected: { requestRef: ref, statusCode: expect.statusCode },
-      actual: pickForStatus.map((n) => ({ url: n.url, status: n.status, requestBody: n.requestBody?.slice(0, 80) })),
-    };
-  }
-
-  if (expect.userCountDelta === 0) {
-    const created = matched.filter((n) => n.status === 201);
-    const passed = created.length === 0;
-    return {
-      assertionId: id,
-      passed,
-      expected: { userCountDelta: 0 },
-      actual: { create201Count: created.length },
-      errorKind: passed ? undefined : "PRODUCT_DEFECT",
-      message: passed ? undefined : "unexpected user create (HTTP 201)",
-    };
-  }
-
-  if (matched.length === 0) {
-    return {
-      assertionId: id,
-      passed: false,
-      expected: spec,
-      actual: [],
-      errorKind: "PRODUCT_DEFECT",
-      message: `no network entry matched requestRef ${ref}`,
-    };
-  }
-
-  return {
-    assertionId: id,
-    passed: true,
-    expected: spec,
-    actual: matched.slice(-3),
-  };
-}
-
 export async function runAssertion(
   assertion: TestAssertion,
   ctx: AssertionContext,
@@ -358,5 +181,6 @@ registerAssertionProvider({
 registerAssertionProvider({
   id: "captured-http",
   kind: "api",
-  run: runApiAssertion,
+  validate: validateCapturedHttpAssertion,
+  run: runCapturedHttpAssertion,
 });

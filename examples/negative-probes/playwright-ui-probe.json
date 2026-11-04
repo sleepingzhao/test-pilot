@@ -1,0 +1,14 @@
+{
+  "id": "probe-playwright-ui",
+  "version": 1,
+  "platform": "web",
+  "steps": [{ "id": "open-users", "action": "navigate", "path": "/" }],
+  "assertions": [
+    {
+      "id": "must-not-find",
+      "type": "ui",
+      "contains": "PROBE_UI_FAILURE_MARKER_NOT_ON_PAGE",
+      "oracle": "human-approved"
+    }
+  ]
+}

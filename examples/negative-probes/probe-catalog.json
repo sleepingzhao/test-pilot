@@ -1,0 +1,19 @@
+{
+  "probes": [
+    {
+      "id": "probe-playwright-ui",
+      "provider": "playwright-ui",
+      "file": "examples/negative-probes/playwright-ui-probe.json"
+    },
+    {
+      "id": "probe-captured-http",
+      "provider": "captured-http",
+      "file": "examples/negative-probes/captured-http-probe.json"
+    },
+    {
+      "id": "probe-postgres-readonly",
+      "provider": "postgres-readonly",
+      "file": "examples/negative-probes/postgres-readonly-probe.json"
+    }
+  ]
+}

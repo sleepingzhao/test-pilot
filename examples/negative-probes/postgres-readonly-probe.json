@@ -1,0 +1,16 @@
+{
+  "id": "probe-postgres-readonly",
+  "version": 1,
+  "platform": "web",
+  "steps": [{ "id": "open", "action": "navigate", "path": "/" }],
+  "assertions": [
+    {
+      "id": "wrong-rowcount",
+      "type": "db",
+      "provider": "postgres-readonly",
+      "configRef": "pilot-db",
+      "expect": { "queryRef": "order-by-run-id", "rowCount": 1 },
+      "oracle": "human-approved"
+    }
+  ]
+}

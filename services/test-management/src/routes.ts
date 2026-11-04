@@ -19,6 +19,7 @@ import {
   llmPlannerPublicInfo,
   suggestDiagnoseWithLlm,
 } from "./llm-planner.js";
+import { readNegativeProbeReport } from "./negative-probes.js";
 import {
   applyBaseUrlTarget,
   buildRunEnvironment,
@@ -41,6 +42,7 @@ import {
 
 const recordJobs = new Map<string, RecordJob>();
 let recordLock = false;
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 export type RunBatchJob = {
   id: string;
@@ -500,7 +502,20 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       pilotBaselineNotes: baseline?.notes ?? null,
       minutesSavedVsBaseline,
       recentBatches: groupRunsIntoBatches(runs).slice(0, 8),
+      negativeProbes: await readNegativeProbeReport(repoRoot),
     };
+  });
+
+  app.get("/api/metrics/negative-probes", async () => {
+    const report = await readNegativeProbeReport(repoRoot);
+    if (!report) {
+      return {
+        ok: false,
+        error: "尚未生成负向探针报告；本地请运行 pnpm negative-probes",
+        probes: [],
+      };
+    }
+    return report;
   });
 
   app.get("/api/batch-runs/:jobId", async (req, reply) => {

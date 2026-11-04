@@ -164,7 +164,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - [x] AS-3 DB 断言 Provider — `postgres-readonly` Provider + `docs/assertion-db-config.example.json` + `packages/fixtures` 只读客户端；`packages/assertions/src/postgres-readonly.test.ts`；审批未知 queryRef 400；`pnpm verify` 全绿
 - [ ] AS-4 Agent 断言 Provider
 - [ ] AS-5 断言配置 UI
-- [ ] AS-6 负向验证框架
+- [x] AS-6 负向验证框架 — `examples/negative-probes/*` + `pnpm negative-probes` → `artifacts/negative-probes-last.json`；`GET /api/metrics/negative-probes`；`pnpm verify` 全绿
 - [x] P-1 真实工单提交成功用例 — `selectCascader` 步骤 + `demo-ticket-submit-success.json`（UI+HTTP）+ `demo-ticket-no-attachment.json` 负向 + `runner-web/src/ticket-p1.test.ts`；试点模板 `pilot-ticket-submit-success.json`（draft，需人工校对后批准）；`pnpm verify` 全绿
 - [ ] P-2 登录态 intake 快照
 - [ ] P-3 Recorder 端到端

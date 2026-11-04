@@ -17,6 +17,7 @@
     "validate:ir": "pnpm --filter @testpilot/test-ir run validate --",
     "dev": "pnpm build && concurrently -n demo,api,ui,open -c blue,magenta,green,yellow \"pnpm --filter @testpilot/demo-webapp start\" \"pnpm --filter @testpilot/test-management dev\" \"pnpm --filter @testpilot/console dev\" \"node scripts/open-console.mjs\"",
     "smoke:demo": "pnpm build && pnpm --filter @testpilot/test-management exec playwright install chromium && node scripts/demo-smoke.mjs",
+    "negative-probes": "pnpm build && pnpm --filter @testpilot/test-management exec playwright install chromium && node scripts/negative-probes.mjs",
     "verify": "node scripts/ci-local.mjs",
     "start": "pnpm build && concurrently -k -n demo,server -c blue,magenta \"pnpm --filter @testpilot/demo-webapp start\" \"pnpm --filter @testpilot/test-management dev\""
   },

@@ -27,9 +27,9 @@ console.log("ci-local: typecheck (builds workspace first)");
 run("pnpm", ["typecheck"]);
 
 console.log("ci-local: validate IR files");
-for (const sub of ["examples/demo-webapp/tests", "examples/pilot-admin/tests"]) {
+for (const sub of ["examples/demo-webapp/tests", "examples/pilot-admin/tests", "examples/negative-probes"]) {
   const dir = join(root, sub);
-  for (const f of readdirSync(dir).filter((n) => n.endsWith(".json"))) {
+  for (const f of readdirSync(dir).filter((n) => n.endsWith(".json") && n !== "probe-catalog.json")) {
     run("pnpm", ["cli", "validate", join(sub, f)]);
   }
 }
@@ -45,5 +45,8 @@ runIn("services/test-management", "pnpm", ["test"]);
 
 console.log("ci-local: smoke:demo");
 run("pnpm", ["smoke:demo"]);
+
+console.log("ci-local: negative-probes");
+run("pnpm", ["negative-probes"]);
 
 console.log("ci-local: OK");

@@ -1,0 +1,26 @@
+{
+  "id": "probe-captured-http",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open-users", "action": "navigate", "path": "/" },
+    { "id": "create-user", "action": "click", "target": { "role": "button", "name": "添加用户" } },
+    {
+      "id": "fill-email",
+      "action": "fill",
+      "target": { "label": "邮箱" },
+      "value": "duplicate@example.com"
+    },
+    { "id": "submit", "action": "click", "target": { "role": "button", "name": "保存" } }
+  ],
+  "assertions": [
+    {
+      "id": "wrong-status",
+      "type": "api",
+      "provider": "captured-http",
+      "requestRef": "users-create-attempt",
+      "expect": { "statusCode": 201 },
+      "oracle": "api-contract"
+    }
+  ]
+}

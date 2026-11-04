@@ -1,6 +1,11 @@
 import type { Locator, TestAssertion } from "@testpilot/test-ir";
 import type { Page } from "playwright";
 import { runCapturedHttpAssertion, validateCapturedHttpAssertion } from "./captured-http.js";
+import { getDbConfigBundle } from "@testpilot/fixtures";
+import {
+  runPostgresReadonlyAssertion,
+  validatePostgresReadonlyAssertion,
+} from "./postgres-readonly.js";
 import {
   getAssertionProvider,
   registerAssertionProvider,
@@ -16,6 +21,10 @@ export type {
   RequestRefSpec,
 } from "./types.js";
 export { runApiAssertion, runCapturedHttpAssertion, validateCapturedHttpAssertion } from "./captured-http.js";
+export {
+  runPostgresReadonlyAssertion,
+  validatePostgresReadonlyAssertion,
+} from "./postgres-readonly.js";
 export type { AssertionProvider } from "./providers.js";
 
 export {
@@ -183,4 +192,12 @@ registerAssertionProvider({
   kind: "api",
   validate: validateCapturedHttpAssertion,
   run: runCapturedHttpAssertion,
+});
+
+registerAssertionProvider({
+  id: "postgres-readonly",
+  kind: "db",
+  validate: (assertion) =>
+    validatePostgresReadonlyAssertion(assertion, (ref) => getDbConfigBundle(ref)),
+  run: runPostgresReadonlyAssertion,
 });

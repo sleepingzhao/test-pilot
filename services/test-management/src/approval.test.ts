@@ -80,6 +80,59 @@ test("approval is pinned to the reviewed IR hash and records the actor", async (
   }
 });
 
+test("approval rejects db assertion with unknown queryRef", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-approval-db-"));
+  const dataRoot = join(root, "data");
+  const store = new FileStore(dataRoot);
+  await store.init();
+
+  const testId = "bad-db-query";
+  const ir = {
+    id: testId,
+    version: 1,
+    platform: "web" as const,
+    steps: [{ id: "open", action: "navigate" as const, path: "/" }],
+    assertions: [
+      {
+        id: "db1",
+        type: "db" as const,
+        provider: "postgres-readonly",
+        configRef: "pilot-db",
+        oracle: "human-approved" as const,
+        expect: { queryRef: "no-such-query", rowCount: 1 },
+      },
+    ],
+  };
+  await store.saveTest({
+    id: testId,
+    projectId: "default",
+    title: "bad db",
+    ir,
+    approvalStatus: "draft",
+    updatedAt: new Date().toISOString(),
+  });
+
+  const app = Fastify();
+  await app.register(sensible);
+  registerRoutes(app, store, join(root, "artifacts"), dataRoot);
+  await app.ready();
+
+  try {
+    const hash = computeIRHash(ir);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tests/${testId}/approve`,
+      payload: { irHash: hash },
+    });
+    assert.equal(res.statusCode, 400);
+    const body = res.json() as { issues?: Array<{ message: string }> };
+    assert.ok(body.issues?.some((i) => i.message.includes("命名查询")));
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("approval rejects unknown assertion provider", async () => {
   const root = await mkdtemp(join(tmpdir(), "testpilot-approval-provider-"));
   const dataRoot = join(root, "data");

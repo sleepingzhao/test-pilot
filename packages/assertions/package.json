@@ -14,10 +14,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/api.test.ts src/api-match.test.ts src/providers.test.ts src/captured-http.test.ts src/json-schema-match.test.ts",
+    "test": "node --import tsx --test src/api.test.ts src/api-match.test.ts src/providers.test.ts src/captured-http.test.ts src/json-schema-match.test.ts src/postgres-readonly.test.ts",
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {
+    "@testpilot/fixtures": "workspace:*",
     "@testpilot/test-ir": "workspace:*"
   },
   "devDependencies": {

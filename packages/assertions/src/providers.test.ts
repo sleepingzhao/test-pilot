@@ -17,7 +17,7 @@ const ctx = {
 
 test("built-in providers are registered", () => {
   const ids = listAssertionProviders().map((p) => p.id).sort();
-  assert.deepEqual(ids, ["captured-http", "playwright-ui"]);
+  assert.deepEqual(ids, ["captured-http", "playwright-ui", "postgres-readonly"]);
   assert.equal(getAssertionProvider("playwright-ui")?.kind, "ui");
   assert.equal(getAssertionProvider("captured-http")?.kind, "api");
 });

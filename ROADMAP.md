@@ -161,7 +161,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 
 - [x] AS-1 Provider 注册表 + IR 扩展 — `pnpm verify` 全绿（2026-11-04）；`packages/assertions/src/providers.test.ts`（默认/显式 Provider、未知 Provider、db 缺 provider）；`packages/test-ir/src/validate.test.ts`（schema 接受 provider/configRef）；`services/test-management/src/approval.test.ts`（未知 Provider 审批 400）
 - [x] AS-2 HTTP 断言 Provider — `pnpm verify` 全绿；`packages/assertions/src/captured-http.ts` + `captured-http.test.ts`（状态/请求体/响应体/响应头/JSON Schema 正负）；`packages/evidence` 捕获 `responseBody`/`responseHeaders` + `waitForNetworkCapture`
-- [ ] AS-3 DB 断言 Provider
+- [x] AS-3 DB 断言 Provider — `postgres-readonly` Provider + `docs/assertion-db-config.example.json` + `packages/fixtures` 只读客户端；`packages/assertions/src/postgres-readonly.test.ts`；审批未知 queryRef 400；`pnpm verify` 全绿
 - [ ] AS-4 Agent 断言 Provider
 - [ ] AS-5 断言配置 UI
 - [ ] AS-6 负向验证框架

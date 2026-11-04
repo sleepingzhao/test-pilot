@@ -1,4 +1,5 @@
 import type { Page } from "playwright";
+import type { DbConfigBundle, ReadonlyDbClient } from "@testpilot/fixtures";
 
 export type CapturedNetworkEntry = {
   url: string;
@@ -34,7 +35,10 @@ export type AssertionOutcome = {
 
 export type AssertionContext = {
   page: Page;
+  runId?: string;
   network?: CapturedNetworkEntry[];
   resolveRequestRef?: (ref: string) => RequestRefSpec | undefined;
   resolveRef?: (ref: string) => unknown;
+  db?: ReadonlyDbClient;
+  resolveDbConfig?: (configRef: string) => DbConfigBundle | undefined;
 };

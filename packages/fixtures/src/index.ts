@@ -1,4 +1,6 @@
 import type { TestIR } from "@testpilot/test-ir";
+import { loadAssertionDbConfigs } from "./db-config.js";
+import { createReadonlyDbClient, type ReadonlyDbClient } from "./readonly-db-client.js";
 
 export type RunEnvironment = {
   baseUrl: string;
@@ -9,6 +11,8 @@ export type RunEnvironment = {
   /** Fixture-scoped values; secrets via env, never in IR */
   fixtureValues?: Record<string, string>;
   commitSha?: string;
+  /** Injected readonly DB client (tests) or built from assertion-db-config at run time. */
+  readonlyDb?: import("./readonly-db-client.js").ReadonlyDbClient;
 };
 
 export function resolveFixtureRefs(fixtureName: string | undefined, env: RunEnvironment): void {
@@ -65,4 +69,26 @@ export function resolveRequestRef(
 ): { urlIncludes: string; method?: string } | undefined {
   if (env.requestRefs?.[ref]) return env.requestRefs[ref];
   return DEFAULT_REQUEST_REFS[ref];
+}
+
+export type { DbConfigBundle } from "./db-config.js";
+export {
+  getDbConfigBundle,
+  loadAssertionDbConfigs,
+  resolveConfigEnvRef,
+} from "./db-config.js";
+export {
+  assertSafeReadonlySql,
+  bindNamedParams,
+  createReadonlyDbClient,
+  type DbClientFactoryOptions,
+  type DbQueryResult,
+  type ReadonlyDbClient,
+} from "./readonly-db-client.js";
+
+export function buildReadonlyDbClient(env: RunEnvironment): ReadonlyDbClient | undefined {
+  if (env.readonlyDb) return env.readonlyDb;
+  const configs = loadAssertionDbConfigs();
+  if (Object.keys(configs).length === 0) return undefined;
+  return createReadonlyDbClient({ configs });
 }

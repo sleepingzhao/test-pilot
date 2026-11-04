@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "dbs": {
+    "pilot-db": {
+      "connectionRef": "env.PILOT_DB_URL",
+      "allowedTables": ["work_order"],
+      "queries": {
+        "order-by-run-id": "SELECT id, status FROM work_order WHERE ref = :runId"
+      }
+    }
+  }
+}

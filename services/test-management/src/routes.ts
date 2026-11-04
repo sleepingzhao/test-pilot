@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -28,6 +28,14 @@ import {
   DEMO_BASE_URL,
 } from "./run-env.js";
 import { estimateLastBatchDurationMs, groupRunsIntoBatches } from "./batch-metrics.js";
+import {
+  isAllowedTargetUrl,
+  isSafeArtifactName,
+  isSafeRunId,
+  isSafeTestId,
+  isWithin,
+  resolveWithin,
+} from "./security.js";
 
 const recordJobs = new Map<string, RecordJob>();
 let recordLock = false;
@@ -242,6 +250,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   app.get("/api/tests/:testId", async (req, reply) => {
     const { testId } = req.params as { testId: string };
+    if (!isSafeTestId(testId)) return reply.notFound("test not found");
     const test = await store.getTest(testId);
     if (!test) return reply.notFound("test not found");
     return test;
@@ -249,6 +258,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   app.put("/api/tests/:testId", async (req, reply) => {
     const { testId } = req.params as { testId: string };
+    if (!isSafeTestId(testId)) return reply.notFound("test not found");
     const body = req.body as { title?: string; ir?: StoredTest["ir"]; intentSummary?: string };
     const existing = await store.getTest(testId);
     if (!existing) return reply.notFound("test not found");
@@ -266,14 +276,16 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     return updated;
   });
 
-  app.delete("/api/tests/:testId", async (req) => {
+  app.delete("/api/tests/:testId", async (req, reply) => {
     const { testId } = req.params as { testId: string };
+    if (!isSafeTestId(testId)) return reply.notFound("test not found");
     await store.deleteTest(testId);
     return { ok: true };
   });
 
   app.post("/api/tests/:testId/approve", async (req, reply) => {
     const { testId } = req.params as { testId: string };
+    if (!isSafeTestId(testId)) return reply.notFound("test not found");
     const test = await store.getTest(testId);
     if (!test) return reply.notFound("test not found");
     const hasPlaceholder = test.ir.assertions.some((a) =>
@@ -300,6 +312,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   app.post("/api/tests/:testId/suggest-assertions", async (req, reply) => {
     const { testId } = req.params as { testId: string };
+    if (!isSafeTestId(testId)) return reply.notFound("test not found");
     const test = await store.getTest(testId);
     if (!test) return reply.notFound("test not found");
     const { assertions, uncertainties, help, suggestions } = suggestAssertionsForTest(
@@ -334,6 +347,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       new URL(url);
     } catch {
       return reply.code(400).send({ error: "URL 格式无效" });
+    }
+    if (!isAllowedTargetUrl(url)) {
+      return reply.code(400).send({
+        error:
+          "目标 URL 不在允许列表。仅允许本机地址、TESTPILOT_PILOT_BASE_URL 与 TESTPILOT_ALLOWED_TARGETS 中的地址。",
+      });
     }
     const constraintsDoc = await loadPilotConstraints();
     const constraintLine = constraintsDoc?.scopeNotes?.[0];
@@ -446,6 +465,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   app.get("/api/batch-runs/:jobId", async (req, reply) => {
     const { jobId } = req.params as { jobId: string };
+    if (!isSafeRunId(jobId)) return reply.notFound("batch job not found");
     const job = batchJobs.get(jobId);
     if (!job) return reply.notFound("batch job not found");
     return job;
@@ -456,6 +476,15 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const body = (req.body ?? {}) as { testId?: string; baseUrl?: string; includeDraft?: boolean };
     const project = store.project();
     const baseUrl = body.baseUrl ?? project.defaultBaseUrl;
+    if (body.testId && !isSafeTestId(body.testId)) {
+      return reply.code(400).send({ error: "invalid testId" });
+    }
+    if (!isAllowedTargetUrl(baseUrl)) {
+      return reply.code(400).send({
+        error:
+          "目标 baseUrl 不在允许列表。仅允许本机地址、TESTPILOT_PILOT_BASE_URL 与 TESTPILOT_ALLOWED_TARGETS 中的地址。",
+      });
+    }
 
     let tests = body.testId
       ? [await store.getTest(body.testId)].filter(Boolean)
@@ -516,6 +545,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   app.get("/api/runs/:runId", async (req, reply) => {
     const { runId } = req.params as { runId: string };
+    if (!isSafeRunId(runId)) return reply.notFound("run not found");
     const run = await store.getRun(runId);
     if (!run) return reply.notFound("run not found");
     return run;
@@ -523,6 +553,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   app.get("/api/runs/:runId/diagnose", async (req, reply) => {
     const { runId } = req.params as { runId: string };
+    if (!isSafeRunId(runId)) return reply.notFound("run not found");
     const run = await store.getRun(runId);
     if (!run) return reply.notFound("run not found");
     if (run.status === "passed") {
@@ -585,6 +616,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (!body.goal?.trim()) return reply.code(400).send({ error: "goal is required" });
     const project = store.project();
     const url = body.url ?? project.defaultBaseUrl;
+    if (!isAllowedTargetUrl(url)) {
+      return reply.code(400).send({
+        error:
+          "目标 URL 不在允许列表。仅允许本机地址、TESTPILOT_PILOT_BASE_URL 与 TESTPILOT_ALLOWED_TARGETS 中的地址。",
+      });
+    }
     const reachable = await checkTargetReachable(url);
     if (!reachable) {
       return reply.code(503).send({ error: "目标页面不可达，请先启动练习应用" });
@@ -610,16 +647,28 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   app.get("/api/runs/:runId/artifacts/*", async (req, reply) => {
     const { runId } = req.params as { runId: string };
-    const wildcard = (req.params as { "*": string })["*"];
+    const wildcard = (req.params as { "*": string })["*"] ?? "";
+    if (!isSafeRunId(runId)) return reply.notFound("run not found");
     const run = await store.getRun(runId);
     if (!run) return reply.notFound("run not found");
-    const artifact = run.artifacts.artifacts.find((a) => a.path.endsWith(wildcard));
-    const runDir = run.artifacts?.dir ?? join(artifactsRoot, "runs", runId);
-    let filePath = artifact?.path ?? join(runDir, wildcard);
+    if (!isSafeArtifactName(wildcard)) return reply.notFound("artifact not found");
+
+    const root = resolve(artifactsRoot);
+    const rawRunDir = run.artifacts?.dir ?? join(root, "runs", runId);
+    const runDir = resolve(isAbsolute(rawRunDir) ? rawRunDir : resolve(root, "..", rawRunDir));
+    if (runDir === root || !isWithin(root, runDir)) return reply.notFound("artifact not found");
+
+    const registered = run.artifacts?.artifacts?.find((a) => basename(a.path) === wildcard);
+    let filePath: string | null = registered
+      ? resolve(isAbsolute(registered.path) ? registered.path : join(runDir, registered.path))
+      : null;
+    if (filePath && !isWithin(runDir, filePath)) filePath = null;
+    if (!filePath && wildcard === "network.json") filePath = resolveWithin(runDir, wildcard);
+    if (!filePath || filePath === runDir) return reply.notFound("artifact not found");
+
     if (!existsSync(filePath)) {
       if (wildcard === "network.json") {
         await mkdir(runDir, { recursive: true });
-        filePath = join(runDir, "network.json");
         await writeFile(filePath, "[]\n", "utf8");
       } else {
         return reply.notFound("artifact not found");
@@ -645,9 +694,15 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     } catch {
       return reply.code(400).send({ error: "URL 格式无效" });
     }
+    if (!isAllowedTargetUrl(parsedUrl.toString())) {
+      return reply.code(400).send({
+        error:
+          "录制 URL 不在允许列表。仅允许本机地址、TESTPILOT_PILOT_BASE_URL 与 TESTPILOT_ALLOWED_TARGETS 中的地址。",
+      });
+    }
     const testId = (body.testId?.trim() || `rec-${Date.now()}`).toLowerCase();
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(testId)) {
-      return reply.code(400).send({ error: "testId 只能包含小写字母、数字和连字符" });
+    if (!isSafeTestId(testId)) {
+      return reply.code(400).send({ error: "testId 只能包含小写字母、数字和连字符（最长 128）" });
     }
 
     const jobId = `rec_${Date.now()}`;
@@ -697,6 +752,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   app.get("/api/record/:jobId", async (req, reply) => {
     const { jobId } = req.params as { jobId: string };
+    if (!isSafeRunId(jobId)) return reply.notFound("job not found");
     const job = recordJobs.get(jobId);
     if (!job) return reply.notFound("job not found");
     return job;

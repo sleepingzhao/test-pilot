@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TestIR } from "@testpilot/test-ir";
 import type { RunResult } from "@testpilot/runner-web";
+import { isSafeRunId, isSafeTestId } from "./security.js";
 
 export type Project = {
   id: string;
@@ -75,6 +76,7 @@ export class FileStore {
   }
 
   async getTest(id: string): Promise<StoredTest | undefined> {
+    if (!isSafeTestId(id)) return undefined;
     try {
       const raw = await readFile(join(this.root, "tests", `${id}.json`), "utf8");
       const parsed = JSON.parse(raw) as StoredTest;
@@ -85,19 +87,23 @@ export class FileStore {
   }
 
   async saveTest(test: StoredTest): Promise<void> {
+    if (!isSafeTestId(test.id)) throw new Error(`invalid test id: ${test.id}`);
     await writeFile(join(this.root, "tests", `${test.id}.json`), JSON.stringify(test, null, 2));
   }
 
   async deleteTest(id: string): Promise<void> {
+    if (!isSafeTestId(id)) return;
     const { unlink } = await import("node:fs/promises");
     await unlink(join(this.root, "tests", `${id}.json`)).catch(() => {});
   }
 
   async saveRun(run: StoredRun): Promise<void> {
+    if (!isSafeRunId(run.runId)) throw new Error(`invalid run id: ${run.runId}`);
     await writeFile(join(this.root, "runs", `${run.runId}.json`), JSON.stringify(run, null, 2));
   }
 
   async getRun(runId: string): Promise<StoredRun | undefined> {
+    if (!isSafeRunId(runId)) return undefined;
     try {
       const raw = await readFile(join(this.root, "runs", `${runId}.json`), "utf8");
       return JSON.parse(raw) as StoredRun;

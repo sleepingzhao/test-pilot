@@ -23,6 +23,8 @@ pnpm dev
 | API | http://127.0.0.1:8787 |
 | Demo 被测应用 | http://127.0.0.1:4173 |
 
+> 安全默认值：API 只监听 `127.0.0.1`，CORS 只放行本机控制台，写请求校验 `Origin`。若必须设 `HOST` 为非回环地址，同时设置 `TESTPILOT_API_TOKEN`，否则 API 会拒绝启动；自定义控制台域名需加入 `TESTPILOT_ALLOWED_ORIGINS`，额外测试环境需加入 `TESTPILOT_ALLOWED_TARGETS`。
+
 在控制台里：**运行全部用例**、**录制新用例**、**编辑断言**、下载 Trace。
 
 ### 业务试点（P0-1）

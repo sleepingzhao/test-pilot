@@ -10,6 +10,7 @@ import { registerRoutes } from "./routes.js";
 import { seedIfEmpty, syncCatalogTests, syncPilotCatalogTests } from "./seed.js";
 import { bootstrapPilotIntakes } from "./bootstrap-pilot-intakes.js";
 import { isPilotTest } from "./run-env.js";
+import { assertSafeBindHost, corsOrigin, registerSecurity } from "./security.js";
 import { FileStore } from "./store.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -27,9 +28,21 @@ try {
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "127.0.0.1";
 
+try {
+  assertSafeBindHost(host);
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
+
 const app = Fastify({ logger: true });
-await app.register(cors, { origin: true });
+await app.register(cors, {
+  origin: corsOrigin,
+  methods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-TestPilot-Token"],
+});
 await app.register(sensible);
+registerSecurity(app);
 
 const store = new FileStore(dataRoot);
 await store.init();

@@ -26,3 +26,15 @@ test("rejects step without required fields", () => {
   });
   assert.equal(result.ok, false);
 });
+
+test("accepts a per-test baseUrl", () => {
+  const result = validateTestIR({
+    id: "pinned",
+    version: 1,
+    platform: "web",
+    baseUrl: "https://staging.example.com",
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "ok" }],
+  });
+  assert.equal(result.ok, true);
+});

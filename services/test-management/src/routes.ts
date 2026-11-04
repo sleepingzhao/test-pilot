@@ -19,11 +19,12 @@ import {
   suggestDiagnoseWithLlm,
 } from "./llm-planner.js";
 import {
+  applyBaseUrlTarget,
   buildRunEnvironment,
   isPilotTest,
+  missingEnvRefs,
   pilotBaseUrl,
   pilotSecretsConfigured,
-  testNeedsPilotSecrets,
   uniqueTargetBaseUrls,
   DEMO_BASE_URL,
 } from "./run-env.js";
@@ -401,11 +402,10 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     });
     const testId = makeIntakeTestId(title);
     const partial = draftToPartialIR(testId, draft);
-    const ir = {
-      ...partial,
-      baseUrlRef: url.includes("4173") ? "staging-console" : "pilot-admin",
-      policy: { screenshots: "on-failure" as const },
-    };
+    const ir = applyBaseUrlTarget(
+      { ...partial, policy: { screenshots: "on-failure" as const } },
+      url,
+    );
     const validated = validateTestIR(ir);
     if (!validated.ok) {
       return reply.code(400).send({ issues: validated.issues });
@@ -514,16 +514,27 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
 
     const runEnv = buildRunEnvironment(baseUrl);
-    for (const url of uniqueTargetBaseUrls(list, runEnv)) {
+    let targets: string[];
+    try {
+      targets = uniqueTargetBaseUrls(list, runEnv);
+    } catch (err) {
+      return reply.code(503).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+    for (const url of targets) {
+      if (!isAllowedTargetUrl(url)) {
+        return reply.code(400).send({ error: `用例目标地址不在允许列表: ${url}` });
+      }
+    }
+    const missingSecrets = [...new Set(list.flatMap((t) => missingEnvRefs(t.ir)))];
+    if (missingSecrets.length) {
+      return reply.code(503).send({
+        error: `缺少用例所需环境变量：${missingSecrets.join(", ")}（见 .env.example）`,
+      });
+    }
+    for (const url of targets) {
       if (!(await checkTargetReachable(url))) {
         return reply.code(503).send({ error: `目标环境不可达: ${url}` });
       }
-    }
-    if (list.some((t) => testNeedsPilotSecrets(t.ir)) && !pilotSecretsConfigured()) {
-      return reply.code(503).send({
-        error:
-          "试点登录用例需要配置仓库根目录 .env（见 .env.example）：TESTPILOT_ENV_ADMIN_PHONE / TESTPILOT_ENV_ADMIN_PASSWORD",
-      });
     }
 
     if (list.length === 1) {
@@ -729,7 +740,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     void (async () => {
       try {
         await assertPlaywrightReady();
-        const { ir, warnings } = await recordSession({ url: parsedUrl.toString(), testId });
+        const { ir: recordedIr, warnings } = await recordSession({ url: parsedUrl.toString(), testId });
+        const ir = applyBaseUrlTarget(recordedIr, parsedUrl.toString());
         const validated = validateTestIR(ir);
         if (!validated.ok) {
           throw new Error(`录制 IR 校验失败: ${validated.issues.map((i) => i.message).join("; ")}`);

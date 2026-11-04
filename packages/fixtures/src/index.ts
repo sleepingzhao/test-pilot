@@ -42,6 +42,7 @@ export function resolveValueRefs(ir: TestIR, env: RunEnvironment): Record<string
 }
 
 export function resolveBaseUrl(ir: TestIR, env: RunEnvironment): string {
+  if (ir.baseUrl) return ir.baseUrl;
   if (ir.baseUrlRef && env.baseUrlRefs?.[ir.baseUrlRef]) {
     return env.baseUrlRefs[ir.baseUrlRef];
   }

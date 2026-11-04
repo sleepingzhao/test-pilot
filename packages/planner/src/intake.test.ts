@@ -17,6 +17,25 @@ const demoTicketFormContext: PageContext = {
   ],
 };
 
+const demoCustomerContext: PageContext = {
+  url: "http://127.0.0.1:4173/customer",
+  elements: [
+    { role: "heading", name: "客户中心" },
+    { role: "button", name: "选择服务项目" },
+  ],
+};
+
+test("negated ticket intent stays a page smoke", () => {
+  const draft = planFromIntake({
+    title: "客户中心页加载",
+    channel: "intent",
+    text: "登录后打开客户中心页，确认页面正常加载，不要求提交工单。",
+    context: demoCustomerContext,
+  });
+  assert.ok(!draft.steps.some((s) => s.id === "open-submit-ticket"));
+  assert.ok(draft.assertions.some((a) => a.id === "page-loaded"));
+});
+
 test("ticket intake clicks form submit by testId, not 提交工单", () => {
   const draft = planFromIntake({
     title: "提交工单（无附件）",

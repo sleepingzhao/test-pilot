@@ -16,7 +16,12 @@ function norm(s: string): string {
   return s.toLowerCase();
 }
 
+function textNegatesTicket(text: string): boolean {
+  return /(?:不|无需|不用|别|不要)(?:要|需|需要|要求)?(?:提交|测|测试|做|提)?(?:工单|ticket)/i.test(text);
+}
+
 function textMentionsTicket(text: string): boolean {
+  if (textNegatesTicket(text)) return false;
   return /工单|ticket|提交需求/.test(text);
 }
 

@@ -1,5 +1,5 @@
 import type { TestIR } from "@testpilot/test-ir";
-import type { RunEnvironment } from "@testpilot/fixtures";
+import { resolveValueRefEnvKey, type RunEnvironment } from "@testpilot/fixtures";
 
 export const DEMO_BASE_URL = "http://127.0.0.1:4173";
 
@@ -40,13 +40,55 @@ export function pilotSecretsConfigured(): boolean {
   return Boolean(process.env.TESTPILOT_ENV_ADMIN_PHONE && process.env.TESTPILOT_ENV_ADMIN_PASSWORD);
 }
 
-export function testNeedsPilotSecrets(ir: TestIR): boolean {
-  return ir.steps.some((s) => s.valueRef?.startsWith("env."));
+/** Env keys referenced by the IR that are currently missing or empty. */
+export function missingEnvRefs(ir: TestIR): string[] {
+  const missing = new Set<string>();
+  for (const step of ir.steps) {
+    if (!step.valueRef) continue;
+    if (!step.valueRef.startsWith("env.") && !step.valueRef.startsWith("fixture.")) continue;
+    const key = resolveValueRefEnvKey(step.valueRef);
+    if (!process.env[key]?.trim()) missing.add(key);
+  }
+  return [...missing];
+}
+
+/** Map an absolute target URL to the configured env ref, or pin its origin in the IR. */
+export function baseUrlTargetFor(rawUrl: string): { baseUrl?: string; baseUrlRef?: string } {
+  try {
+    const origin = new URL(rawUrl).origin;
+    if (origin === new URL(DEMO_BASE_URL).origin) return { baseUrlRef: "staging-console" };
+    const pilot = pilotBaseUrl();
+    if (pilot) {
+      try {
+        if (origin === new URL(pilot).origin) return { baseUrlRef: "pilot-admin" };
+      } catch {
+        /* malformed pilot URL is reported when the test runs */
+      }
+    }
+    return { baseUrl: origin };
+  } catch {
+    return {};
+  }
+}
+
+/** Apply a target URL without leaving a conflicting baseUrl/baseUrlRef pair. */
+export function applyBaseUrlTarget<T extends object>(
+  ir: T & { baseUrl?: string; baseUrlRef?: string },
+  rawUrl: string,
+): T & { baseUrl?: string; baseUrlRef?: string } {
+  const target = baseUrlTargetFor(rawUrl);
+  const next: T & { baseUrl?: string; baseUrlRef?: string } = { ...ir, ...target };
+  if (target.baseUrlRef) delete next.baseUrl;
+  if (target.baseUrl) delete next.baseUrlRef;
+  return next;
 }
 
 export function resolveIrBaseUrl(ir: TestIR, env: RunEnvironment): string {
-  if (ir.baseUrlRef && env.baseUrlRefs?.[ir.baseUrlRef]) {
-    return env.baseUrlRefs[ir.baseUrlRef];
+  if (ir.baseUrl) return ir.baseUrl;
+  if (ir.baseUrlRef) {
+    const ref = env.baseUrlRefs?.[ir.baseUrlRef];
+    if (!ref) throw new Error(`baseUrlRef "${ir.baseUrlRef}" 未配置（检查 .env）`);
+    return ref;
   }
   return env.baseUrl;
 }

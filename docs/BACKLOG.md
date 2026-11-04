@@ -39,7 +39,7 @@
 - [x] 测试人员通过控制台执行并看 Trace / 网络（无需写 Playwright）
 - [x] 正常回归 **0 次 LLM 调用**
 - [x] 真实业务模块替换练习环境（P0-1）— 试点用例可批准并参与回归（本地 `.env`）
-- [x] CI 上 Demo Playwright smoke（含工单无附件）
+- [x] 本地 Demo Playwright smoke（`pnpm verify`）；CI 可按需接入
 
 ---
 

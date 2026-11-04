@@ -17,6 +17,7 @@ export type LlmPlannerPublicInfo = {
   baseUrl: string;
   temperature: number;
   maxTokens: number;
+  error?: string;
 };
 
 const PROVIDER_DEFAULTS: Record<Exclude<LlmProviderId, "custom">, { baseUrl: string; model: string }> = {
@@ -57,9 +58,14 @@ function parseIntEnv(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+let configError: string | null = null;
+
 export function llmPlannerConfigFromEnv(): LlmPlannerConfig | null {
   const apiKey = process.env.TESTPILOT_LLM_API_KEY?.trim() ?? "";
-  if (isUnsetApiKey(apiKey)) return null;
+  if (isUnsetApiKey(apiKey)) {
+    configError = null;
+    return null;
+  }
 
   const provider = parseProvider(process.env.TESTPILOT_LLM_PROVIDER);
   const preset = provider === "custom" ? null : PROVIDER_DEFAULTS[provider];
@@ -70,15 +76,39 @@ export function llmPlannerConfigFromEnv(): LlmPlannerConfig | null {
   ).replace(/\/$/, "");
   const model =
     process.env.TESTPILOT_LLM_MODEL?.trim() || preset?.model || PROVIDER_DEFAULTS.deepseek.model;
+  const temperature = parseFloatEnv("TESTPILOT_LLM_TEMPERATURE", 0.2);
+  const maxTokens = parseIntEnv("TESTPILOT_LLM_MAX_TOKENS", 2048);
+  const timeoutMs = parseIntEnv("TESTPILOT_LLM_TIMEOUT_MS", 45_000);
 
+  if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
+    configError = "TESTPILOT_LLM_TEMPERATURE 必须在 0..2 之间";
+    return null;
+  }
+  if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > 393_216) {
+    configError = "TESTPILOT_LLM_MAX_TOKENS 必须是 1..393216 的整数";
+    return null;
+  }
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 300_000) {
+    configError = "TESTPILOT_LLM_TIMEOUT_MS 必须在 1000..300000 之间";
+    return null;
+  }
+  try {
+    const parsed = new URL(baseUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("protocol");
+  } catch {
+    configError = "TESTPILOT_LLM_BASE_URL 必须是 http(s) 地址";
+    return null;
+  }
+
+  configError = null;
   return {
     provider,
     apiKey,
     baseUrl,
     model,
-    temperature: parseFloatEnv("TESTPILOT_LLM_TEMPERATURE", 0.2),
-    maxTokens: parseIntEnv("TESTPILOT_LLM_MAX_TOKENS", 2048),
-    timeoutMs: parseIntEnv("TESTPILOT_LLM_TIMEOUT_MS", 45_000),
+    temperature,
+    maxTokens,
+    timeoutMs,
   };
 }
 
@@ -92,6 +122,7 @@ export function llmPlannerPublicInfo(): LlmPlannerPublicInfo {
       baseUrl: PROVIDER_DEFAULTS.deepseek.baseUrl,
       temperature: 0.2,
       maxTokens: 2048,
+      ...(configError ? { error: configError } : {}),
     };
   }
   return {

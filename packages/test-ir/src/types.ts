@@ -43,6 +43,7 @@ export interface TestIR {
   id: string;
   version: number;
   platform: Platform;
+  baseUrl?: string;
   baseUrlRef?: string;
   fixture?: string;
   steps: TestStep[];

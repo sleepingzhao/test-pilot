@@ -62,7 +62,7 @@ export function App() {
   const [pilotUrl, setPilotUrl] = useState<string | null>(null);
   const [pilotIntakeUrl, setPilotIntakeUrl] = useState<string | null>(null);
   const [pilotScopeNote, setPilotScopeNote] = useState<string | null>(null);
-  const [llmInfo, setLlmInfo] = useState<{ enabled: boolean; provider?: string; model?: string } | null>(null);
+  const [llmInfo, setLlmInfo] = useState<{ enabled: boolean; provider?: string; model?: string; error?: string } | null>(null);
   const [diagnoseRun, setDiagnoseRun] = useState<StoredRun | null>(null);
   const [diagnoseDetail, setDiagnoseDetail] = useState<{
     failureKind: string | null;
@@ -121,7 +121,7 @@ export function App() {
         pilotUrl?: string;
         pilotIntakeUrl?: string | null;
         pilotSecretsConfigured?: boolean;
-        llm?: { enabled: boolean; provider?: string; model?: string };
+        llm?: { enabled: boolean; provider?: string; model?: string; error?: string };
       }>("/api/environment");
       setDemoOk(env.demoReachable);
       setPilotOk(env.pilotReachable ?? null);
@@ -525,7 +525,9 @@ export function App() {
       )}
       {llmInfo && !llmInfo.enabled && pilotOk !== false && (
         <div className="alert-bar" style={{ background: "#f5f5f7", color: "#6e6e73", borderColor: "#d2d2d7" }}>
-          LLM 未启用：在 <code>.env</code> 中设置 <code>TESTPILOT_LLM_API_KEY</code>（见 <code>.env.example</code> / <code>docs/llm.md</code>）。
+          {llmInfo.error
+            ? `LLM 配置无效：${llmInfo.error}`
+            : "LLM 未启用：在 .env 中设置 TESTPILOT_LLM_API_KEY（见 .env.example / docs/llm.md）。"}
         </div>
       )}
 

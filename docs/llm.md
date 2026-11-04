@@ -22,7 +22,7 @@ TESTPILOT_LLM_API_KEY=sk-REPLACE_WITH_YOUR_DEEPSEEK_KEY
 | `TESTPILOT_LLM_BASE_URL` | `https://api.deepseek.com/v1` | OpenAI 兼容 `chat/completions` |
 | `TESTPILOT_LLM_MODEL` | `deepseek-chat` | 模型 id |
 | `TESTPILOT_LLM_TEMPERATURE` | `0.2` | 采样温度 |
-| `TESTPILOT_LLM_MAX_TOKENS` | `2048` | 单次回复上限 |
+| `TESTPILOT_LLM_MAX_TOKENS` | `2048` | 单次回复上限；必须是 1..393216 的整数，超出会禁用 LLM 并在控制台显示原因 |
 | `TESTPILOT_LLM_TIMEOUT_MS` | `45000` | 请求超时 |
 
 占位符 Key（含 `REPLACE_WITH`）会被视为**未配置**，不会发起外呼。

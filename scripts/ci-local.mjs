@@ -23,11 +23,8 @@ function runIn(dir, cmd, args) {
   run(cmd, args, { cwd: join(root, dir) });
 }
 
-console.log("ci-local: typecheck");
+console.log("ci-local: typecheck (builds workspace first)");
 run("pnpm", ["typecheck"]);
-
-console.log("ci-local: pnpm build");
-run("pnpm", ["build"]);
 
 console.log("ci-local: validate IR files");
 for (const sub of ["examples/demo-webapp/tests", "examples/pilot-admin/tests"]) {

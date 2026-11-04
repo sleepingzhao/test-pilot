@@ -16,23 +16,22 @@ export type RecordSessionResult = {
   warnings: string[];
 };
 
-function baseUrlRefFor(startUrl: string): string {
-  try {
-    const u = new URL(startUrl);
-    if (u.hostname === "127.0.0.1" && u.port === "4173") return "staging-console";
-    if (u.port === "4173") return "staging-console";
-    return "pilot-admin";
-  } catch {
-    return "default-env";
-  }
-}
-
 function slug(s: string): string {
   return s
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 48);
+}
+
+function secretRefFor(target: Record<string, string>, fieldKey?: string): string {
+  const hint = [fieldKey, target.label, target.name, target.placeholder]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (/password|passwd|密码/.test(hint)) return "env.adminPassword";
+  if (/phone|mobile|手机|电话/.test(hint)) return "env.adminPhone";
+  return `fixture.${slug(fieldKey ?? "secret") || "secret"}`;
 }
 
 function toLocator(raw: Record<string, string>): Locator {
@@ -76,7 +75,7 @@ export function eventsToIR(testId: string, baseUrl: string, events: RecordedEven
       fillN += 1;
       const label = ev.target.label ? slug(ev.target.label) : `field-${fillN}`;
       if (ev.sensitive) {
-        const ref = `fixture.${slug(ev.fieldKey ?? "secret")}`;
+        const ref = secretRefFor(ev.target, ev.fieldKey);
         valueRefs.add(ref);
         steps.push({
           id: `fill-${label}-${fillN}`,
@@ -103,7 +102,7 @@ export function eventsToIR(testId: string, baseUrl: string, events: RecordedEven
     id: testId,
     version: 1,
     platform: "web",
-    baseUrlRef: baseUrlRefFor(baseUrl),
+    baseUrl: origin,
     steps,
     assertions: [
       {
@@ -116,7 +115,6 @@ export function eventsToIR(testId: string, baseUrl: string, events: RecordedEven
     policy: { screenshots: "on-failure", dataIsolation: "per-run" },
   };
 
-  void origin;
   return ir;
 }
 

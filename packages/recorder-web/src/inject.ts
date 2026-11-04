@@ -61,9 +61,9 @@ export const RECORDER_INIT_SCRIPT = `
 
   function isSensitiveInput(el) {
     if (!(el instanceof HTMLInputElement)) return false;
-    if (el.type === "password") return true;
-    const hint = (el.name + " " + el.id + " " + el.autocomplete).toLowerCase();
-    return hint.includes("password") || hint.includes("secret") || hint.includes("token");
+    if (el.type === "password" || el.type === "tel") return true;
+    const hint = (el.name + " " + el.id + " " + el.autocomplete + " " + (labelFor(el) || "")).toLowerCase();
+    return /password|passwd|secret|token|phone|mobile|手机|电话/.test(hint);
   }
 
   function emit(payload) {
@@ -92,7 +92,7 @@ export const RECORDER_INIT_SCRIPT = `
       const target = describeTarget(el);
       if (!target) return;
       if (isSensitiveInput(el)) {
-        emit({ kind: "fill", target, sensitive: true, fieldKey: el.name || el.id || "secret" });
+        emit({ kind: "fill", target, sensitive: true, fieldKey: el.name || el.id || labelFor(el) || "secret" });
         return;
       }
       emit({ kind: "fill", target, value: el.value });

@@ -11,5 +11,18 @@ test("eventsToIR builds duplicate-email flow", () => {
   ]);
   assert.equal(ir.steps.length, 4);
   assert.equal(ir.steps[1]?.action, "click");
+  assert.equal(ir.baseUrl, "http://127.0.0.1:4173");
   assert.equal(ir.assertions[0]?.contains, "REPLACE_WITH_EXPECTED_TEXT");
+});
+
+test("sensitive fills map to env refs and never embed values", () => {
+  const ir = eventsToIR("rec-login", "https://pilot.example.com/admin/login", [
+    { kind: "fill", target: { label: "手机号" }, sensitive: true, fieldKey: "手机号" },
+    { kind: "fill", target: { placeholder: "请输入密码" }, sensitive: true, fieldKey: "password" },
+    { kind: "fill", target: { label: "验证码" }, sensitive: true, fieldKey: "验证码" },
+  ]);
+  assert.equal(ir.steps[0]?.valueRef, "env.adminPhone");
+  assert.equal(ir.steps[1]?.valueRef, "env.adminPassword");
+  assert.equal(ir.steps[2]?.valueRef, "fixture.secret");
+  assert.ok(ir.steps.every((step) => step.value === undefined));
 });

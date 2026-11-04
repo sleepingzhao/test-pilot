@@ -3,7 +3,6 @@ import addFormatsModule from "ajv-formats";
 
 type AjvLike = {
   compile: (schema: object) => (value: unknown) => boolean;
-  validate: (schema: object) => boolean;
   errors?: Array<{ instancePath?: string; message?: string }> | null;
 };
 
@@ -13,7 +12,13 @@ function getAjv(): AjvLike {
   if (ajvInstance) return ajvInstance;
   const AjvCtor = (Ajv2020Module as { default?: unknown }).default ?? Ajv2020Module;
   const addFormatsFn = (addFormatsModule as { default?: unknown }).default ?? addFormatsModule;
-  const ajv = new (AjvCtor as new (opts: object) => AjvLike)({ allErrors: true, strict: false });
+  const ajv = new (AjvCtor as new (opts: object) => AjvLike)({
+    allErrors: true,
+    strict: true,
+    strictTypes: false,
+    strictRequired: false,
+    allowUnionTypes: true,
+  });
   (addFormatsFn as (a: AjvLike) => void)(ajv);
   ajvInstance = ajv;
   return ajv;
@@ -24,12 +29,12 @@ export function validateJsonSchemaDocument(
   schema: Record<string, unknown>,
 ): { ok: true } | { ok: false; message: string } {
   const ajv = getAjv();
-  const valid = ajv.validate(schema);
-  if (!valid) {
-    const msg = ajv.errors?.[0]?.message ?? "invalid JSON Schema";
-    return { ok: false, message: msg };
+  try {
+    ajv.compile(schema);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
   }
-  return { ok: true };
 }
 
 export function matchesJsonSchema(

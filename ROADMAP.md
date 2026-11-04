@@ -166,7 +166,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - [x] AS-5 断言配置 UI — 审阅弹窗 Provider 面板（类型/configRef/expect、校验·测试连接·预览）；API `GET /api/assertions/providers|config-catalog`、`POST validate|test-connection|preview`；保存 IR 时 Provider 校验；`assertion-config.test.ts`；`pnpm verify` 全绿
 - [x] AS-6 负向验证框架 — `examples/negative-probes/*` + `pnpm negative-probes` → `artifacts/negative-probes-last.json`；`GET /api/metrics/negative-probes`；`pnpm verify` 全绿
 - [x] P-1 真实工单提交成功用例 — `selectCascader` 步骤 + `demo-ticket-submit-success.json`（UI+HTTP）+ `demo-ticket-no-attachment.json` 负向 + `runner-web/src/ticket-p1.test.ts`；试点模板 `pilot-ticket-submit-success.json`（draft，需人工校对后批准）；`pnpm verify` 全绿
-- [x] FIX-1 HTTP 断言必须可失败 — `captured-http-expect.ts` 白名单 expect；空 expect / 仅 requestRef 运行时 `ASSERTION_ORACLE`；审批拒绝未知字段与空 expect；JSON Schema 改 `ajv`；`partialJsonMatch` 严格类型；`captured-http.test.ts` / `approval.test.ts` 负向；`pnpm verify` 全绿
+- [x] FIX-1 HTTP 断言必须可失败 — `captured-http-expect.ts` 白名单 expect；空 expect / 仅 requestRef 运行时 `ASSERTION_ORACLE`；审批拒绝未知字段、空 schema、空字符串与未知 JSON Schema 关键字；合法 `responseJsonSchema` 可审批；`partialJsonMatch` 严格类型并支持数组深匹配；`captured-http.test.ts` / `approval.test.ts` 正负测试；`pnpm verify` 全绿
 - [ ] P-2 登录态 intake 快照
 - [ ] P-3 Recorder 端到端
 - [ ] P-4 步骤编辑器 / 草稿试跑

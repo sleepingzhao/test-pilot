@@ -173,3 +173,88 @@ test("validateCapturedHttpAssertion rejects unknown expect field (negative)", ()
   assert.ok(issues.some((i) => i.path.includes("status")));
   assert.ok(issues.some((i) => i.message.includes("statusCode") || i.message.includes("不支持")));
 });
+
+test("validateCapturedHttpAssertion accepts a valid responseJsonSchema", () => {
+  const issues = validateCapturedHttpAssertion({
+    id: "valid-schema",
+    type: "api",
+    requestRef: "users-create",
+    expect: {
+      statusCode: 201,
+      responseJsonSchema: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string" } },
+      },
+    },
+    oracle: "api-contract",
+  });
+  assert.deepEqual(issues, []);
+});
+
+test("validateCapturedHttpAssertion rejects no-op and unknown schema rules", () => {
+  const emptySchema = validateCapturedHttpAssertion({
+    id: "empty-schema",
+    type: "api",
+    requestRef: "users-create",
+    expect: { responseJsonSchema: {} },
+    oracle: "api-contract",
+  });
+  assert.ok(emptySchema.some((i) => i.path.includes("responseJsonSchema")));
+
+  const emptyBody = validateCapturedHttpAssertion({
+    id: "empty-body",
+    type: "api",
+    requestRef: "users-create",
+    expect: { responseBodyContains: "" },
+    oracle: "api-contract",
+  });
+  assert.ok(emptyBody.some((i) => i.path.includes("responseBodyContains")));
+
+  const emptyHeaders = validateCapturedHttpAssertion({
+    id: "empty-headers",
+    type: "api",
+    requestRef: "users-create",
+    expect: { responseHeaders: {} },
+    oracle: "api-contract",
+  });
+  assert.ok(emptyHeaders.some((i) => i.path.includes("responseHeaders")));
+
+  const unknownKeyword = validateCapturedHttpAssertion({
+    id: "unknown-keyword",
+    type: "api",
+    requestRef: "users-create",
+    expect: { responseJsonSchema: { type: "integer", minimun: 10 } },
+    oracle: "api-contract",
+  });
+  assert.ok(unknownKeyword.some((i) => i.path.includes("responseJsonSchema")));
+});
+
+test("captured-http: empty schema and empty contains fail as oracle (negative)", async () => {
+  const network = [{ ...baseNetwork[0]!, status: 500 }];
+  const emptySchema = await runCapturedHttpAssertion(
+    {
+      id: "empty-schema",
+      type: "api",
+      requestRef: "users-create",
+      expect: { responseJsonSchema: {} },
+      oracle: "api-contract",
+    },
+    { page, network, resolveRequestRef: resolveRef },
+  );
+  assert.equal(emptySchema.passed, false);
+  assert.equal(emptySchema.errorKind, "ASSERTION_ORACLE");
+
+  const emptyContains = await runCapturedHttpAssertion(
+    {
+      id: "empty-contains",
+      type: "api",
+      requestRef: "users-create",
+      expect: { responseBodyContains: "" },
+      oracle: "api-contract",
+    },
+    { page, network, resolveRequestRef: resolveRef },
+  );
+  assert.equal(emptyContains.passed, false);
+  assert.equal(emptyContains.errorKind, "ASSERTION_ORACLE");
+});

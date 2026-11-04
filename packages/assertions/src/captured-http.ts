@@ -45,14 +45,14 @@ export function validateCapturedHttpAssertion(assertion: TestAssertion): Validat
   for (const issue of validateCapturedHttpExpectShape(expect)) {
     issues.push(issue);
   }
-  if ("responseJsonSchema" in expect && (expect.responseJsonSchema === null || typeof expect.responseJsonSchema !== "object")) {
-    issues.push({ path: "expect/responseJsonSchema", message: "responseJsonSchema 必须是对象" });
-  } else if (
-    expect.responseJsonSchema &&
-    typeof expect.responseJsonSchema === "object" &&
-    !Array.isArray(expect.responseJsonSchema)
+  const schema = expect.responseJsonSchema;
+  if (
+    schema !== null &&
+    typeof schema === "object" &&
+    !Array.isArray(schema) &&
+    Object.keys(schema as Record<string, unknown>).length > 0
   ) {
-    const schemaCheck = validateJsonSchemaDocument(expect.responseJsonSchema as Record<string, unknown>);
+    const schemaCheck = validateJsonSchemaDocument(schema as Record<string, unknown>);
     if (!schemaCheck.ok) {
       issues.push({
         path: "expect/responseJsonSchema",
@@ -98,8 +98,19 @@ export async function runCapturedHttpAssertion(
     };
   }
 
-  const matched = matchNetwork(network, spec);
   const expect = (assertion.expect ?? {}) as Record<string, unknown>;
+  const shapeIssues = validateCapturedHttpExpectShape(expect);
+  if (shapeIssues.length) {
+    return {
+      assertionId: id,
+      passed: false,
+      errorKind: "ASSERTION_ORACLE",
+      message: shapeIssues.map((issue) => `${issue.path}: ${issue.message}`).join("; "),
+      expected: expect,
+    };
+  }
+
+  const matched = matchNetwork(network, spec);
 
   if (matched.length === 0) {
     return {

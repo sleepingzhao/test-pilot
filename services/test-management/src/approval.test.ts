@@ -238,6 +238,66 @@ test("approval rejects api assertion with wrong expect field name", async () => 
   }
 });
 
+test("approval accepts api assertion with valid responseJsonSchema", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-approval-http-valid-"));
+  const dataRoot = join(root, "data");
+  const store = new FileStore(dataRoot);
+  await store.init();
+
+  const testId = "valid-http-schema";
+  const ir = {
+    id: testId,
+    version: 1,
+    platform: "web" as const,
+    steps: [{ id: "open", action: "navigate" as const, path: "/" }],
+    assertions: [
+      {
+        id: "api1",
+        type: "api" as const,
+        provider: "captured-http" as const,
+        requestRef: "users-create-attempt",
+        oracle: "api-contract" as const,
+        expect: {
+          statusCode: 201,
+          responseJsonSchema: {
+            type: "object",
+            required: ["id"],
+            properties: { id: { type: "string" } },
+          },
+        },
+      },
+    ],
+  };
+  await store.saveTest({
+    id: testId,
+    projectId: "default",
+    title: "valid http schema",
+    ir,
+    approvalStatus: "draft",
+    updatedAt: new Date().toISOString(),
+  });
+
+  const app = Fastify();
+  await app.register(sensible);
+  registerRoutes(app, store, join(root, "artifacts"), dataRoot);
+  await app.ready();
+
+  try {
+    const hash = computeIRHash(ir);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tests/${testId}/approve`,
+      payload: { irHash: hash },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as { approvalStatus: string };
+    assert.equal(body.approvalStatus, "approved");
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("approval rejects unknown assertion provider", async () => {
   const root = await mkdtemp(join(tmpdir(), "testpilot-approval-provider-"));
   const dataRoot = join(root, "data");

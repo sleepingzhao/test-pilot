@@ -14,6 +14,7 @@
     {
       "id": "password-tab",
       "type": "ui",
+      "target": { "role": "tab", "name": "密码" },
       "contains": "密码",
       "oracle": "requirement"
     }

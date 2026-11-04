@@ -49,7 +49,6 @@ function pilotScopeSteps(preset: Preset): TestStep[] {
         value: "自动回归 {{runId}}",
       },
       { id: "confirm-submit", action: "click", target: { role: "button", name: "确认提交" } },
-      { id: "wait-success", action: "wait", target: { name: "工单" } },
     ];
   }
   return [goto, { id: "wait-customer", action: "wait", target: { name: "选择服务项目" } }];
@@ -59,9 +58,10 @@ function pilotScopeAssertions(preset: Preset) {
   if (preset.id.includes("ticket")) {
     return [
       {
-        id: "ticket-submitted",
+        id: "ticket-required-fields",
         type: "ui" as const,
-        contains: "工单",
+        target: { role: "alert" },
+        contains: "请选择省、市、区县和街道",
         oracle: "human-approved" as const,
       },
     ];

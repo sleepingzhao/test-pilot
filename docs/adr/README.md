@@ -1,39 +1,22 @@
-# ADR-001: Platform vs execution engine boundary
+# ADR 索引
 
-**Status:** Accepted (scaffold)
+**唯一执行计划：[`../../ROADMAP.md`](../../ROADMAP.md)**
 
-The Playwright runner (`packages/runner-web`) must remain runnable as a library/CLI without the management API. Platform services communicate via stable JSON (Test IR in, Run result + artifact paths out).
+## 当前
 
-# ADR-002: Test IR v1 schema
+- [ADR-006：可扩展断言引擎](ADR-006-extensible-assertions.md) — Provider 注册表、UI/HTTP/DB/Agent 断言、配置版本、负向验证。
 
-**Status:** Accepted (draft)
+## 基础约束（历史决策，仍然有效）
 
-Schema file: `packages/test-ir/schema/test-ir.v1.schema.json`. Breaking changes bump schema `$id` / major version field on cases.
+- **ADR-001**：Playwright runner 必须可作为库/CLI 独立运行；平台与执行器通过 JSON 交互。
+- **ADR-002**：Test IR v1 schema 是唯一用例契约；破坏性变更升级版本。
+- **ADR-003**：Planner 只接收裁剪后的 ARIA/DOM 片段；全页截图按需。
+- **ADR-004**：AI 可建议 locator 修复，不得自动批准行为变更；高风险断言必须人工确认。
+- **ADR-005**：每次运行隔离测试数据；证据落盘前脱敏。
 
-# ADR-003: Context & token budget
+## 待补
 
-**Status:** Proposed
-
-Planner receives trimmed ARIA/DOM slices only; full-page screenshots are opt-in (canvas / visual regression).
-
-# ADR-004: Assertion oracles & self-heal
-
-**Status:** Proposed
-
-AI may suggest locator fixes; it must not auto-approve behavior changes. `human-approved` required for high-risk UI oracles.
-
-# ADR-005: Fixtures & evidence redaction
-
-**Status:** Proposed
-
-Per-run data isolation default; artifacts redacted before storage (V0.2+).
-
-# ADR-006: Extensible assertion engine
-
-**Status:** Accepted（2026-11-04）
-
-Provider registry、IR `provider`/`configRef`、内置 UI/HTTP/DB/Agent Provider、配置版本与负向验证。详见 [`ADR-006-extensible-assertions.md`](ADR-006-extensible-assertions.md)。
-
-# ADR-007～010（待补）
-
-断言配置版本与审批审计、安全默认值、AI 边界、本地门禁与 CI 策略。执行顺序见 [`../../ROADMAP.md`](../../ROADMAP.md)。
+- ADR-007：断言配置版本、审批 hash 与审计。
+- ADR-008：安全默认值（本机绑定、CORS 白名单、目标白名单、令牌）。
+- ADR-009：AI 只建议不自动改；回归零 LLM。
+- ADR-010：本地门禁优先，CI 按需。

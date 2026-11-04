@@ -41,9 +41,9 @@ pnpm start
 # 打开 http://127.0.0.1:8787
 ```
 
-LLM（DeepSeek 等）配置见 [`docs/llm.md`](docs/llm.md)；密钥只写在 **`.env`** 的 `TESTPILOT_LLM_API_KEY`。
+LLM（DeepSeek 等）是可选能力，只用于草稿与诊断；密钥只写在 **`.env`** 的 `TESTPILOT_LLM_API_KEY`。默认 `deepseek` / `deepseek-chat` / 2048 tokens；provider 的 token 上限由服务端决定，错误会显示在控制台。完整变量见 `.env.example`。
 
-Agent 自主迭代边界见 [`docs/agent-iteration.md`](docs/agent-iteration.md)。
+Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](ROADMAP.md)。
 
 ## 架构（与 design 图对齐）
 

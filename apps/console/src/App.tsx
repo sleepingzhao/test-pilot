@@ -548,7 +548,7 @@ export function App() {
         <div className="alert-bar" style={{ background: "#f5f5f7", color: "#6e6e73", borderColor: "#d2d2d7" }}>
           {llmInfo.error
             ? `LLM 配置无效：${llmInfo.error}`
-            : "LLM 未启用：在 .env 中设置 TESTPILOT_LLM_API_KEY（见 .env.example / docs/llm.md）。"}
+            : "LLM 未启用：在 .env 中设置 TESTPILOT_LLM_API_KEY（见 .env.example）。"}
         </div>
       )}
       {llmInfo?.enabled && llmInfo.lastError && (
@@ -1027,7 +1027,7 @@ export function App() {
                 <p className="hint-inline">
                   {diagnoseDetail.llmUsed
                     ? "已合并 LLM 建议（仅诊断，回归仍不调用 LLM）。"
-                    : "回归执行不调用 LLM；在 .env 配置 TESTPILOT_LLM_API_KEY 见 docs/llm.md。"}
+                    : "回归执行不调用 LLM；在 .env 配置 TESTPILOT_LLM_API_KEY（见 .env.example）。"}
                 </p>
               </>
             )}

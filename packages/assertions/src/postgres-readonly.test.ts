@@ -20,6 +20,36 @@ test("assertSafeReadonlySql rejects non-SELECT", () => {
   assert.throws(() => assertSafeReadonlySql("DELETE FROM work_order", ["work_order"]));
 });
 
+test("assertSafeReadonlySql rejects SELECT INTO (negative)", () => {
+  assert.throws(() =>
+    assertSafeReadonlySql("SELECT * INTO new_table FROM work_order", ["work_order"]),
+  );
+});
+
+test("assertSafeReadonlySql rejects pg_read_file (negative)", () => {
+  assert.throws(() =>
+    assertSafeReadonlySql("SELECT pg_read_file('/etc/passwd') AS work_order", ["work_order"]),
+  );
+});
+
+test("assertSafeReadonlySql rejects JOIN pg_shadow (negative)", () => {
+  assert.throws(() =>
+    assertSafeReadonlySql("SELECT * FROM work_order JOIN pg_shadow ON true", ["work_order"]),
+  );
+});
+
+test("assertSafeReadonlySql rejects multi-statement (negative)", () => {
+  assert.throws(() =>
+    assertSafeReadonlySql("SELECT id FROM work_order; DELETE FROM work_order", ["work_order"]),
+  );
+});
+
+test("assertSafeReadonlySql allows simple SELECT on allowed table", () => {
+  assert.doesNotThrow(() =>
+    assertSafeReadonlySql("SELECT id FROM work_order WHERE ref = :runId", ["work_order"]),
+  );
+});
+
 test("bindNamedParams produces positional placeholders", () => {
   const { text, values } = bindNamedParams("SELECT * FROM work_order WHERE ref = :runId", {
     runId: "r1",

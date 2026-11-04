@@ -167,6 +167,13 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - [x] AS-6 负向验证框架 — `examples/negative-probes/*` + `pnpm negative-probes` → `artifacts/negative-probes-last.json`；`GET /api/metrics/negative-probes`；`pnpm verify` 全绿
 - [x] P-1 真实工单提交成功用例 — `selectCascader` 步骤 + `demo-ticket-submit-success.json`（UI+HTTP）+ `demo-ticket-no-attachment.json` 负向 + `runner-web/src/ticket-p1.test.ts`；试点模板 `pilot-ticket-submit-success.json`（draft，需人工校对后批准）；`pnpm verify` 全绿
 - [x] FIX-1 HTTP 断言必须可失败 — `captured-http-expect.ts` 白名单 expect；空 expect / 仅 requestRef 运行时 `ASSERTION_ORACLE`；审批拒绝未知字段、空 schema、空字符串与未知 JSON Schema 关键字；合法 `responseJsonSchema` 可审批；`partialJsonMatch` 严格类型并支持数组深匹配；`captured-http.test.ts` / `approval.test.ts` 正负测试；`pnpm verify` 全绿
+- [x] FIX-0 AS-4 OTLP 工具 span 过滤 — `trace-client.ts` 按 `service.name` + 工具属性识别；HTTP span 排除；多 trace 按 traceRef 选择；`examples/agent-traces/run-1.json` + `otel-trace.test.ts`；`pnpm verify` 全绿
+- [x] FIX-2 DB 只读边界 — `assertSafeReadonlySql` 增强；DB expect 白名单 + 必须 rowCount/minRowCount/row；连接错误 `ENVIRONMENT`；删除 fixtures self-dependency；`postgres-readonly.test.ts` 负向；`pnpm verify` 全绿
+- [x] FIX-3 证据脱敏 — `packages/evidence/src/redact.ts`；network.json / DB / agent actual 脱敏；`redact.test.ts`；`pnpm verify` 全绿
+- [x] FIX-4 配置版本绑定 — `computeAssertionConfigHash`；审批 `assertionConfigHash` 409；控制台审阅展示；`approval.test.ts`；`pnpm verify` 全绿
+- [x] FIX-5 负向探针门禁 — 仅 `PRODUCT_DEFECT` 算成功；报告 `errorKind`；metrics 测试用临时 artifacts；`negative-probes.mjs` / `ticket-p1.test.ts` 轮询就绪；`pnpm verify` 全绿
+- [x] FIX-6 P-1 负向与试点 — `absent`/`requestCount:0` HTTP 断言；`demo-ticket-no-attachment` 无 201；`pilot-ticket-no-region.json` 草稿；`env.ticketPhone`；`pnpm verify` 全绿
+- [x] FIX-7 清理 — Provider 重复注册抛错；URL 路径级匹配；`url-path-match.test.ts` / `providers.test.ts`；`pnpm verify` 全绿
 - [ ] P-2 登录态 intake 快照
 - [ ] P-3 Recorder 端到端
 - [ ] P-4 步骤编辑器 / 草稿试跑

@@ -1,7 +1,10 @@
 import type { TestAssertion, ValidationIssue } from "@testpilot/test-ir";
 import type { DbConfigBundle } from "@testpilot/fixtures";
 import { partialJsonMatch } from "./api-match.js";
+import { redactForEvidence } from "@testpilot/evidence";
 import type { AssertionContext, AssertionOutcome } from "./types.js";
+
+const DB_EXPECT_KEYS = new Set(["queryRef", "rowCount", "minRowCount", "row", "params"]);
 
 type DbExpect = {
   queryRef?: string;
@@ -10,6 +13,14 @@ type DbExpect = {
   row?: Record<string, unknown>;
   params?: Record<string, string>;
 };
+
+function hasDbResultExpect(expect: DbExpect): boolean {
+  return (
+    typeof expect.rowCount === "number" ||
+    typeof expect.minRowCount === "number" ||
+    (expect.row !== undefined && typeof expect.row === "object" && !Array.isArray(expect.row))
+  );
+}
 
 function resolveParamValue(raw: string, runId: string): string {
   return raw.replace(/\{\{runId\}\}/g, runId);
@@ -36,6 +47,11 @@ export function validatePostgresReadonlyAssertion(
     issues.push({ path: "configRef", message: "DB 断言需要 configRef" });
   }
   const expect = (assertion.expect ?? {}) as DbExpect;
+  for (const key of Object.keys(assertion.expect ?? {})) {
+    if (!DB_EXPECT_KEYS.has(key)) {
+      issues.push({ path: `expect/${key}`, message: `DB expect 不支持字段 "${key}"` });
+    }
+  }
   if (!expect.queryRef) {
     issues.push({ path: "expect/queryRef", message: "DB 断言需要 expect.queryRef（命名查询）" });
   }
@@ -52,6 +68,12 @@ export function validatePostgresReadonlyAssertion(
         message: `配置中不存在命名查询: ${expect.queryRef}`,
       });
     }
+  }
+  if (!hasDbResultExpect(expect)) {
+    issues.push({
+      path: "expect",
+      message: "DB 断言 expect 需要 rowCount、minRowCount 或 row 之一",
+    });
   }
   return issues;
 }
@@ -90,6 +112,14 @@ export async function runPostgresReadonlyAssertion(
       message: "db assertion requires expect.queryRef",
     };
   }
+  if (!hasDbResultExpect(expect)) {
+    return {
+      assertionId: id,
+      passed: false,
+      errorKind: "ASSERTION_ORACLE",
+      message: "db assertion requires rowCount, minRowCount, or row in expect",
+    };
+  }
   if (!ctx.db) {
     return {
       assertionId: id,
@@ -102,12 +132,12 @@ export async function runPostgresReadonlyAssertion(
   try {
     const params = buildQueryParams(expect, runId);
     const result = await ctx.db.runNamedQuery(configRef, expect.queryRef, params);
-    const evidence = {
+    const evidence = redactForEvidence({
       queryRef: expect.queryRef,
       configRef,
       rowCount: result.rowCount,
       rows: result.rows.slice(0, 5),
-    };
+    }) as Record<string, unknown>;
 
     if (typeof expect.rowCount === "number" && result.rowCount !== expect.rowCount) {
       return {
@@ -153,11 +183,20 @@ export async function runPostgresReadonlyAssertion(
       actual: evidence,
     };
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const kind =
+      err && typeof err === "object" && (err as { errorKind?: string }).errorKind === "ENVIRONMENT"
+        ? "ENVIRONMENT"
+        : /only SELECT|forbidden SQL|not allowed|missing query param|unknown queryRef|unknown db configRef/i.test(
+              message,
+            )
+          ? "ASSERTION_ORACLE"
+          : "ENVIRONMENT";
     return {
       assertionId: id,
       passed: false,
-      errorKind: "ASSERTION_ORACLE",
-      message: err instanceof Error ? err.message : String(err),
+      errorKind: kind,
+      message,
     };
   }
 }

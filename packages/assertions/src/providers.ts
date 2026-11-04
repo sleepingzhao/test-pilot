@@ -23,6 +23,9 @@ const TYPES_REQUIRING_EXPLICIT_PROVIDER = new Set<TestAssertion["type"]>([
 ]);
 
 export function registerAssertionProvider(provider: AssertionProvider): void {
+  if (registry.has(provider.id)) {
+    throw new Error(`assertion provider already registered: ${provider.id}`);
+  }
   registry.set(provider.id, provider);
 }
 

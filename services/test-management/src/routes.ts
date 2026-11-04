@@ -9,6 +9,7 @@ import { snapshotPageContext } from "@testpilot/context-web";
 import { draftToPartialIR, planDraft, planFromIntake, suggestAssertionsForTest, filterForbiddenSuggestionTokens } from "@testpilot/planner";
 import { computeIRHash, IR_HASH_VERSION, validateSemantics, validateTestIR, weakAssertionIssues } from "@testpilot/test-ir";
 import { validateAssertionProviders } from "@testpilot/assertions";
+import { computeAssertionConfigHash } from "@testpilot/fixtures";
 import { classifyFailure } from "@testpilot/evidence";
 import { chromium } from "playwright";
 import type { FileStore, RecordJob, StoredRun, StoredTest } from "./store.js";
@@ -65,18 +66,28 @@ export type RunBatchJob = {
 
 const batchJobs = new Map<string, RunBatchJob>();
 
-function stampTestMeta(test: StoredTest, opts?: { approving?: boolean }): StoredTest {
+function stampTestMeta(test: StoredTest, opts?: { approving?: boolean; assertionConfigHash?: string }): StoredTest {
   const irHash = computeIRHash(test.ir);
   const next: StoredTest = { ...test, irHash, irHashVersion: IR_HASH_VERSION, updatedAt: new Date().toISOString() };
   if (opts?.approving) {
     next.approvalStatus = "approved";
     next.approvedAt = new Date().toISOString();
+    if (opts.assertionConfigHash) next.assertionConfigHash = opts.assertionConfigHash;
   }
   return next;
 }
 
 function withWeakAssertions(test: StoredTest) {
-  return { ...test, weakAssertions: weakAssertionIssues(test.ir) };
+  const currentConfigHash = computeAssertionConfigHash(repoRoot);
+  return {
+    ...test,
+    weakAssertions: weakAssertionIssues(test.ir),
+    currentAssertionConfigHash: currentConfigHash,
+    configHashStale:
+      test.approvalStatus === "approved" &&
+      Boolean(test.assertionConfigHash) &&
+      test.assertionConfigHash !== currentConfigHash,
+  };
 }
 
 async function readLocalJson<T>(filename: string): Promise<T | null> {
@@ -307,8 +318,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (!isSafeTestId(testId)) return reply.notFound("test not found");
     const test = await store.getTest(testId);
     if (!test) return reply.notFound("test not found");
-    const body = (req.body ?? {}) as { irHash?: string };
+    const body = (req.body ?? {}) as { irHash?: string; assertionConfigHash?: string };
     const currentHash = computeIRHash(test.ir);
+    const currentConfigHash = computeAssertionConfigHash(repoRoot);
     if (!body.irHash) {
       return reply.code(400).send({
         error: "审批必须携带审阅时的 irHash",
@@ -319,6 +331,19 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       return reply.code(409).send({
         error: "用例内容已变化，请重新审阅后再批准",
         irHash: currentHash,
+        assertionConfigHash: currentConfigHash,
+      });
+    }
+    if (!body.assertionConfigHash) {
+      return reply.code(400).send({
+        error: "审批必须携带审阅时的 assertionConfigHash",
+        assertionConfigHash: currentConfigHash,
+      });
+    }
+    if (body.assertionConfigHash !== currentConfigHash) {
+      return reply.code(409).send({
+        error: "断言配置已变化，请重新审阅后再批准",
+        assertionConfigHash: currentConfigHash,
       });
     }
     const hasPlaceholder = test.ir.assertions.some((a) =>
@@ -354,7 +379,10 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
     const actorHeader = req.headers["x-testpilot-actor"];
     const actor = String(Array.isArray(actorHeader) ? actorHeader[0] : actorHeader ?? "local").slice(0, 80);
-    const approved = { ...stampTestMeta(test, { approving: true }), approvedBy: actor };
+    const approved = {
+      ...stampTestMeta(test, { approving: true, assertionConfigHash: currentConfigHash }),
+      approvedBy: actor,
+    };
     await store.saveTest(approved);
     return withWeakAssertions(approved);
   });
@@ -554,12 +582,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       pilotBaselineNotes: baseline?.notes ?? null,
       minutesSavedVsBaseline,
       recentBatches: groupRunsIntoBatches(runs).slice(0, 8),
-      negativeProbes: await readNegativeProbeReport(repoRoot),
+      negativeProbes: await readNegativeProbeReport(artifactsRoot),
     };
   });
 
   app.get("/api/metrics/negative-probes", async () => {
-    const report = await readNegativeProbeReport(repoRoot);
+    const report = await readNegativeProbeReport(artifactsRoot);
     if (!report) {
       return {
         ok: false,

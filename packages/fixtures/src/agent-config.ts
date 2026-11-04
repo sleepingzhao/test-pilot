@@ -16,8 +16,11 @@ export type AssertionAgentConfigFile = {
 
 let cachedConfigs: Record<string, AgentConfigBundle> | undefined;
 
-export function loadAssertionAgentConfigs(repoRoot?: string): Record<string, AgentConfigBundle> {
-  if (cachedConfigs) return cachedConfigs;
+export function loadAssertionAgentConfigs(
+  repoRoot?: string,
+  opts?: { fresh?: boolean },
+): Record<string, AgentConfigBundle> {
+  if (cachedConfigs && !opts?.fresh) return cachedConfigs;
   const root =
     repoRoot ?? join(dirname(fileURLToPath(import.meta.url)), "../../..");
   for (const name of ["assertion-agent-config.json", "assertion-agent-config.example.json"]) {

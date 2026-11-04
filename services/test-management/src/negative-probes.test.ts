@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, mkdir, unlink } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,17 +10,17 @@ import { registerRoutes } from "./routes.js";
 import { FileStore } from "./store.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
-const reportPath = join(repoRoot, "artifacts/negative-probes-last.json");
 
 test("metrics summary exposes negative probe report when present", async () => {
   const root = await mkdtemp(join(tmpdir(), "testpilot-neg-probes-"));
   const dataRoot = join(root, "data");
+  const artifactsRoot = join(root, "artifacts");
   const store = new FileStore(dataRoot);
   await store.init();
 
-  await mkdir(join(repoRoot, "artifacts"), { recursive: true });
+  await mkdir(artifactsRoot, { recursive: true });
   await writeFile(
-    reportPath,
+    join(artifactsRoot, "negative-probes-last.json"),
     JSON.stringify({
       completedAt: "2026-11-04T00:00:00.000Z",
       ok: true,
@@ -32,6 +32,7 @@ test("metrics summary exposes negative probe report when present", async () => {
           file: "x.json",
           actualStatus: "failed",
           failedAssertionIds: ["a"],
+          errorKind: "PRODUCT_DEFECT",
         },
       ],
     }),
@@ -39,7 +40,7 @@ test("metrics summary exposes negative probe report when present", async () => {
 
   const app = Fastify();
   await app.register(sensible);
-  registerRoutes(app, store, join(root, "artifacts"), dataRoot);
+  registerRoutes(app, store, artifactsRoot, dataRoot);
   await app.ready();
 
   try {
@@ -55,6 +56,5 @@ test("metrics summary exposes negative probe report when present", async () => {
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });
-    await unlink(reportPath).catch(() => undefined);
   }
 });

@@ -6,6 +6,7 @@ import {
   validateCapturedHttpExpectShape,
 } from "./captured-http-expect.js";
 import { matchesJsonSchema, validateJsonSchemaDocument } from "./json-schema-match.js";
+import { urlPathMatches } from "./url-path-match.js";
 
 function matchNetwork(
   network: CapturedNetworkEntry[],
@@ -13,7 +14,8 @@ function matchNetwork(
 ): CapturedNetworkEntry[] {
   return network.filter(
     (n) =>
-      n.url.includes(spec.urlIncludes) && (!spec.method || n.method.toUpperCase() === spec.method.toUpperCase()),
+      urlPathMatches(n.url, spec.urlIncludes) &&
+      (!spec.method || n.method.toUpperCase() === spec.method.toUpperCase()),
   );
 }
 
@@ -111,6 +113,30 @@ export async function runCapturedHttpAssertion(
   }
 
   const matched = matchNetwork(network, spec);
+
+  const wantsNoRequest = expect.absent === true || expect.requestCount === 0;
+  if (wantsNoRequest) {
+    const pool =
+      typeof expect.statusCode === "number"
+        ? matched.filter((n) => n.status === expect.statusCode)
+        : matched;
+    if (pool.length > 0) {
+      return {
+        assertionId: id,
+        passed: false,
+        expected: { requestRef: ref, ...expect },
+        actual: pool.slice(-3).map((n) => ({ url: n.url, status: n.status })),
+        errorKind: "PRODUCT_DEFECT",
+        message: `expected no matching request for ${ref}`,
+      };
+    }
+    return {
+      assertionId: id,
+      passed: true,
+      expected: { requestRef: ref, ...expect },
+      actual: { requestCount: 0 },
+    };
+  }
 
   if (matched.length === 0) {
     return {

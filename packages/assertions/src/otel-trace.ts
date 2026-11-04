@@ -1,5 +1,6 @@
 import type { TestAssertion, ValidationIssue } from "@testpilot/test-ir";
 import type { AgentConfigBundle, AgentToolCall, ImportedAgentTrace } from "@testpilot/fixtures";
+import { redactForEvidence } from "@testpilot/evidence";
 import { partialJsonMatch } from "./api-match.js";
 import type { AssertionContext, AssertionOutcome } from "./types.js";
 
@@ -29,28 +30,15 @@ function countMatchingCalls(calls: AgentToolCall[], spec: ToolCallExpect): numbe
   }).length;
 }
 
-function redactArgs(args: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-  if (!args) return undefined;
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(args)) {
-    if (/password|secret|token|api[_-]?key/i.test(key)) {
-      out[key] = "***";
-    } else {
-      out[key] = value;
-    }
-  }
-  return out;
-}
-
 function traceEvidence(trace: ImportedAgentTrace): Record<string, unknown> {
-  return {
+  return redactForEvidence({
     traceId: trace.traceId,
     runId: trace.runId,
     toolCalls: trace.toolCalls.slice(0, 20).map((c) => ({
       name: c.name,
-      args: redactArgs(c.args),
+      args: c.args,
     })),
-  };
+  }) as Record<string, unknown>;
 }
 
 export function validateOtelTraceAssertion(

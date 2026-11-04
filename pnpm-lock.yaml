@@ -47,6 +47,9 @@ importers:
 
   packages/assertions:
     dependencies:
+      '@testpilot/evidence':
+        specifier: workspace:*
+        version: link:../evidence
       '@testpilot/fixtures':
         specifier: workspace:*
         version: link:../fixtures
@@ -117,9 +120,6 @@ importers:
 
   packages/fixtures:
     dependencies:
-      '@testpilot/fixtures':
-        specifier: workspace:*
-        version: 'link:'
       '@testpilot/test-ir':
         specifier: workspace:*
         version: link:../test-ir

@@ -18,6 +18,7 @@ export type NegativeProbeResult = {
   ok: boolean;
   actualStatus: RunResult["status"];
   failedAssertionIds: string[];
+  errorKind?: string;
   message?: string;
 };
 
@@ -36,6 +37,29 @@ export function loadProbeCatalog(repoRoot: string): NegativeProbeSpec[] {
 function loadProbeIr(repoRoot: string, file: string): TestIR {
   const raw = readFileSync(join(repoRoot, file), "utf8");
   return JSON.parse(raw) as TestIR;
+}
+
+export function evaluateNegativeProbeRun(spec: NegativeProbeSpec, run: RunResult): NegativeProbeResult {
+  const failed = run.assertions.filter((a) => !a.passed);
+  const failedAssertionIds = failed.map((a) => a.assertionId);
+  const primaryKind = failed[0]?.errorKind;
+  const ok =
+    run.status === "failed" &&
+    failedAssertionIds.length > 0 &&
+    failed.every((a) => a.errorKind === "PRODUCT_DEFECT") &&
+    primaryKind === "PRODUCT_DEFECT";
+  return {
+    id: spec.id,
+    provider: spec.provider,
+    file: spec.file,
+    ok,
+    actualStatus: run.status,
+    failedAssertionIds,
+    errorKind: primaryKind,
+    message: ok
+      ? undefined
+      : `expected failed run with PRODUCT_DEFECT assertion (got ${primaryKind ?? "none"})`,
+  };
 }
 
 function probeAgentMockEnv(baseEnv: RunEnvironment): RunEnvironment {
@@ -71,20 +95,6 @@ function probeDbMockEnv(baseEnv: RunEnvironment): RunEnvironment {
       configs,
       mockExecute: async () => ({ rowCount: 0, rows: [] }),
     }),
-  };
-}
-
-export function evaluateNegativeProbeRun(spec: NegativeProbeSpec, run: RunResult): NegativeProbeResult {
-  const failedAssertionIds = run.assertions.filter((a) => !a.passed).map((a) => a.assertionId);
-  const ok = run.status === "failed" && failedAssertionIds.length > 0;
-  return {
-    id: spec.id,
-    provider: spec.provider,
-    file: spec.file,
-    ok,
-    actualStatus: run.status,
-    failedAssertionIds,
-    message: ok ? undefined : "expected failed run with failing assertion",
   };
 }
 

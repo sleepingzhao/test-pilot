@@ -10,6 +10,8 @@ export const CAPTURED_HTTP_EXPECT_KEYS = new Set([
   "responseHeaders",
   "requestObserved",
   "userCountDelta",
+  "requestCount",
+  "absent",
 ]);
 
 export function listCapturedHttpExpectKeys(): string[] {
@@ -40,6 +42,8 @@ export function hasSupportedCapturedHttpExpect(expect: Record<string, unknown>):
   if (isNonEmptyPlainObject(expect.responseJsonSchema)) return true;
   if (isNonEmptyPlainObject(expect.responseHeaders)) return true;
   if (expect.requestObserved === true) return true;
+  if (expect.absent === true) return true;
+  if (expect.requestCount === 0) return true;
   return false;
 }
 
@@ -104,6 +108,16 @@ export function validateCapturedHttpExpectShape(expect: Record<string, unknown>)
 
   if ("userCountDelta" in expect && expect.userCountDelta !== 0) {
     issues.push({ path: "expect/userCountDelta", message: "userCountDelta 目前仅支持 0" });
+  }
+
+  if ("requestCount" in expect) {
+    if (expect.requestCount !== 0) {
+      issues.push({ path: "expect/requestCount", message: "requestCount 目前仅支持 0" });
+    }
+  }
+
+  if ("absent" in expect && expect.absent !== true) {
+    issues.push({ path: "expect/absent", message: "absent 只能为 true" });
   }
 
   if (!hasSupportedCapturedHttpExpect(expect)) {

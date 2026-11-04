@@ -571,7 +571,10 @@ export function App() {
       });
       await api(`/api/tests/${editTest.id}/approve`, {
         method: "POST",
-        body: JSON.stringify({ irHash: saved.irHash }),
+        body: JSON.stringify({
+          irHash: saved.irHash,
+          assertionConfigHash: saved.currentAssertionConfigHash ?? saved.assertionConfigHash,
+        }),
       });
       setEditTest(null);
       notify("已保存并批准");
@@ -1045,6 +1048,11 @@ export function App() {
               <p className="sheet-review-subtitle">{editTest.title}</p>
               <p className="hint-inline sheet-review-meta">
                 {editTest.ir.steps?.length ?? 0} 个步骤 · 来源 {editTest.sourceChannel ?? "未知"}
+                {editTest.irHash ? ` · IR ${editTest.irHash.slice(0, 8)}` : ""}
+                {editTest.currentAssertionConfigHash
+                  ? ` · 配置 ${editTest.currentAssertionConfigHash}`
+                  : ""}
+                {editTest.configHashStale ? " · 配置已变化，需重新批准" : ""}
               </p>
             </header>
             <div className="sheet-review-body">

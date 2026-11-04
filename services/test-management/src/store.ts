@@ -20,6 +20,8 @@ export type StoredTest = {
   irHashVersion?: number;
   approvedAt?: string;
   approvedBy?: string;
+  /** Hash of docs assertion-db/agent config at approval time. */
+  assertionConfigHash?: string;
   intentSummary?: string;
   sourceChannel?: "intent" | "prd" | "record";
   /** Planner uncertainties shown in review (not used at runtime). */

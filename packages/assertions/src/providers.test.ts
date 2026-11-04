@@ -4,10 +4,12 @@ import type { TestIR } from "@testpilot/test-ir";
 import {
   getAssertionProvider,
   listAssertionProviders,
+  registerAssertionProvider,
   resolveAssertionProviderId,
   runAssertion,
   validateAssertionProviders,
 } from "./index.js";
+import type { AssertionProvider } from "./providers.js";
 
 const ctx = {
   page: {} as import("playwright").Page,
@@ -49,6 +51,16 @@ test("unknown provider fails at run time with ASSERTION_ORACLE", async () => {
   assert.equal(outcome.passed, false);
   assert.equal(outcome.errorKind, "ASSERTION_ORACLE");
   assert.match(outcome.message ?? "", /unknown assertion provider/);
+});
+
+test("registerAssertionProvider throws on duplicate id (negative)", () => {
+  const duplicate: AssertionProvider = {
+    id: "playwright-ui",
+    kind: "ui",
+    run: async () => ({ assertionId: "x", passed: true }),
+  };
+  assert.throws(() => registerAssertionProvider(duplicate), /already registered/);
+  assert.ok(getAssertionProvider("playwright-ui"));
 });
 
 test("validateAssertionProviders rejects missing and unknown providers", () => {

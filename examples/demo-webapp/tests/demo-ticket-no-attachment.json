@@ -34,6 +34,14 @@
       "target": { "testId": "ticket-alert" },
       "contains": "请选择省、市、区县和街道",
       "oracle": "human-approved"
+    },
+    {
+      "id": "ticket-no-submit-request",
+      "type": "api",
+      "provider": "captured-http",
+      "requestRef": "tickets-create-attempt",
+      "expect": { "absent": true, "statusCode": 201 },
+      "oracle": "api-contract"
     }
   ],
   "policy": { "screenshots": "on-failure" }

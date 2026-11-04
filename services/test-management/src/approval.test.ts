@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import sensible from "@fastify/sensible";
 import { computeIRHash } from "@testpilot/test-ir";
+import { computeAssertionConfigHash } from "@testpilot/fixtures";
 import Fastify from "fastify";
 import { registerRoutes } from "./routes.js";
 import { FileStore } from "./store.js";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+function configHash() {
+  return computeAssertionConfigHash(repoRoot);
+}
 
 test("approval is pinned to the reviewed IR hash and records the actor", async () => {
   const root = await mkdtemp(join(tmpdir(), "testpilot-approval-"));
@@ -58,7 +66,7 @@ test("approval is pinned to the reviewed IR hash and records the actor", async (
     const approved = await app.inject({
       method: "POST",
       url: `/api/tests/${testId}/approve`,
-      payload: { irHash: hash },
+      payload: { irHash: hash, assertionConfigHash: configHash() },
       headers: { "x-testpilot-actor": "qa-bot" },
     });
     assert.equal(approved.statusCode, 200);
@@ -122,7 +130,7 @@ test("approval rejects db assertion with unknown queryRef", async () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/tests/${testId}/approve`,
-      payload: { irHash: hash },
+      payload: { irHash: hash, assertionConfigHash: configHash() },
     });
     assert.equal(res.statusCode, 400);
     const body = res.json() as { issues?: Array<{ message: string }> };
@@ -175,7 +183,7 @@ test("approval rejects agent assertion with empty expect rules", async () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/tests/${testId}/approve`,
-      payload: { irHash: hash },
+      payload: { irHash: hash, assertionConfigHash: configHash() },
     });
     assert.equal(res.statusCode, 400);
     const body = res.json() as { issues?: Array<{ message: string }> };
@@ -227,7 +235,7 @@ test("approval rejects api assertion with wrong expect field name", async () => 
     const res = await app.inject({
       method: "POST",
       url: `/api/tests/${testId}/approve`,
-      payload: { irHash: hash },
+      payload: { irHash: hash, assertionConfigHash: configHash() },
     });
     assert.equal(res.statusCode, 400);
     const body = res.json() as { issues?: Array<{ message: string }> };
@@ -287,7 +295,7 @@ test("approval accepts api assertion with valid responseJsonSchema", async () =>
     const res = await app.inject({
       method: "POST",
       url: `/api/tests/${testId}/approve`,
-      payload: { irHash: hash },
+      payload: { irHash: hash, assertionConfigHash: configHash() },
     });
     assert.equal(res.statusCode, 200);
     const body = res.json() as { approvalStatus: string };
@@ -339,7 +347,7 @@ test("approval rejects unknown assertion provider", async () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/tests/${testId}/approve`,
-      payload: { irHash: hash },
+      payload: { irHash: hash, assertionConfigHash: configHash() },
     });
     assert.equal(res.statusCode, 400);
     const body = res.json() as { issues?: Array<{ message: string }> };

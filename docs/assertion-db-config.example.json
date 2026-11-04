@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "_readme": "DB 账号必须是只读、最小权限；代码中的 assertSafeReadonlySql 只是第二道防线。",
   "dbs": {
     "pilot-db": {
       "connectionRef": "env.PILOT_DB_URL",

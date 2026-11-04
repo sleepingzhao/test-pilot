@@ -28,8 +28,11 @@ export function resolveConfigEnvRef(ref: string): string | undefined {
 
 let cachedConfigs: Record<string, DbConfigBundle> | undefined;
 
-export function loadAssertionDbConfigs(repoRoot?: string): Record<string, DbConfigBundle> {
-  if (cachedConfigs) return cachedConfigs;
+export function loadAssertionDbConfigs(
+  repoRoot?: string,
+  opts?: { fresh?: boolean },
+): Record<string, DbConfigBundle> {
+  if (cachedConfigs && !opts?.fresh) return cachedConfigs;
   const root =
     repoRoot ?? join(dirname(fileURLToPath(import.meta.url)), "../../..");
   for (const name of ["assertion-db-config.json", "assertion-db-config.example.json"]) {

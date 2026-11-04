@@ -5,6 +5,9 @@ export type StoredTest = {
   ir: { id: string; version: number; assertions: unknown[]; steps: unknown[]; baseUrlRef?: string };
   approvalStatus: "draft" | "approved";
   irHash?: string;
+  assertionConfigHash?: string;
+  currentAssertionConfigHash?: string;
+  configHashStale?: boolean;
   approvedAt?: string;
   approvedBy?: string;
   weakAssertions?: Array<{ path: string; message: string }>;

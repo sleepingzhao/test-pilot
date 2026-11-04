@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo 'no tests yet'",
+    "test": "node --import tsx --test src/redact.test.ts",
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {

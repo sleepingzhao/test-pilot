@@ -1,0 +1,60 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "pilot-agent" } }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "traceId": "traceaaa111",
+              "spanId": "http1",
+              "name": "GET /health",
+              "attributes": [
+                { "key": "http.method", "value": { "stringValue": "GET" } },
+                { "key": "http.url", "value": { "stringValue": "http://127.0.0.1/health" } }
+              ]
+            },
+            {
+              "traceId": "traceaaa111",
+              "spanId": "tool1",
+              "name": "execute_tool",
+              "attributes": [
+                { "key": "gen_ai.tool.name", "value": { "stringValue": "search_orders" } },
+                {
+                  "key": "tool.args",
+                  "value": { "stringValue": "{\"customerId\":\"run-1\"}" }
+                },
+                { "key": "runId", "value": { "stringValue": "run-1" } }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "other-service" } }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "traceId": "tracebbb222",
+              "spanId": "tool2",
+              "name": "delete_order",
+              "attributes": [
+                { "key": "gen_ai.tool.name", "value": { "stringValue": "delete_order" } }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

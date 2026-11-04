@@ -31,11 +31,12 @@ export type NetworkEntry = {
   responseHeaders?: Record<string, string>;
 };
 
-function sanitizeResponseBody(raw: string): string {
-  return raw
-    .replace(/"(password|token|secret|api[_-]?key)"\s*:\s*"[^"]*"/gi, '"$1":"***"')
-    .slice(0, 4000);
-}
+import {
+  redactForEvidence,
+  redactHeaders,
+  redactStringBody,
+  redactUrl,
+} from "./redact.js";
 
 function pickResponseHeaders(headers: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -55,10 +56,15 @@ export function createEvidenceCollector(options: EvidenceOptions) {
 
   async function writeNetworkLog() {
     const path = join(runDir, "network.json");
-    const redacted = network.map((n) => ({
-      ...n,
-      url: n.url.replace(/([?&]token=)[^&]+/gi, "$1***"),
-    }));
+    const redacted = network.map((n) =>
+      redactForEvidence({
+        ...n,
+        url: redactUrl(n.url),
+        requestBody: n.requestBody ? redactStringBody(n.requestBody) : undefined,
+        responseBody: n.responseBody ? redactStringBody(n.responseBody) : undefined,
+        responseHeaders: redactHeaders(n.responseHeaders),
+      }),
+    );
     await writeFile(path, JSON.stringify(redacted, null, 2));
     if (!artifacts.some((a) => a.kind === "network")) {
       artifacts.push({ kind: "network", path });
@@ -89,12 +95,11 @@ export function createEvidenceCollector(options: EvidenceOptions) {
           resourceType: req.resourceType(),
         };
         if (post && post.length > 0 && post.length <= 8000) {
-          entry.requestBody = post
-            .replace(/"(password|token|secret|api[_-]?key)"\s*:\s*"[^"]*"/gi, '"$1":"***"')
-            .slice(0, 4000);
+          entry.requestBody = post.slice(0, 4000);
         }
         try {
-          entry.responseHeaders = pickResponseHeaders(res.headers());
+          const picked = pickResponseHeaders(res.headers());
+          entry.responseHeaders = picked;
         } catch {
           /* ignore */
         }
@@ -107,7 +112,7 @@ export function createEvidenceCollector(options: EvidenceOptions) {
               if (len > 8000) return;
               const text = await res.text();
               if (text.length > 0 && text.length <= 8000) {
-                entry.responseBody = sanitizeResponseBody(text);
+                entry.responseBody = text.slice(0, 4000);
               }
             } catch {
               /* response may be aborted */
@@ -147,6 +152,13 @@ export type FailureClassifierInput = {
   assertionMessage?: string;
   httpStatus?: number;
 };
+
+export {
+  redactForEvidence,
+  redactHeaders,
+  redactStringBody,
+  redactUrl,
+} from "./redact.js";
 
 export function classifyFailure(input: FailureClassifierInput): string {
   if (input.stepError?.includes("timeout") || input.httpStatus === 503) {

@@ -29,6 +29,7 @@ export function resolveFixtureRefs(fixtureName: string | undefined, env: RunEnvi
 const VALUE_REF_ENV_KEYS: Record<string, string> = {
   "env.adminPhone": "TESTPILOT_ENV_ADMIN_PHONE",
   "env.adminPassword": "TESTPILOT_ENV_ADMIN_PASSWORD",
+  "env.ticketPhone": "TESTPILOT_ENV_ADMIN_PHONE",
 };
 
 export function resolveValueRefEnvKey(valueRef: string): string {
@@ -98,6 +99,8 @@ export function buildReadonlyDbClient(env: RunEnvironment): ReadonlyDbClient | u
 }
 
 export type { AgentConfigBundle } from "./agent-config.js";
+export { computeAssertionConfigHash } from "./config-hash.js";
+export { waitForHttpReady } from "./wait-ready.js";
 export {
   getAgentConfigBundle,
   loadAssertionAgentConfigs,

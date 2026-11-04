@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import type { TestIR } from "./types.js";
 
+/** Bump when the canonicalization changes so stored hashes can be migrated. */
+export const IR_HASH_VERSION = 2;
+
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === "object") {

@@ -3,13 +3,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FileStore } from "./store.js";
 import type { StoredTest } from "./store.js";
-import { computeIRHash } from "@testpilot/test-ir";
+import { computeIRHash, IR_HASH_VERSION } from "@testpilot/test-ir";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const catalogPath = join(dirname(fileURLToPath(import.meta.url)), "seed-catalog.json");
 const pilotCatalogPath = join(dirname(fileURLToPath(import.meta.url)), "seed-pilot-catalog.json");
 
-async function syncCatalogFromFile(
+export async function syncCatalogFromFile(
   store: FileStore,
   catalogFile: string,
   opts?: { loginDraftWithoutSecrets?: boolean; pilotCatalog?: boolean },
@@ -31,6 +31,8 @@ async function syncCatalogFromFile(
       const isPilot = pilotCatalog || isAutoIntake || spec.title.includes("【试点】");
 
       let approvalStatus: StoredTest["approvalStatus"];
+      let approvedAt = prev?.approvedAt;
+      let approvedBy = prev?.approvedBy;
       if (isPilot && !prev?.approvedAt) {
         approvalStatus = "draft";
       } else if (prev?.approvalStatus) {
@@ -43,15 +45,34 @@ async function syncCatalogFromFile(
         approvalStatus = "approved";
       }
 
+      const nextHash = computeIRHash(ir);
+      // Old hashes predate IR_HASH_VERSION; migrate them without resetting approval.
+      const changedApprovedPilot =
+        isPilot &&
+        prev?.approvalStatus === "approved" &&
+        prev.irHashVersion === IR_HASH_VERSION &&
+        Boolean(prev.irHash) &&
+        prev.irHash !== nextHash;
+      if (changedApprovedPilot) {
+        approvalStatus = "draft";
+        approvedAt = undefined;
+        approvedBy = undefined;
+      }
+      if (approvalStatus === "draft") {
+        approvedAt = undefined;
+        approvedBy = undefined;
+      }
+
       const test: StoredTest = {
         id: ir.id,
         projectId: "default",
         title: spec.title,
         ir,
-        irHash: computeIRHash(ir),
+        irHash: nextHash,
+        irHashVersion: IR_HASH_VERSION,
         approvalStatus,
-        approvedAt: prev?.approvedAt,
-        approvedBy: prev?.approvedBy,
+        approvedAt,
+        approvedBy,
         intentSummary: prev?.intentSummary,
         sourceChannel: prev?.sourceChannel,
         plannerNotes: prev?.plannerNotes,

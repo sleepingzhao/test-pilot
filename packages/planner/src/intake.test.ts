@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planFromIntake } from "./intake.js";
+import { isWeakAssertionText } from "@testpilot/test-ir";
+import { planFromIntake, suggestAssertionHints } from "./intake.js";
 import type { PageContext } from "./types.js";
 
 /** Snapshot shape after opening the ticket form on demo-webapp (design §5 testId-first). */
@@ -34,6 +35,16 @@ test("negated ticket intent stays a page smoke", () => {
   });
   assert.ok(!draft.steps.some((s) => s.id === "open-submit-ticket"));
   assert.ok(draft.assertions.some((a) => a.id === "page-loaded"));
+});
+
+test("assertion suggestions pass the approval strength gate", () => {
+  for (const title of ["提交工单", "客户中心", "随便看看"]) {
+    const hints = suggestAssertionHints(title, [], "");
+    assert.ok(hints.suggestions.length > 0);
+    for (const suggestion of hints.suggestions) {
+      assert.equal(isWeakAssertionText(suggestion), false, suggestion);
+    }
+  }
 });
 
 test("ticket intake clicks form submit by testId, not 提交工单", () => {

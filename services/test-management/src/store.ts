@@ -17,6 +17,7 @@ export type StoredTest = {
   ir: TestIR;
   approvalStatus: "draft" | "approved";
   irHash?: string;
+  irHashVersion?: number;
   approvedAt?: string;
   approvedBy?: string;
   intentSummary?: string;

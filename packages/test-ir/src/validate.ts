@@ -62,3 +62,27 @@ export function validateSemantics(ir: TestIR): ValidationIssue[] {
   }
   return issues;
 }
+
+const GENERIC_UI_TEXT = /^(成功|失败|确定|取消|保存|提交|工单|登录|首页|打开|返回|完成|密码|手机号)$/;
+
+export function isWeakAssertionText(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.length < 4 || GENERIC_UI_TEXT.test(trimmed);
+}
+
+/** Page-wide assertions need specific text; otherwise they pass on any page copy. */
+export function weakAssertionIssues(ir: TestIR): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  for (const [i, a] of ir.assertions.entries()) {
+    if (a.type !== "ui" || a.target) continue;
+    const text = (a.contains ?? "").trim();
+    if (!text) continue;
+    if (isWeakAssertionText(text)) {
+      issues.push({
+        path: `/assertions/${i}/contains`,
+        message: `整页 UI 断言过弱（"${text}"）：请指定 target，或使用至少 4 个字的稳定成功文案`,
+      });
+    }
+  }
+  return issues;
+}

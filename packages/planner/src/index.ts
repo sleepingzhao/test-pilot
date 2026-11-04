@@ -27,7 +27,7 @@ export function suggestAssertionsForTest(
 } {
   const hints = suggestAssertionHints(title, ir.steps, intentSummary);
   const assertions: TestAssertion[] = [];
-  const primary = hints.suggestions[0] ?? "成功";
+  const primary = hints.suggestions[0] ?? "操作成功";
   assertions.push({
     id: "suggest-primary",
     type: "ui",

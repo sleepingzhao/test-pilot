@@ -1,4 +1,4 @@
-import type { TestAssertion, TestStep } from "@testpilot/test-ir";
+import { isWeakAssertionText, type TestAssertion, type TestStep } from "@testpilot/test-ir";
 import type { PageContext, PlannerDraft } from "./types.js";
 
 export type IntakeChannel = "intent" | "prd" | "record";
@@ -234,7 +234,9 @@ export function suggestAssertionHints(
     suggestions.push("登录", "管理", "成功");
   }
 
-  return { suggestions: [...new Set(suggestions)], help, uncertainties };
+  const strong = suggestions.filter((text) => !isWeakAssertionText(text));
+  if (strong.length === 0) strong.push("操作成功", "保存成功", "提交成功");
+  return { suggestions: [...new Set(strong)], help, uncertainties };
 }
 
 export function filterForbiddenSuggestionTokens(suggestions: string[], forbidden: string[]): string[] {

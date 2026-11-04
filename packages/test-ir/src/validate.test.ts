@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { validateSemantics, validateTestIR } from "./validate.js";
+import { validateSemantics, validateTestIR, weakAssertionIssues } from "./validate.js";
+import type { TestIR } from "./types.js";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "../fixtures");
 
@@ -37,4 +38,32 @@ test("accepts a per-test baseUrl", () => {
     assertions: [{ type: "ui", oracle: "human-approved", contains: "ok" }],
   });
   assert.equal(result.ok, true);
+});
+
+test("flags short and generic page-wide UI assertions", () => {
+  const base = {
+    id: "weak",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+  } as const;
+  const weak = {
+    ...base,
+    assertions: [{ id: "a", type: "ui", contains: "工单", oracle: "human-approved" }],
+  } as TestIR;
+  assert.equal(weakAssertionIssues(weak).length, 1);
+
+  const strong = {
+    ...base,
+    assertions: [{ id: "a", type: "ui", contains: "工单已提交", oracle: "human-approved" }],
+  } as TestIR;
+  assert.equal(weakAssertionIssues(strong).length, 0);
+
+  const targeted = {
+    ...base,
+    assertions: [
+      { id: "a", type: "ui", target: { testId: "ticket-alert" }, contains: "工单", oracle: "human-approved" },
+    ],
+  } as TestIR;
+  assert.equal(weakAssertionIssues(targeted).length, 0);
 });

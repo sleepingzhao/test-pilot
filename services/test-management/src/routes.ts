@@ -7,7 +7,7 @@ import { assertPlaywrightReady, recordSession } from "@testpilot/recorder-web";
 import { runTestIR, type RunResult } from "@testpilot/runner-web";
 import { snapshotPageContext } from "@testpilot/context-web";
 import { draftToPartialIR, planDraft, planFromIntake, suggestAssertionsForTest, filterForbiddenSuggestionTokens } from "@testpilot/planner";
-import { computeIRHash, validateSemantics, validateTestIR } from "@testpilot/test-ir";
+import { computeIRHash, IR_HASH_VERSION, validateSemantics, validateTestIR, weakAssertionIssues } from "@testpilot/test-ir";
 import { classifyFailure } from "@testpilot/evidence";
 import { chromium } from "playwright";
 import type { FileStore, RecordJob, StoredRun, StoredTest } from "./store.js";
@@ -57,7 +57,7 @@ const batchJobs = new Map<string, RunBatchJob>();
 
 function stampTestMeta(test: StoredTest, opts?: { approving?: boolean }): StoredTest {
   const irHash = computeIRHash(test.ir);
-  const next: StoredTest = { ...test, irHash, updatedAt: new Date().toISOString() };
+  const next: StoredTest = { ...test, irHash, irHashVersion: IR_HASH_VERSION, updatedAt: new Date().toISOString() };
   if (opts?.approving) {
     next.approvalStatus = "approved";
     next.approvedAt = new Date().toISOString();
@@ -312,6 +312,13 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
     const semantic = validateSemantics(test.ir);
     if (semantic.length) return reply.code(400).send({ issues: semantic });
+    const weak = weakAssertionIssues(test.ir);
+    if (weak.length) {
+      return reply.code(400).send({
+        error: "UI 断言过弱：请指定断言区域，或使用更具体的成功文案",
+        issues: weak,
+      });
+    }
     const constraintsDoc = await loadPilotConstraints();
     const pilotForbidden = forbiddenAssertionIssues(test.ir, constraintsDoc?.forbiddenAssertions ?? []);
     if (pilotForbidden.length) {

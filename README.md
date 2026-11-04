@@ -9,10 +9,9 @@ Turn manual QA workflows into **reliable, maintainable** automated tests — **�
 ```bash
 cd test-pilot
 pnpm install          # 首次
-pnpm build            # 首次或改代码后
 pnpm --filter @testpilot/runner-web exec playwright install chromium   # 首次
 
-pnpm dev
+pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 ```
 
 会自动启动：

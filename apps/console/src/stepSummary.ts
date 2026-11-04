@@ -44,6 +44,8 @@ export type AssertionSummary = {
   requestRef?: string;
   expect?: Record<string, unknown>;
   target?: unknown;
+  provider?: string;
+  configRef?: string;
 };
 
 export function summarizeAssertion(a: AssertionSummary, index: number): string {
@@ -56,6 +58,20 @@ export function summarizeAssertion(a: AssertionSummary, index: number): string {
     if (exp.jsonBody) parts.push(`body≈${JSON.stringify(exp.jsonBody)}`);
     if (typeof exp.requestBodyContains === "string") parts.push(`body∋"${exp.requestBodyContains}"`);
     return `${label} [API] ${parts.join(" · ") || "（未配置 expect）"}`;
+  }
+  if (a.type === "db") {
+    const exp = a.expect ?? {};
+    const parts = [`${a.provider ?? "postgres-readonly"}`, a.configRef].filter(Boolean);
+    if (exp.queryRef) parts.push(`query=${String(exp.queryRef)}`);
+    if (typeof exp.rowCount === "number") parts.push(`rows=${exp.rowCount}`);
+    return `${label} [DB] ${parts.join(" · ")}`;
+  }
+  if (a.type === "agent") {
+    const exp = a.expect ?? {};
+    const tools = Array.isArray(exp.toolCalls)
+      ? (exp.toolCalls as Array<{ name?: string }>).map((t) => t.name).filter(Boolean)
+      : [];
+    return `${label} [Agent] ${a.provider ?? "otel-trace"} · ${a.configRef ?? "?"} · tools=${tools.join(",") || "?"}`;
   }
   if (a.type === "ui") {
     const where = a.target ? "（区域）" : "（整页）";

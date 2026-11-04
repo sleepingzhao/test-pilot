@@ -1,6 +1,6 @@
 import type { TestIR } from "@testpilot/test-ir";
 import { loadAssertionAgentConfigs } from "./agent-config.js";
-import { loadAssertionDbConfigs } from "./db-config.js";
+import { loadAssertionDbConfigs, getDbConfigBundle, resolveConfigEnvRef } from "./db-config.js";
 import { createReadonlyDbClient, type ReadonlyDbClient } from "./readonly-db-client.js";
 import { createTraceClient } from "./trace-client.js";
 
@@ -117,4 +117,41 @@ export function buildAgentTraceClient(
   const configs = loadAssertionAgentConfigs();
   if (Object.keys(configs).length === 0) return undefined;
   return createTraceClient({ configs });
+}
+
+export async function probeDbConnection(
+  configRef: string,
+  repoRoot?: string,
+): Promise<{ ok: boolean; message: string; configured: boolean; queryNames: string[] }> {
+  const bundle = getDbConfigBundle(configRef, repoRoot);
+  if (!bundle) {
+    return { ok: false, message: `unknown configRef: ${configRef}`, configured: false, queryNames: [] };
+  }
+  const queryNames = Object.keys(bundle.queries);
+  const connectionString = resolveConfigEnvRef(bundle.connectionRef);
+  if (!connectionString) {
+    return {
+      ok: false,
+      message: "connection env not configured",
+      configured: false,
+      queryNames,
+    };
+  }
+  try {
+    const pg = await import("pg");
+    const pool = new pg.default.Pool({ connectionString, max: 1 });
+    try {
+      await pool.query("SELECT 1 AS ok");
+      return { ok: true, message: "connected", configured: true, queryNames };
+    } finally {
+      await pool.end();
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+      configured: true,
+      queryNames,
+    };
+  }
 }

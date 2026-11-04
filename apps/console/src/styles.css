@@ -488,11 +488,54 @@ main {
 }
 
 .weak-assertion-box {
-  background: #fff4eb;
-  border: 1px solid #ffd6b8;
+  border: 1px solid var(--warn-border, #c9a227);
+  background: var(--warn-bg, rgba(201, 162, 39, 0.08));
+  padding: 0.75rem 1rem;
   border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 16px;
+  margin: 0.75rem 0;
+}
+
+.provider-assertion-box {
+  border: 1px solid var(--border-subtle, #333);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.field-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.field-row .field {
+  flex: 1;
+  min-width: 10rem;
+}
+
+.provider-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.preview-json {
+  font-size: 0.75rem;
+  max-height: 12rem;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.5rem;
+  border-radius: 6px;
+}
+
+.ok-text {
+  color: #6bcf8e;
+}
+
+.warn-text {
+  color: #f0a050;
 }
 
 .field {

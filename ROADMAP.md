@@ -163,7 +163,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - [x] AS-2 HTTP 断言 Provider — `pnpm verify` 全绿；`packages/assertions/src/captured-http.ts` + `captured-http.test.ts`（状态/请求体/响应体/响应头/JSON Schema 正负）；`packages/evidence` 捕获 `responseBody`/`responseHeaders` + `waitForNetworkCapture`
 - [x] AS-3 DB 断言 Provider — `postgres-readonly` Provider + `docs/assertion-db-config.example.json` + `packages/fixtures` 只读客户端；`packages/assertions/src/postgres-readonly.test.ts`；审批未知 queryRef 400；`pnpm verify` 全绿
 - [x] AS-4 Agent 断言 Provider — `otel-trace` Provider + `docs/assertion-agent-config.example.json` + `packages/fixtures` trace 客户端（canonical + OTLP JSON）；`packages/assertions/src/otel-trace.test.ts`；负向探针 `otel-trace-probe.json`；`pnpm verify` 全绿
-- [ ] AS-5 断言配置 UI
+- [x] AS-5 断言配置 UI — 审阅弹窗 Provider 面板（类型/configRef/expect、校验·测试连接·预览）；API `GET /api/assertions/providers|config-catalog`、`POST validate|test-connection|preview`；保存 IR 时 Provider 校验；`assertion-config.test.ts`；`pnpm verify` 全绿
 - [x] AS-6 负向验证框架 — `examples/negative-probes/*` + `pnpm negative-probes` → `artifacts/negative-probes-last.json`；`GET /api/metrics/negative-probes`；`pnpm verify` 全绿
 - [x] P-1 真实工单提交成功用例 — `selectCascader` 步骤 + `demo-ticket-submit-success.json`（UI+HTTP）+ `demo-ticket-no-attachment.json` 负向 + `runner-web/src/ticket-p1.test.ts`；试点模板 `pilot-ticket-submit-success.json`（draft，需人工校对后批准）；`pnpm verify` 全绿
 - [ ] P-2 登录态 intake 快照

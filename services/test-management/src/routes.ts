@@ -21,6 +21,13 @@ import {
 } from "./llm-planner.js";
 import { readNegativeProbeReport } from "./negative-probes.js";
 import {
+  assertionConfigCatalog,
+  assertionProviderCatalog,
+  previewProviderAssertion,
+  testAssertionConnection,
+  validateAssertionsDraft,
+} from "./assertion-config.js";
+import {
   applyBaseUrlTarget,
   buildRunEnvironment,
   isPilotTest,
@@ -280,6 +287,10 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     });
     const v = validateTestIR(updated.ir);
     if (!v.ok) return reply.code(400).send({ issues: v.issues });
+    const providerIssues = validateAssertionProviders(updated.ir);
+    if (providerIssues.length) {
+      return reply.code(400).send({ issues: providerIssues, error: "断言 Provider 校验失败" });
+    }
     await store.saveTest(updated);
     return withWeakAssertions(updated);
   });
@@ -361,6 +372,47 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const constraintsDoc = await loadPilotConstraints();
     const filtered = filterForbiddenSuggestionTokens(suggestions, constraintsDoc?.forbiddenAssertions ?? []);
     return { assertions, uncertainties, help, suggestions: filtered, irHash: computeIRHash(test.ir) };
+  });
+
+  app.get("/api/assertions/providers", async () => ({
+    providers: assertionProviderCatalog(),
+  }));
+
+  app.get("/api/assertions/config-catalog", async () => assertionConfigCatalog(repoRoot));
+
+  app.post("/api/assertions/validate", async (req, reply) => {
+    const body = req.body as { assertions?: StoredTest["ir"]["assertions"] };
+    if (!body?.assertions?.length) {
+      return reply.code(400).send({ error: "需要 assertions 数组" });
+    }
+    const issues = validateAssertionsDraft(body.assertions as Parameters<typeof validateAssertionsDraft>[0]);
+    return { ok: issues.length === 0, issues };
+  });
+
+  app.post("/api/assertions/test-connection", async (req, reply) => {
+    const body = req.body as { kind?: string; configRef?: string };
+    if (body.kind !== "db" && body.kind !== "agent") {
+      return reply.code(400).send({ error: "kind 必须为 db 或 agent" });
+    }
+    if (!body.configRef?.trim()) {
+      return reply.code(400).send({ error: "需要 configRef" });
+    }
+    return testAssertionConnection(body.kind, body.configRef.trim(), repoRoot);
+  });
+
+  app.post("/api/assertions/preview", async (req, reply) => {
+    const body = req.body as {
+      assertion?: Parameters<typeof previewProviderAssertion>[0];
+      runId?: string;
+      traceRef?: string;
+    };
+    if (!body?.assertion) {
+      return reply.code(400).send({ error: "需要 assertion" });
+    }
+    return previewProviderAssertion(body.assertion, repoRoot, {
+      runId: body.runId,
+      traceRef: body.traceRef,
+    });
   });
 
   app.get("/api/pilot-constraints", async () => {

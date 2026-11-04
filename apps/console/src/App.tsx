@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type StoredRun, type StoredTest } from "./api";
+import {
+  AssertionProviderPanel,
+  buildProviderAssertion,
+  type AssertionCatalog,
+  type ProviderDraft,
+  type ProviderFeedback,
+} from "./AssertionProviderPanel";
 import { describeStep, failureKindLabel, failureScreenshotPath, summarizeAssertion } from "./stepSummary";
 
 type IrAssertion = {
@@ -9,6 +16,8 @@ type IrAssertion = {
   requestRef?: string;
   expect?: Record<string, unknown>;
   target?: unknown;
+  provider?: string;
+  configRef?: string;
   oracle?: string;
 };
 
@@ -38,6 +47,17 @@ export function App() {
   const [assertionHelp, setAssertionHelp] = useState("");
   const [assertionSuggestions, setAssertionSuggestions] = useState<string[]>([]);
   const [reviewIntent, setReviewIntent] = useState("");
+  const [assertionCatalog, setAssertionCatalog] = useState<AssertionCatalog | null>(null);
+  const [providerDraft, setProviderDraft] = useState<ProviderDraft>({
+    enabled: false,
+    type: "db",
+    configRef: "pilot-db",
+    expectJson: '{\n  "queryRef": "order-by-run-id",\n  "rowCount": 1\n}',
+    id: "db-business",
+    traceRef: "demo-run",
+  });
+  const [providerFeedback, setProviderFeedback] = useState<ProviderFeedback>({});
+  const [providerBusy, setProviderBusy] = useState(false);
   const [createChannel, setCreateChannel] = useState<CreateChannel>("intent");
   const [createText, setCreateText] = useState("");
   const [createTitle, setCreateTitle] = useState("");
@@ -162,6 +182,20 @@ export function App() {
     refresh().catch((e) => notify(String(e)));
   }, [refresh]);
 
+  const loadAssertionCatalog = async () => {
+    const [providersRes, configRes] = await Promise.all([
+      api<{ providers: AssertionCatalog["providers"] }>("/api/assertions/providers"),
+      api<{ dbs: AssertionCatalog["dbs"]; agents: AssertionCatalog["agents"] }>(
+        "/api/assertions/config-catalog",
+      ),
+    ]);
+    setAssertionCatalog({
+      providers: providersRes.providers,
+      dbs: configRes.dbs,
+      agents: configRes.agents,
+    });
+  };
+
   const loadAssertionHints = async (t: StoredTest) => {
     const res = await api<{
       assertions: StoredTest["ir"]["assertions"];
@@ -177,11 +211,39 @@ export function App() {
   const openReview = async (t: StoredTest, withHints = true) => {
     setEditTest(t);
     setReviewIntent(t.intentSummary ?? "");
+    setProviderFeedback({});
     const a = t.ir.assertions?.find((x) => (x as IrAssertion).type === "ui") as { contains?: string } | undefined;
     const raw = a?.contains ?? "";
     setAssertionText(raw.includes("REPLACE") ? "" : raw);
     const apiA = t.ir.assertions?.find((x) => (x as IrAssertion).type === "api") as IrAssertion | undefined;
     setApiExpectJson(apiA?.expect ? JSON.stringify(apiA.expect, null, 2) : "");
+    const dbA = t.ir.assertions?.find((x) => (x as IrAssertion).type === "db") as IrAssertion | undefined;
+    const agentA = t.ir.assertions?.find((x) => (x as IrAssertion).type === "agent") as IrAssertion | undefined;
+    const ext = dbA ?? agentA;
+    if (ext && (ext.type === "db" || ext.type === "agent")) {
+      setProviderDraft({
+        enabled: true,
+        type: ext.type,
+        configRef: ext.configRef ?? (ext.type === "db" ? "pilot-db" : "agent-observability"),
+        expectJson: JSON.stringify(ext.expect ?? {}, null, 2),
+        id: ext.id ?? (ext.type === "db" ? "db-business" : "agent-tools"),
+        traceRef: String((ext.expect as { traceRef?: string })?.traceRef ?? "demo-run"),
+      });
+    } else {
+      setProviderDraft({
+        enabled: false,
+        type: "db",
+        configRef: "pilot-db",
+        expectJson: '{\n  "queryRef": "order-by-run-id",\n  "rowCount": 1\n}',
+        id: "db-business",
+        traceRef: "demo-run",
+      });
+    }
+    try {
+      await loadAssertionCatalog();
+    } catch {
+      /* catalog optional for basic review */
+    }
     if (withHints) {
       try {
         await loadAssertionHints(t);
@@ -361,17 +423,116 @@ export function App() {
         return null;
       }
     }
+
+    const built = buildProviderAssertion(providerDraft);
+    if (!built.ok) return null;
+    if (built.assertion) {
+      const idx = base.findIndex((a) => a.type === built.assertion!.type);
+      if (idx >= 0) base[idx] = built.assertion as IrAssertion;
+      else base.push(built.assertion as IrAssertion);
+    } else {
+      for (const t of ["db", "agent"] as const) {
+        const idx = base.findIndex((a) => a.type === t);
+        if (idx >= 0) base.splice(idx, 1);
+      }
+    }
+
     return { ...editTest.ir, assertions: base };
   };
 
+  const validateProviderDraft = async () => {
+    const built = buildProviderAssertion(providerDraft);
+    if (!providerDraft.enabled) {
+      setProviderFeedback({ issues: [] });
+      notify("未启用 Provider 断言");
+      return;
+    }
+    if (!built.ok || !built.assertion) {
+      notify(built.error ?? "Provider 断言无效");
+      return;
+    }
+    setProviderBusy(true);
+    try {
+      const res = await api<{ ok: boolean; issues: Array<{ path: string; message: string }> }>(
+        "/api/assertions/validate",
+        { method: "POST", body: JSON.stringify({ assertions: [built.assertion] }) },
+      );
+      setProviderFeedback((f) => ({ ...f, issues: res.issues }));
+      notify(res.ok ? "校验通过" : "校验未通过");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProviderBusy(false);
+    }
+  };
+
+  const testProviderConnection = async () => {
+    if (!providerDraft.enabled) return;
+    setProviderBusy(true);
+    try {
+      const res = await api<ProviderFeedback["connection"] & { ok: boolean; message: string }>(
+        "/api/assertions/test-connection",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            kind: providerDraft.type,
+            configRef: providerDraft.configRef,
+          }),
+        },
+      );
+      setProviderFeedback((f) => ({ ...f, connection: res }));
+      notify(res.ok ? "连接正常" : res.message);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProviderBusy(false);
+    }
+  };
+
+  const previewProviderDraft = async () => {
+    const built = buildProviderAssertion(providerDraft);
+    if (!providerDraft.enabled || !built.ok || !built.assertion) {
+      notify(built.error ?? "请先填写 Provider 断言");
+      return;
+    }
+    setProviderBusy(true);
+    try {
+      const res = await api<{ ok: boolean; message?: string; preview?: unknown }>(
+        "/api/assertions/preview",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            assertion: built.assertion,
+            traceRef: providerDraft.traceRef,
+          }),
+        },
+      );
+      if (res.ok) {
+        setProviderFeedback((f) => ({ ...f, preview: res.preview, previewError: undefined }));
+        notify("预览已更新");
+      } else {
+        setProviderFeedback((f) => ({ ...f, previewError: res.message ?? "预览失败" }));
+        notify(res.message ?? "预览失败");
+      }
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProviderBusy(false);
+    }
+  };
+
   const reviewIrValid = () => {
-    if (!assertionText.trim() && !apiExpectJson.trim()) return false;
+    if (!assertionText.trim() && !apiExpectJson.trim() && !providerDraft.enabled) return false;
     if (apiExpectJson.trim()) {
       try {
         JSON.parse(apiExpectJson);
       } catch {
         return false;
       }
+    }
+    if (providerDraft.enabled) {
+      const built = buildProviderAssertion(providerDraft);
+      if (!built.ok) return false;
     }
     return Boolean(buildReviewIr());
   };
@@ -380,7 +541,7 @@ export function App() {
     if (!editTest) return;
     const ir = buildReviewIr();
     if (!ir || !reviewIrValid()) {
-      notify("请填写 UI 断言文案，或填写合法的 API expect JSON");
+      notify("请填写 UI 断言、API expect，或合法的 Provider 断言");
       return;
     }
     await api(`/api/tests/${editTest.id}`, {
@@ -396,7 +557,7 @@ export function App() {
     if (!editTest) return;
     const ir = buildReviewIr();
     if (!ir || !reviewIrValid()) {
-      notify("请填写 UI 断言文案，或填写合法的 API expect JSON");
+      notify("请填写 UI 断言、API expect，或合法的 Provider 断言");
       return;
     }
     if (/附件|upload/i.test(assertionText)) {
@@ -962,6 +1123,16 @@ export function App() {
                   placeholder='{"statusCode": 201, "requestBodyContains": "@example.com"}'
                 />
               </div>
+              <AssertionProviderPanel
+                catalog={assertionCatalog}
+                draft={providerDraft}
+                onDraftChange={setProviderDraft}
+                feedback={providerFeedback}
+                busy={providerBusy}
+                onValidate={() => void validateProviderDraft()}
+                onTestConnection={() => void testProviderConnection()}
+                onPreview={() => void previewProviderDraft()}
+              />
             </div>
             <footer className="sheet-review-footer">
               <div className="sheet-actions">

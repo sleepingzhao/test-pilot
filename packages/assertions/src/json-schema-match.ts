@@ -1,72 +1,54 @@
-/** Minimal JSON Schema (objects) validation for captured HTTP response bodies — no external deps. */
+import Ajv2020Module from "ajv/dist/2020.js";
+import addFormatsModule from "ajv-formats";
+
+type AjvLike = {
+  compile: (schema: object) => (value: unknown) => boolean;
+  validate: (schema: object) => boolean;
+  errors?: Array<{ instancePath?: string; message?: string }> | null;
+};
+
+let ajvInstance: AjvLike | undefined;
+
+function getAjv(): AjvLike {
+  if (ajvInstance) return ajvInstance;
+  const AjvCtor = (Ajv2020Module as { default?: unknown }).default ?? Ajv2020Module;
+  const addFormatsFn = (addFormatsModule as { default?: unknown }).default ?? addFormatsModule;
+  const ajv = new (AjvCtor as new (opts: object) => AjvLike)({ allErrors: true, strict: false });
+  (addFormatsFn as (a: AjvLike) => void)(ajv);
+  ajvInstance = ajv;
+  return ajv;
+}
+
+/** Compile-time check for approval: invalid or unsupported schema documents fail validation. */
+export function validateJsonSchemaDocument(
+  schema: Record<string, unknown>,
+): { ok: true } | { ok: false; message: string } {
+  const ajv = getAjv();
+  const valid = ajv.validate(schema);
+  if (!valid) {
+    const msg = ajv.errors?.[0]?.message ?? "invalid JSON Schema";
+    return { ok: false, message: msg };
+  }
+  return { ok: true };
+}
+
 export function matchesJsonSchema(
   schema: Record<string, unknown>,
   value: unknown,
 ): { ok: true } | { ok: false; message: string } {
-  const err = checkSchema(schema, value, "");
-  if (err) return { ok: false, message: err };
-  return { ok: true };
-}
-
-function checkSchema(schema: Record<string, unknown>, value: unknown, path: string): string | undefined {
-  if (schema.type === "object") {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) {
-      return `${path || "value"} must be object`;
-    }
-    const obj = value as Record<string, unknown>;
-    const required = schema.required;
-    if (Array.isArray(required)) {
-      for (const key of required) {
-        if (typeof key === "string" && !(key in obj)) {
-          return `${path || "value"} missing required property ${key}`;
-        }
-      }
-    }
-    const props = schema.properties;
-    if (props && typeof props === "object" && !Array.isArray(props)) {
-      for (const [key, sub] of Object.entries(props as Record<string, unknown>)) {
-        if (!(key in obj)) continue;
-        if (sub && typeof sub === "object" && !Array.isArray(sub)) {
-          const nested = checkSchema(sub as Record<string, unknown>, obj[key], path ? `${path}.${key}` : key);
-          if (nested) return nested;
-        }
-      }
-    }
-    return undefined;
+  const ajv = getAjv();
+  let validateFn: ((value: unknown) => boolean) & {
+    errors?: Array<{ instancePath?: string; message?: string }> | null;
+  };
+  try {
+    validateFn = ajv.compile(schema) as typeof validateFn;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, message: `schema compile: ${message}` };
   }
-
-  if (schema.type === "array") {
-    if (!Array.isArray(value)) return `${path || "value"} must be array`;
-    const items = schema.items;
-    if (items && typeof items === "object" && !Array.isArray(items)) {
-      for (let i = 0; i < value.length; i++) {
-        const nested = checkSchema(items as Record<string, unknown>, value[i], `${path}[${i}]`);
-        if (nested) return nested;
-      }
-    }
-    return undefined;
-  }
-
-  if (schema.type === "string") {
-    if (typeof value !== "string") return `${path || "value"} must be string`;
-    if (typeof schema.enum === "object" && Array.isArray(schema.enum) && !schema.enum.includes(value)) {
-      return `${path || "value"} not in enum`;
-    }
-    return undefined;
-  }
-
-  if (schema.type === "number" || schema.type === "integer") {
-    if (typeof value !== "number") return `${path || "value"} must be number`;
-    if (schema.type === "integer" && !Number.isInteger(value)) {
-      return `${path || "value"} must be integer`;
-    }
-    return undefined;
-  }
-
-  if (schema.type === "boolean") {
-    if (typeof value !== "boolean") return `${path || "value"} must be boolean`;
-    return undefined;
-  }
-
-  return undefined;
+  const ok = validateFn(value);
+  if (ok) return { ok: true };
+  const first = validateFn.errors?.[0] ?? ajv.errors?.[0];
+  const where = first?.instancePath ? `${first.instancePath}: ` : "";
+  return { ok: false, message: `${where}${first?.message ?? "validation failed"}` };
 }

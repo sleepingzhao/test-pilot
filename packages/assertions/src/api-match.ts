@@ -11,7 +11,7 @@ export function partialJsonMatch(expected: Record<string, unknown>, actual: unkn
   for (const [key, exp] of Object.entries(expected)) {
     const act = obj[key];
     if (exp === null || typeof exp !== "object" || Array.isArray(exp)) {
-      if (act !== exp && String(act ?? "") !== String(exp)) return false;
+      if (act !== exp) return false;
       continue;
     }
     if (!partialJsonMatch(exp as Record<string, unknown>, act)) return false;

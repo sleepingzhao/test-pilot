@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runCapturedHttpAssertion } from "./captured-http.js";
+import { runCapturedHttpAssertion, validateCapturedHttpAssertion } from "./captured-http.js";
 
 const page = {} as import("playwright").Page;
 const resolveRef = () => ({ urlIncludes: "/api/users", method: "POST" });
@@ -123,4 +123,53 @@ test("captured-http: responseBodyContains negative", async () => {
     { page, network: baseNetwork, resolveRequestRef: resolveRef },
   );
   assert.equal(outcome.passed, false);
+});
+
+test("captured-http: empty expect with 500 response fails oracle (negative)", async () => {
+  const outcome = await runCapturedHttpAssertion(
+    {
+      id: "empty-expect",
+      type: "api",
+      requestRef: "users-create",
+      expect: {},
+      oracle: "api-contract",
+    },
+    {
+      page,
+      network: [{ ...baseNetwork[0]!, status: 500 }],
+      resolveRequestRef: resolveRef,
+    },
+  );
+  assert.equal(outcome.passed, false);
+  assert.equal(outcome.errorKind, "ASSERTION_ORACLE");
+});
+
+test("captured-http: responseJsonSchema minimum fails at runtime (negative)", async () => {
+  const outcome = await runCapturedHttpAssertion(
+    {
+      id: "schema-min",
+      type: "api",
+      requestRef: "users-create",
+      expect: {
+        statusCode: 201,
+        responseJsonSchema: { type: "integer", minimum: 10 },
+      },
+      oracle: "api-contract",
+    },
+    { page, network: baseNetwork, resolveRequestRef: resolveRef },
+  );
+  assert.equal(outcome.passed, false);
+  assert.equal(outcome.errorKind, "PRODUCT_DEFECT");
+});
+
+test("validateCapturedHttpAssertion rejects unknown expect field (negative)", () => {
+  const issues = validateCapturedHttpAssertion({
+    id: "bad-field",
+    type: "api",
+    requestRef: "users-create",
+    expect: { status: 200 },
+    oracle: "human-approved",
+  });
+  assert.ok(issues.some((i) => i.path.includes("status")));
+  assert.ok(issues.some((i) => i.message.includes("statusCode") || i.message.includes("不支持")));
 });

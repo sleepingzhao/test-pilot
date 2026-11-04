@@ -1,7 +1,11 @@
 import type { TestAssertion, ValidationIssue } from "@testpilot/test-ir";
 import type { AssertionContext, AssertionOutcome, CapturedNetworkEntry, RequestRefSpec } from "./types.js";
 import { partialJsonMatch } from "./api-match.js";
-import { matchesJsonSchema } from "./json-schema-match.js";
+import {
+  hasSupportedCapturedHttpExpect,
+  validateCapturedHttpExpectShape,
+} from "./captured-http-expect.js";
+import { matchesJsonSchema, validateJsonSchemaDocument } from "./json-schema-match.js";
 
 function matchNetwork(
   network: CapturedNetworkEntry[],
@@ -37,9 +41,24 @@ export function validateCapturedHttpAssertion(assertion: TestAssertion): Validat
   if (!assertion.requestRef) {
     issues.push({ path: "requestRef", message: "HTTP 断言需要 requestRef" });
   }
-  const expect = assertion.expect ?? {};
+  const expect = (assertion.expect ?? {}) as Record<string, unknown>;
+  for (const issue of validateCapturedHttpExpectShape(expect)) {
+    issues.push(issue);
+  }
   if ("responseJsonSchema" in expect && (expect.responseJsonSchema === null || typeof expect.responseJsonSchema !== "object")) {
     issues.push({ path: "expect/responseJsonSchema", message: "responseJsonSchema 必须是对象" });
+  } else if (
+    expect.responseJsonSchema &&
+    typeof expect.responseJsonSchema === "object" &&
+    !Array.isArray(expect.responseJsonSchema)
+  ) {
+    const schemaCheck = validateJsonSchemaDocument(expect.responseJsonSchema as Record<string, unknown>);
+    if (!schemaCheck.ok) {
+      issues.push({
+        path: "expect/responseJsonSchema",
+        message: `responseJsonSchema 无效: ${schemaCheck.message}`,
+      });
+    }
   }
   return issues;
 }
@@ -80,7 +99,7 @@ export async function runCapturedHttpAssertion(
   }
 
   const matched = matchNetwork(network, spec);
-  const expect = assertion.expect ?? {};
+  const expect = (assertion.expect ?? {}) as Record<string, unknown>;
 
   if (matched.length === 0) {
     return {
@@ -202,14 +221,7 @@ export async function runCapturedHttpAssertion(
     };
   }
 
-  const hasExplicitExpect =
-    typeof expect.statusCode === "number" ||
-    typeof expect.requestBodyContains === "string" ||
-    requestJsonExpect ||
-    typeof expect.responseBodyContains === "string" ||
-    expect.responseJsonBody ||
-    expect.responseJsonSchema ||
-    expect.responseHeaders;
+  const hasExplicitExpect = hasSupportedCapturedHttpExpect(expect);
 
   if (hasExplicitExpect) {
     return {
@@ -226,8 +238,10 @@ export async function runCapturedHttpAssertion(
 
   return {
     assertionId: id,
-    passed: true,
-    expected: spec,
+    passed: false,
+    errorKind: "ASSERTION_ORACLE",
+    message: "HTTP 断言缺少受支持的 expect 字段，无法判定通过或失败",
+    expected: { requestRef: ref },
     actual: matched.slice(-3),
   };
 }

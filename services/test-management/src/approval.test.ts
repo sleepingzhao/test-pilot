@@ -186,6 +186,58 @@ test("approval rejects agent assertion with empty expect rules", async () => {
   }
 });
 
+test("approval rejects api assertion with wrong expect field name", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-approval-http-"));
+  const dataRoot = join(root, "data");
+  const store = new FileStore(dataRoot);
+  await store.init();
+
+  const testId = "bad-http-expect-field";
+  const ir = {
+    id: testId,
+    version: 1,
+    platform: "web" as const,
+    steps: [{ id: "open", action: "navigate" as const, path: "/" }],
+    assertions: [
+      {
+        id: "api1",
+        type: "api" as const,
+        requestRef: "users-create-attempt",
+        oracle: "human-approved" as const,
+        expect: { status: 200 },
+      },
+    ],
+  };
+  await store.saveTest({
+    id: testId,
+    projectId: "default",
+    title: "bad http field",
+    ir,
+    approvalStatus: "draft",
+    updatedAt: new Date().toISOString(),
+  });
+
+  const app = Fastify();
+  await app.register(sensible);
+  registerRoutes(app, store, join(root, "artifacts"), dataRoot);
+  await app.ready();
+
+  try {
+    const hash = computeIRHash(ir);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tests/${testId}/approve`,
+      payload: { irHash: hash },
+    });
+    assert.equal(res.statusCode, 400);
+    const body = res.json() as { issues?: Array<{ message: string }> };
+    assert.ok(body.issues?.some((i) => i.message.includes("不支持") || i.message.includes("status")));
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("approval rejects unknown assertion provider", async () => {
   const root = await mkdtemp(join(tmpdir(), "testpilot-approval-provider-"));
   const dataRoot = join(root, "data");

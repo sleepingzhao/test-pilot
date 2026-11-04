@@ -12,3 +12,8 @@ test("partialJsonMatch checks nested request fields", () => {
   );
   assert.equal(partialJsonMatch({ email: "other@x.com" }, { email: "duplicate@example.com" }), false);
 });
+
+test("partialJsonMatch rejects number vs string coercion (negative)", () => {
+  assert.equal(partialJsonMatch({ count: 1 }, { count: "1" }), false);
+  assert.equal(partialJsonMatch({ count: 1 }, { count: 1 }), true);
+});

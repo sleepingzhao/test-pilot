@@ -73,3 +73,14 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 ```bash
 pnpm verify
 ```
+
+## 清理生成物
+
+`artifacts/`、`data/`、Playwright 报告等已被 Git 忽略，不会进入提交；需要限制磁盘增长时：
+
+```bash
+pnpm clean:junk                         # 删除 .DS_Store、*.log、*.tsbuildinfo 等
+pnpm clean:artifacts -- --dry-run       # 预览将清理的 artifacts
+pnpm clean:artifacts -- --keep 50       # 只保留最近 50 次运行，默认值
+pnpm clean:artifacts -- --days 7        # 额外删除 7 天前的运行目录
+```

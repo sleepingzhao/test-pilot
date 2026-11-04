@@ -1,18 +1,51 @@
+# Dependencies / build outputs
 node_modules/
 dist/
 *.tsbuildinfo
 .playwright/
-test-results/
-playwright-report/
+
+# Local config / secrets
 .env
 .env.*
 !.env.example
 docs/pilot-baseline.json
 docs/pilot-constraints.json
-coverage/
-.DS_Store
+
+# Generated evidence / test output
 data/
 artifacts/
+test-results/
+playwright-report/
+coverage/
+.nyc_output/
+
+# OS / editor / temp files
+.DS_Store
+Thumbs.db
+.idea/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.swp
+*.swo
+*~
+*.pid
+*.sock
+*.junit.xml
+*.heapsnapshot
+.eslintcache
+.stylelintcache
+.cache/
+.turbo/
+.vite/
+tmp/
+temp/
 
 # Accidental tsc output under src/ (should only be in dist/)
 packages/**/src/**/*.js

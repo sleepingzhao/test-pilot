@@ -2,6 +2,7 @@
   "name": "testpilot",
   "private": true,
   "version": "0.2.0",
+  "packageManager": "pnpm@9.14.4",
   "description": "TestPilot — turn manual QA workflows into reliable automated tests",
   "license": "Apache-2.0",
   "engines": {

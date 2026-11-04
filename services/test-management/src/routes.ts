@@ -288,6 +288,20 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (!isSafeTestId(testId)) return reply.notFound("test not found");
     const test = await store.getTest(testId);
     if (!test) return reply.notFound("test not found");
+    const body = (req.body ?? {}) as { irHash?: string };
+    const currentHash = computeIRHash(test.ir);
+    if (!body.irHash) {
+      return reply.code(400).send({
+        error: "审批必须携带审阅时的 irHash",
+        irHash: currentHash,
+      });
+    }
+    if (body.irHash !== currentHash) {
+      return reply.code(409).send({
+        error: "用例内容已变化，请重新审阅后再批准",
+        irHash: currentHash,
+      });
+    }
     const hasPlaceholder = test.ir.assertions.some((a) =>
       String((a as { contains?: string }).contains ?? "").includes("REPLACE"),
     );
@@ -305,7 +319,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         issues: pilotForbidden,
       });
     }
-    const approved = stampTestMeta(test, { approving: true });
+    const actorHeader = req.headers["x-testpilot-actor"];
+    const actor = String(Array.isArray(actorHeader) ? actorHeader[0] : actorHeader ?? "local").slice(0, 80);
+    const approved = { ...stampTestMeta(test, { approving: true }), approvedBy: actor };
     await store.saveTest(approved);
     return approved;
   });

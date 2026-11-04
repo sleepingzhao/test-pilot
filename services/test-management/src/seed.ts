@@ -51,6 +51,7 @@ async function syncCatalogFromFile(
         irHash: computeIRHash(ir),
         approvalStatus,
         approvedAt: prev?.approvedAt,
+        approvedBy: prev?.approvedBy,
         intentSummary: prev?.intentSummary,
         sourceChannel: prev?.sourceChannel,
         plannerNotes: prev?.plannerNotes,

@@ -51,6 +51,10 @@ export function App() {
     pilotBaselineMinutes?: number | null;
     minutesSavedVsBaseline?: number | null;
     lastBatchMinutes?: number | null;
+    approvedTestCount?: number;
+    approvedPilotCount?: number;
+    approvedDemoCount?: number;
+    recentBatches?: Array<{ startedAt: string; total: number; passed: number; durationMs: number }>;
   } | null>(null);
   const [demoOk, setDemoOk] = useState<boolean | null>(null);
   const [pilotOk, setPilotOk] = useState<boolean | null>(null);
@@ -389,11 +393,14 @@ export function App() {
       return;
     }
     try {
-      await api(`/api/tests/${editTest.id}`, {
+      const saved = await api<StoredTest>(`/api/tests/${editTest.id}`, {
         method: "PUT",
         body: JSON.stringify({ ir, intentSummary: reviewIntent }),
       });
-      await api(`/api/tests/${editTest.id}/approve`, { method: "POST", body: "{}" });
+      await api(`/api/tests/${editTest.id}/approve`, {
+        method: "POST",
+        body: JSON.stringify({ irHash: saved.irHash }),
+      });
       setEditTest(null);
       notify("已保存并批准");
       await refresh();
@@ -578,24 +585,22 @@ export function App() {
               <p className="stat">
                 最近 {summary.runCount} 次运行 · 通过率 {Math.round(summary.passRate * 100)}% · 平均{" "}
                 {summary.avgDurationMs} ms
-                {"lastBatchDurationMs" in summary && summary.lastBatchDurationMs != null
-                  ? ` · 上批回归 ${Math.round((summary as { lastBatchDurationMs: number }).lastBatchDurationMs / 1000)}s`
+                {summary.lastBatchDurationMs != null
+                  ? ` · 上批回归 ${Math.round(summary.lastBatchDurationMs / 1000)}s`
                   : ""}
-                {"pilotBaselineMinutes" in summary && summary.pilotBaselineMinutes != null
-                  ? ` · 人工基线约 ${(summary as { pilotBaselineMinutes: number }).pilotBaselineMinutes} 分钟`
+                {summary.pilotBaselineMinutes != null
+                  ? ` · 人工基线约 ${summary.pilotBaselineMinutes} 分钟`
                   : ""}
-                {"minutesSavedVsBaseline" in summary &&
-                summary.minutesSavedVsBaseline != null &&
-                summary.minutesSavedVsBaseline > 0
+                {summary.minutesSavedVsBaseline != null && summary.minutesSavedVsBaseline > 0
                   ? ` · 较基线节省约 ${summary.minutesSavedVsBaseline} 分钟`
                   : ""}
               </p>
             )}
-            {summary && (summary as { recentBatches?: Array<{ startedAt: string; total: number; passed: number; durationMs: number }> }).recentBatches?.length ? (
+            {summary && summary.recentBatches?.length ? (
               <div className="batch-trend">
                 <h3 className="batch-trend-title">最近回归批次</h3>
                 <ul className="batch-trend-list">
-                  {(summary as { recentBatches: Array<{ startedAt: string; total: number; passed: number; durationMs: number }> }).recentBatches.map(
+                  {summary.recentBatches.map(
                     (b) => (
                       <li key={b.startedAt}>
                         <span>{new Date(b.startedAt).toLocaleString()}</span>

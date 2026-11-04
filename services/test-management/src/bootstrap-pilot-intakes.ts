@@ -5,7 +5,7 @@ import { snapshotPageContext } from "@testpilot/context-web";
 import { draftToPartialIR, planFromIntake } from "@testpilot/planner";
 import { applyOptionalLlmDraft } from "./llm-planner.js";
 import { assertPlaywrightReady } from "@testpilot/recorder-web";
-import { validateTestIR, type TestStep } from "@testpilot/test-ir";
+import { computeIRHash, validateTestIR, type TestStep } from "@testpilot/test-ir";
 import { chromium } from "playwright";
 import type { FastifyBaseLogger } from "fastify";
 import type { FileStore } from "./store.js";
@@ -218,6 +218,7 @@ export async function bootstrapPilotIntakes(store: FileStore, log: FastifyBaseLo
         projectId: "default",
         title: preset.title,
         ir: validated.value,
+        irHash: computeIRHash(validated.value),
         approvalStatus: preset.refreshDraft && existing?.approvedAt ? "approved" : "draft",
         approvedAt: preset.refreshDraft && existing?.approvedAt ? existing.approvedAt : undefined,
         intentSummary: preset.intent,

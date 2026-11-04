@@ -18,6 +18,7 @@ export type StoredTest = {
   approvalStatus: "draft" | "approved";
   irHash?: string;
   approvedAt?: string;
+  approvedBy?: string;
   intentSummary?: string;
   sourceChannel?: "intent" | "prd" | "record";
   /** Planner uncertainties shown in review (not used at runtime). */

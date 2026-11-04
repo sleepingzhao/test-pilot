@@ -2,8 +2,11 @@ export type StoredTest = {
   id: string;
   projectId: string;
   title: string;
-  ir: { id: string; version: number; assertions: unknown[]; steps: unknown[] };
+  ir: { id: string; version: number; assertions: unknown[]; steps: unknown[]; baseUrlRef?: string };
   approvalStatus: "draft" | "approved";
+  irHash?: string;
+  approvedAt?: string;
+  approvedBy?: string;
   intentSummary?: string;
   sourceChannel?: "intent" | "prd" | "record";
   plannerNotes?: string[];

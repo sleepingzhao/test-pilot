@@ -2,7 +2,7 @@
 
 Turn manual QA workflows into **reliable, maintainable** automated tests — **从 Web Console 开始**，无需记终端命令。
 
-设计材料：`design/` · 全量待办：`docs/BACKLOG.md`
+执行计划：`ROADMAP.md` · Agent 工作协议：`AGENTS.md` · 设计材料：`design/`
 
 ## 一键启动（推荐）
 
@@ -66,7 +66,7 @@ Agent 自主迭代边界见 [`docs/agent-iteration.md`](docs/agent-iteration.md)
 | Management API | `services/test-management` |
 | Demo + 种子用例 | `examples/demo-webapp` |
 
-高级用户仍可用 `pnpm cli run …`（见 `docs/BACKLOG.md`）。
+高级用户仍可用 `pnpm cli run …`（见 `ROADMAP.md` 附录）。
 
 提交前可选自检：
 

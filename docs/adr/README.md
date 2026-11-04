@@ -27,3 +27,13 @@ AI may suggest locator fixes; it must not auto-approve behavior changes. `human-
 **Status:** Proposed
 
 Per-run data isolation default; artifacts redacted before storage (V0.2+).
+
+# ADR-006: Extensible assertion engine
+
+**Status:** Accepted（2026-11-04）
+
+Provider registry、IR `provider`/`configRef`、内置 UI/HTTP/DB/Agent Provider、配置版本与负向验证。详见 [`ADR-006-extensible-assertions.md`](ADR-006-extensible-assertions.md)。
+
+# ADR-007～010（待补）
+
+断言配置版本与审批审计、安全默认值、AI 边界、本地门禁与 CI 策略。执行顺序见 [`../../ROADMAP.md`](../../ROADMAP.md)。

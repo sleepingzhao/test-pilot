@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo 'integration tests via examples'",
+    "test": "node --import tsx --test src/ticket-p1.test.ts",
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {
@@ -25,6 +25,7 @@
     "playwright": "^1.49.0"
   },
   "devDependencies": {
+    "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   }
 }

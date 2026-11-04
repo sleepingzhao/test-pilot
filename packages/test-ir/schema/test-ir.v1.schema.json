@@ -69,13 +69,18 @@
         },
         "action": {
           "type": "string",
-          "enum": ["navigate", "click", "fill", "press", "wait"]
+          "enum": ["navigate", "click", "fill", "press", "wait", "selectCascader"]
         },
         "path": { "type": "string" },
         "target": { "$ref": "#/$defs/locator" },
         "value": { "type": "string" },
         "valueRef": { "type": "string", "minLength": 1 },
-        "key": { "type": "string", "minLength": 1 }
+        "key": { "type": "string", "minLength": 1 },
+        "cascaderPath": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
       },
       "allOf": [
         {
@@ -93,6 +98,12 @@
               { "required": ["target", "value"] },
               { "required": ["target", "valueRef"] }
             ]
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "selectCascader" } } },
+          "then": {
+            "required": ["target", "cascaderPath"]
           }
         }
       ]

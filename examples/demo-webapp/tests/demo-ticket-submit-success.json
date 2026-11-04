@@ -1,0 +1,57 @@
+{
+  "id": "demo-ticket-submit-success",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open-tickets", "action": "navigate", "path": "/" },
+    { "id": "goto-tickets-view", "action": "click", "target": { "role": "link", "name": "我的工单" } },
+    { "id": "open-form", "action": "click", "target": { "testId": "open-ticket" } },
+    {
+      "id": "fill-phone",
+      "action": "fill",
+      "target": { "label": "联系电话" },
+      "value": "19900000002"
+    },
+    {
+      "id": "fill-address",
+      "action": "fill",
+      "target": { "label": "详细地址" },
+      "value": "TestPilot-{{runId}}"
+    },
+    {
+      "id": "fill-detail",
+      "action": "fill",
+      "target": { "label": "需求说明" },
+      "value": "练习环境提交成功 {{runId}}"
+    },
+    {
+      "id": "pick-region",
+      "action": "selectCascader",
+      "target": { "testId": "region-cascader" },
+      "cascaderPath": ["广东省", "深圳市", "南山区", "粤海街道"]
+    },
+    { "id": "submit", "action": "click", "target": { "testId": "submit-ticket" } },
+    { "id": "wait-alert", "action": "wait", "target": { "testId": "ticket-alert" } }
+  ],
+  "assertions": [
+    {
+      "id": "ticket-submitted-ui",
+      "type": "ui",
+      "target": { "testId": "ticket-alert" },
+      "contains": "工单已提交",
+      "oracle": "human-approved"
+    },
+    {
+      "id": "ticket-submitted-api",
+      "type": "api",
+      "provider": "captured-http",
+      "requestRef": "tickets-create-attempt",
+      "expect": {
+        "statusCode": 201,
+        "requestBodyContains": "TestPilot-"
+      },
+      "oracle": "api-contract"
+    }
+  ],
+  "policy": { "screenshots": "on-failure" }
+}

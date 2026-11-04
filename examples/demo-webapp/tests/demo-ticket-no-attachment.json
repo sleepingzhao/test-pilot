@@ -7,26 +7,32 @@
     { "id": "goto-tickets-view", "action": "click", "target": { "role": "link", "name": "我的工单" } },
     { "id": "open-form", "action": "click", "target": { "testId": "open-ticket" } },
     {
-      "id": "fill-title",
+      "id": "fill-phone",
       "action": "fill",
-      "target": { "label": "标题" },
+      "target": { "label": "联系电话" },
+      "value": "19900000001"
+    },
+    {
+      "id": "fill-address",
+      "action": "fill",
+      "target": { "label": "详细地址" },
       "value": "TestPilot-{{runId}}"
     },
     {
-      "id": "fill-body",
+      "id": "fill-detail",
       "action": "fill",
-      "target": { "label": "描述" },
-      "value": "练习环境自动回归"
+      "target": { "label": "需求说明" },
+      "value": "跳过省市区街道的负向验证"
     },
     { "id": "submit", "action": "click", "target": { "testId": "submit-ticket" } },
     { "id": "wait-alert", "action": "wait", "target": { "testId": "ticket-alert" } }
   ],
   "assertions": [
     {
-      "id": "ticket-submitted",
+      "id": "ticket-region-required",
       "type": "ui",
       "target": { "testId": "ticket-alert" },
-      "contains": "工单已提交",
+      "contains": "请选择省、市、区县和街道",
       "oracle": "human-approved"
     }
   ],

@@ -28,13 +28,13 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | Console | 可用 | 弱断言 badge/筛选、审批 hash、首页告警；无步骤编辑器 |
 | Planner | 规则式 + 可选 LLM | 否定词已修；LLM 只建议断言，不生成可执行步骤 |
 | 管理 API | 文件存储 | 安全边界已加固；本机无登录；无数据库 |
-| 试点用例 | 15 条已批准 | 登录页与工单必填校验已改强；真实提交成功用例待补 |
+| 试点用例 | 15 条已批准 | 登录页与工单必填校验已改强；`pilot-ticket-submit-success` 模板已入库（批准前需对齐级联/HTTP） |
 | 弱断言 | 0 条 | 首页/列表/筛选/审阅弹窗可见；批准时强制拦截 |
 | 本地验证 | 通过 | `pnpm verify`：typecheck + build + 测试 + 4 条 smoke |
 | CI | 无（有意） | 用户要求不做自动 CI；本地 verify 为准 |
 | LLM | 可选 | 1M max_tokens 透传；配置/运行错误在控制台可见 |
 
-**必须诚实记录的事实：** `pilot-auto-ticket-no-attachment` 现在是「必填校验」测试，不是「提交成功」测试。真正的提交成功需要省/市/区县/街道级联选择和成功断言，已列入 P0。
+**必须诚实记录的事实：** `pilot-auto-ticket-no-attachment` 是「必填校验」负向用例。`pilot-ticket-submit-success.json` 提供成功路径模板，须在真实试点上校对级联文案与 HTTP 后再批准；练习环境由 `demo-ticket-submit-success` + smoke 证明。
 
 ## 2. 北极星与红线
 
@@ -165,7 +165,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - [ ] AS-4 Agent 断言 Provider
 - [ ] AS-5 断言配置 UI
 - [ ] AS-6 负向验证框架
-- [ ] P-1 真实工单提交成功用例
+- [x] P-1 真实工单提交成功用例 — `selectCascader` 步骤 + `demo-ticket-submit-success.json`（UI+HTTP）+ `demo-ticket-no-attachment.json` 负向 + `runner-web/src/ticket-p1.test.ts`；试点模板 `pilot-ticket-submit-success.json`（draft，需人工校对后批准）；`pnpm verify` 全绿
 - [ ] P-2 登录态 intake 快照
 - [ ] P-3 Recorder 端到端
 - [ ] P-4 步骤编辑器 / 草稿试跑
@@ -302,7 +302,7 @@ pnpm --filter @testpilot/test-management exec playwright install chromium
 
 ### 11.3 当前已知缺口
 
-- 真实工单提交成功用例缺失。
+- 真实工单提交成功：练习环境已覆盖；试点 IR 模板已入库，待人工对齐级联/HTTP 后批准。
 - Recorder 未验证 select/cascader；复杂表单仍需手工补步。
 - 控制台不能编辑步骤。
 - 无 DB/Agent 断言 Provider。

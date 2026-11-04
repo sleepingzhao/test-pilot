@@ -129,6 +129,28 @@
       .panel.open {
         display: block;
       }
+      .region-panel {
+        margin: 8px 0 16px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        max-width: 320px;
+        background: #fff;
+      }
+      .region-panel [role="menuitem"] {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 8px 10px;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        border-radius: 6px;
+        font: inherit;
+      }
+      .region-panel [role="menuitem"]:hover {
+        background: #f0f0f5;
+      }
       label {
         display: block;
         font-size: 13px;
@@ -242,14 +264,22 @@
         <div class="card">
           <button type="button" class="btn btn-primary" id="open-ticket" data-testid="open-ticket" role="button">提交工单</button>
           <div class="panel" id="ticket-form" aria-label="提交工单表单">
-            <label for="ticket-title">标题</label>
-            <input id="ticket-title" type="text" data-testid="ticket-title" placeholder="简要描述问题" />
-            <label for="ticket-body">描述</label>
-            <textarea id="ticket-body" data-testid="ticket-body" rows="3" placeholder="必填说明" style="width:100%;max-width:480px;padding:12px;border:1px solid var(--line);border-radius:10px;font-family:inherit"></textarea>
+            <label for="ticket-phone">联系电话</label>
+            <input id="ticket-phone" type="text" data-testid="ticket-phone" placeholder="11 位手机号" />
+            <label for="ticket-address">详细地址</label>
+            <input id="ticket-address" type="text" data-testid="ticket-address" placeholder="街道门牌" />
+            <label for="ticket-detail">需求说明</label>
+            <textarea id="ticket-detail" data-testid="ticket-detail" rows="3" placeholder="必填说明" style="width:100%;max-width:480px;padding:12px;border:1px solid var(--line);border-radius:10px;font-family:inherit"></textarea>
+            <label>省市区街道</label>
+            <button type="button" class="btn btn-secondary" id="region-trigger" data-testid="region-cascader" aria-haspopup="listbox">
+              请选择省市区街道
+            </button>
+            <div id="region-panel" class="region-panel" role="listbox" hidden></div>
+            <input type="hidden" id="region-value" />
             <label for="ticket-file">附件（练习环境不测试上传）</label>
             <input id="ticket-file" type="file" disabled />
             <div style="margin-top:16px">
-              <button type="button" class="btn btn-primary" id="submit-ticket" data-testid="submit-ticket" role="button">提交</button>
+              <button type="button" class="btn btn-primary" id="submit-ticket" data-testid="submit-ticket" role="button">确认提交</button>
               <button type="button" class="btn btn-secondary" id="cancel-ticket">取消</button>
             </div>
           </div>
@@ -327,36 +357,117 @@
       const openTicket = document.getElementById("open-ticket");
       const ticketForm = document.getElementById("ticket-form");
       const ticketAlert = document.getElementById("ticket-alert");
-      const ticketTitle = document.getElementById("ticket-title");
-      const ticketBody = document.getElementById("ticket-body");
+      const ticketPhone = document.getElementById("ticket-phone");
+      const ticketAddress = document.getElementById("ticket-address");
+      const ticketDetail = document.getElementById("ticket-detail");
+      const regionTrigger = document.getElementById("region-trigger");
+      const regionPanel = document.getElementById("region-panel");
+      const regionValue = document.getElementById("region-value");
       const submitTicket = document.getElementById("submit-ticket");
       const cancelTicket = document.getElementById("cancel-ticket");
 
+      const regionTree = {
+        广东省: {
+          深圳市: {
+            南山区: { 粤海街道: {} },
+          },
+        },
+      };
+
+      let regionSelection = [];
+
       function showTicketAlert(kind, text) {
         ticketAlert.className = kind + " show";
+        ticketAlert.setAttribute("role", "alert");
         ticketAlert.textContent = text;
       }
+
+      function resetRegion() {
+        regionSelection = [];
+        regionValue.value = "";
+        regionTrigger.textContent = "请选择省市区街道";
+        regionPanel.hidden = true;
+        regionPanel.innerHTML = "";
+      }
+
+      function renderRegionLevel(node, depth) {
+        regionPanel.innerHTML = "";
+        regionPanel.hidden = false;
+        for (const name of Object.keys(node)) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.setAttribute("role", "menuitem");
+          btn.textContent = name;
+          btn.addEventListener("click", () => {
+            regionSelection = regionSelection.slice(0, depth);
+            regionSelection.push(name);
+            const child = node[name];
+            const hasChild = child && typeof child === "object" && Object.keys(child).length > 0;
+            if (hasChild) {
+              renderRegionLevel(child, depth + 1);
+            } else {
+              regionPanel.hidden = true;
+              regionValue.value = regionSelection.join("/");
+              regionTrigger.textContent = regionSelection.join(" / ");
+            }
+          });
+          regionPanel.appendChild(btn);
+        }
+      }
+
+      regionTrigger.addEventListener("click", () => {
+        regionSelection = [];
+        renderRegionLevel(regionTree, 0);
+      });
 
       openTicket.addEventListener("click", () => {
         ticketForm.classList.add("open");
         ticketAlert.className = "";
-        ticketTitle.focus();
+        resetRegion();
+        ticketPhone.focus();
       });
       cancelTicket.addEventListener("click", () => {
         ticketForm.classList.remove("open");
-        ticketTitle.value = "";
-        ticketBody.value = "";
+        ticketPhone.value = "";
+        ticketAddress.value = "";
+        ticketDetail.value = "";
         ticketAlert.className = "";
+        resetRegion();
       });
-      submitTicket.addEventListener("click", () => {
-        if (!ticketTitle.value.trim() || !ticketBody.value.trim()) {
-          showTicketAlert("error", "请填写标题和描述");
+      submitTicket.addEventListener("click", async () => {
+        if (!regionValue.value) {
+          showTicketAlert("error", "请选择省、市、区县和街道");
           return;
         }
-        showTicketAlert("success", "工单已提交");
-        ticketForm.classList.remove("open");
-        ticketTitle.value = "";
-        ticketBody.value = "";
+        if (!ticketPhone.value.trim() || !ticketAddress.value.trim() || !ticketDetail.value.trim()) {
+          showTicketAlert("error", "请填写联系电话、详细地址和需求说明");
+          return;
+        }
+        try {
+          const res = await fetch("/api/tickets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phone: ticketPhone.value.trim(),
+              address: ticketAddress.value.trim(),
+              detail: ticketDetail.value.trim(),
+              region: regionSelection,
+              runRef: ticketAddress.value.trim(),
+            }),
+          });
+          if (!res.ok) {
+            showTicketAlert("error", "提交失败");
+            return;
+          }
+          showTicketAlert("success", "工单已提交");
+          ticketForm.classList.remove("open");
+          ticketPhone.value = "";
+          ticketAddress.value = "";
+          ticketDetail.value = "";
+          resetRegion();
+        } catch {
+          showTicketAlert("error", "网络错误");
+        }
       });
     </script>
   </body>

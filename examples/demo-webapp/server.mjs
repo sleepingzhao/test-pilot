@@ -23,6 +23,28 @@ const mime = {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
 
+  if (req.method === "POST" && url.pathname === "/api/tickets") {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    let body = {};
+    try {
+      body = JSON.parse(raw || "{}");
+    } catch {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "invalid_json" }));
+      return;
+    }
+    const region = body.region;
+    if (!Array.isArray(region) || region.length < 4) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "missing_region" }));
+      return;
+    }
+    res.writeHead(201, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, id: body.runRef ?? body.address ?? "ticket" }));
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/users") {
     let raw = "";
     for await (const chunk of req) raw += chunk;

@@ -11,7 +11,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const demoDir = join(root, "examples/demo-webapp");
 const tests = [
   "examples/demo-webapp/tests/demo-users-smoke.json",
-  "examples/demo-webapp/tests/demo-ticket-no-attachment.json",
+  "examples/demo-webapp/tests/demo-ticket-submit-success.json",
   "examples/demo-webapp/tests/demo-duplicate-email.json",
   "examples/demo-webapp/tests/demo-create-user-success.json",
 ];

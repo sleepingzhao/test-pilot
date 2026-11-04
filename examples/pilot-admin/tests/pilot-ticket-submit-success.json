@@ -1,0 +1,75 @@
+{
+  "id": "pilot-ticket-submit-success",
+  "version": 1,
+  "platform": "web",
+  "baseUrlRef": "pilot-admin",
+  "steps": [
+    { "id": "open-login", "action": "navigate", "path": "/admin/login" },
+    {
+      "id": "pick-password-tab",
+      "action": "click",
+      "target": { "role": "tab", "name": "密码" }
+    },
+    {
+      "id": "fill-phone",
+      "action": "fill",
+      "target": { "label": "手机号" },
+      "valueRef": "env.adminPhone"
+    },
+    {
+      "id": "fill-password",
+      "action": "fill",
+      "target": { "placeholder": "请输入密码" },
+      "valueRef": "env.adminPassword"
+    },
+    { "id": "submit-login", "action": "click", "target": { "role": "button", "name": "登录" } },
+    { "id": "goto-customer", "action": "navigate", "path": "/customer" },
+    { "id": "open-ticket", "action": "click", "target": { "role": "button", "name": "提交工单" } },
+    {
+      "id": "fill-contact-phone",
+      "action": "fill",
+      "target": { "label": "联系电话" },
+      "value": "19900000003"
+    },
+    {
+      "id": "fill-address",
+      "action": "fill",
+      "target": { "label": "详细地址" },
+      "value": "TestPilot-{{runId}}"
+    },
+    {
+      "id": "fill-detail",
+      "action": "fill",
+      "target": { "label": "需求说明" },
+      "value": "试点自动回归 {{runId}}"
+    },
+    {
+      "id": "pick-region",
+      "action": "selectCascader",
+      "target": { "label": "省市区街道" },
+      "cascaderPath": ["广东省", "深圳市", "南山区", "粤海街道"]
+    },
+    { "id": "confirm-submit", "action": "click", "target": { "role": "button", "name": "确认提交" } }
+  ],
+  "assertions": [
+    {
+      "id": "ticket-submit-success-ui",
+      "type": "ui",
+      "target": { "role": "alert" },
+      "contains": "提交成功",
+      "oracle": "human-approved"
+    },
+    {
+      "id": "ticket-submit-success-api",
+      "type": "api",
+      "provider": "captured-http",
+      "requestRef": "pilot-ticket-submit",
+      "expect": { "statusCode": 200 },
+      "oracle": "api-contract"
+    }
+  ],
+  "policy": {
+    "screenshots": "on-failure",
+    "retry": { "attempts": 1, "on": ["ENVIRONMENT"] }
+  }
+}

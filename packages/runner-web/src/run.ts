@@ -4,6 +4,7 @@ import type { RunArtifacts } from "@testpilot/evidence";
 import { classifyFailure, createEvidenceCollector, isTransientFailure } from "@testpilot/evidence";
 import type { RunEnvironment } from "@testpilot/fixtures";
 import { resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveValueRefs } from "@testpilot/fixtures";
+import { executeSelectCascader } from "./select-cascader.js";
 import { chromium, type Browser, type Locator as PwLocator, type Page } from "playwright";
 
 export type RunStatus = "passed" | "failed" | "error";
@@ -127,6 +128,14 @@ async function executeStep(
             .waitForFunction("document.body && document.body.innerText.trim().length > 0", { timeout: 20_000 })
             .catch(() => undefined);
         }
+        break;
+      }
+      case "selectCascader": {
+        if (!step.target) throw new Error("selectCascader requires target");
+        await executeSelectCascader(page, step, async () => {
+          const loc = await resolveStepLocator(page, step.target!);
+          await loc.click({ timeout: 15_000 });
+        });
         break;
       }
       default:

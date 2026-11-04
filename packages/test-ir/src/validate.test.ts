@@ -60,6 +60,24 @@ test("accepts assertion provider and configRef", () => {
   assert.equal(result.ok, true);
 });
 
+test("accepts selectCascader step", () => {
+  const result = validateTestIR({
+    id: "casc",
+    version: 1,
+    platform: "web",
+    steps: [
+      {
+        id: "pick",
+        action: "selectCascader",
+        target: { testId: "region-cascader" },
+        cascaderPath: ["广东省", "深圳市"],
+      },
+    ],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, true);
+});
+
 test("flags short and generic page-wide UI assertions", () => {
   const base = {
     id: "weak",

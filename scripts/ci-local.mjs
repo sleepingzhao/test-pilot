@@ -40,6 +40,7 @@ runIn("packages/planner", "pnpm", ["test"]);
 runIn("packages/assertions", "pnpm", ["test"]);
 runIn("packages/fixtures", "pnpm", ["test"]);
 runIn("packages/recorder-web", "pnpm", ["test"]);
+runIn("packages/runner-web", "pnpm", ["test"]);
 runIn("services/test-management", "pnpm", ["test"]);
 
 console.log("ci-local: smoke:demo");

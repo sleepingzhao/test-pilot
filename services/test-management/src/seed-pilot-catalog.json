@@ -6,5 +6,9 @@
   {
     "file": "examples/pilot-admin/tests/pilot-admin-password-login.json",
     "title": "【试点】密码登录进入控制台"
+  },
+  {
+    "file": "examples/pilot-admin/tests/pilot-ticket-submit-success.json",
+    "title": "【试点】用例1 — 提交工单成功（无附件）"
   }
 ]

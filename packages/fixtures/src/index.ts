@@ -52,6 +52,11 @@ export function resolveBaseUrl(ir: TestIR, env: RunEnvironment): string {
 const DEFAULT_REQUEST_REFS: Record<string, { urlIncludes: string; method?: string }> = {
   "users-create-attempt": { urlIncludes: "/api/users", method: "POST" },
   "users-lookup-existing-email": { urlIncludes: "/api/users", method: "POST" },
+  "tickets-create-attempt": { urlIncludes: "/api/tickets", method: "POST" },
+  "pilot-ticket-submit": {
+    urlIncludes: process.env.TESTPILOT_PILOT_TICKET_API_INCLUDES ?? "/workorder",
+    method: "POST",
+  },
 };
 
 export function resolveRequestRef(

@@ -2,7 +2,7 @@ export type OracleSource = "human-approved" | "requirement" | "api-contract";
 
 export type Platform = "web";
 
-export type StepAction = "navigate" | "click" | "fill" | "press" | "wait";
+export type StepAction = "navigate" | "click" | "fill" | "press" | "wait" | "selectCascader";
 
 export interface Locator {
   testId?: string;
@@ -21,6 +21,8 @@ export interface TestStep {
   value?: string;
   valueRef?: string;
   key?: string;
+  /** Ordered labels for each cascader level (province → street). */
+  cascaderPath?: string[];
 }
 
 export interface TestAssertion {

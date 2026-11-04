@@ -105,8 +105,10 @@
         "id": { "type": "string", "minLength": 1 },
         "type": {
           "type": "string",
-          "enum": ["ui", "api", "db", "event"]
+          "enum": ["ui", "api", "db", "event", "agent", "custom"]
         },
+        "provider": { "type": "string", "minLength": 1 },
+        "configRef": { "type": "string", "minLength": 1 },
         "target": { "$ref": "#/$defs/locator" },
         "contains": { "type": "string" },
         "requestRef": { "type": "string", "minLength": 1 },

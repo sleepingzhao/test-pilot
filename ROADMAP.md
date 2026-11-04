@@ -159,7 +159,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 
 ### 5.1 执行看板（每完成一项勾选，并附证据）
 
-- [ ] AS-1 Provider 注册表 + IR 扩展
+- [x] AS-1 Provider 注册表 + IR 扩展 — `pnpm verify` 全绿（2026-11-04）；`packages/assertions/src/providers.test.ts`（默认/显式 Provider、未知 Provider、db 缺 provider）；`packages/test-ir/src/validate.test.ts`（schema 接受 provider/configRef）；`services/test-management/src/approval.test.ts`（未知 Provider 审批 400）
 - [ ] AS-2 HTTP 断言 Provider
 - [ ] AS-3 DB 断言 Provider
 - [ ] AS-4 Agent 断言 Provider

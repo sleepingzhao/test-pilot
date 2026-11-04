@@ -79,3 +79,55 @@ test("approval is pinned to the reviewed IR hash and records the actor", async (
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("approval rejects unknown assertion provider", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-approval-provider-"));
+  const dataRoot = join(root, "data");
+  const store = new FileStore(dataRoot);
+  await store.init();
+
+  const testId = "bad-provider";
+  const ir = {
+    id: testId,
+    version: 1,
+    platform: "web" as const,
+    steps: [{ id: "open", action: "navigate" as const, path: "/" }],
+    assertions: [
+      {
+        id: "x",
+        type: "ui" as const,
+        provider: "unknown-provider",
+        contains: "saved ok text here",
+        oracle: "human-approved" as const,
+      },
+    ],
+  };
+  await store.saveTest({
+    id: testId,
+    projectId: "default",
+    title: "bad provider",
+    ir,
+    approvalStatus: "draft",
+    updatedAt: new Date().toISOString(),
+  });
+
+  const app = Fastify();
+  await app.register(sensible);
+  registerRoutes(app, store, join(root, "artifacts"), dataRoot);
+  await app.ready();
+
+  try {
+    const hash = computeIRHash(ir);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tests/${testId}/approve`,
+      payload: { irHash: hash },
+    });
+    assert.equal(res.statusCode, 400);
+    const body = res.json() as { issues?: Array<{ message: string }> };
+    assert.ok(body.issues?.some((i) => i.message.includes("未知的断言 Provider")));
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

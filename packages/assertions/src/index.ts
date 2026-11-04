@@ -1,6 +1,20 @@
 import type { Locator, TestAssertion } from "@testpilot/test-ir";
 import type { Page } from "playwright";
 import { partialJsonMatch } from "./api-match.js";
+import {
+  getAssertionProvider,
+  registerAssertionProvider,
+  resolveAssertionProviderId,
+} from "./providers.js";
+
+export type { AssertionProvider } from "./providers.js";
+export {
+  getAssertionProvider,
+  listAssertionProviders,
+  registerAssertionProvider,
+  resolveAssertionProviderId,
+  validateAssertionProviders,
+} from "./providers.js";
 
 export type CapturedNetworkEntry = {
   url: string;
@@ -301,17 +315,48 @@ export async function runAssertion(
   assertion: TestAssertion,
   ctx: AssertionContext,
 ): Promise<AssertionOutcome> {
-  switch (assertion.type) {
-    case "ui":
-      return runUiAssertion(assertion, ctx);
-    case "api":
-      return runApiAssertion(assertion, ctx);
-    default:
-      return {
-        assertionId: assertion.id ?? assertion.type,
-        passed: false,
-        errorKind: "UNKNOWN",
-        message: `${assertion.type} assertions not implemented in v0.1 scaffold`,
-      };
+  const assertionId = assertion.id ?? assertion.type;
+  const providerId = resolveAssertionProviderId(assertion);
+
+  if (!providerId) {
+    return {
+      assertionId,
+      passed: false,
+      errorKind: "ASSERTION_ORACLE",
+      message: `${assertion.type} assertion requires an explicit provider`,
+    };
   }
+
+  const provider = getAssertionProvider(providerId);
+  if (!provider) {
+    return {
+      assertionId,
+      passed: false,
+      errorKind: "ASSERTION_ORACLE",
+      message: `unknown assertion provider: ${providerId}`,
+    };
+  }
+
+  if (provider.kind !== assertion.type) {
+    return {
+      assertionId,
+      passed: false,
+      errorKind: "ASSERTION_ORACLE",
+      message: `provider ${providerId} kind ${provider.kind} does not match assertion type ${assertion.type}`,
+    };
+  }
+
+  return provider.run(assertion, ctx);
 }
+
+registerAssertionProvider({
+  id: "playwright-ui",
+  kind: "ui",
+  run: runUiAssertion,
+});
+
+registerAssertionProvider({
+  id: "captured-http",
+  kind: "api",
+  run: runApiAssertion,
+});

@@ -14,6 +14,7 @@
     "@fastify/cors": "^10.0.1",
     "@fastify/sensible": "^6.0.1",
     "@fastify/static": "^8.0.2",
+    "@testpilot/assertions": "workspace:*",
     "@testpilot/context-web": "workspace:*",
     "@testpilot/evidence": "workspace:*",
     "@testpilot/fixtures": "workspace:*",

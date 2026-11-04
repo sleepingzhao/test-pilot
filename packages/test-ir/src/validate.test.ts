@@ -40,6 +40,26 @@ test("accepts a per-test baseUrl", () => {
   assert.equal(result.ok, true);
 });
 
+test("accepts assertion provider and configRef", () => {
+  const result = validateTestIR({
+    id: "ext",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    assertions: [
+      {
+        id: "db-check",
+        type: "db",
+        provider: "postgres-readonly",
+        configRef: "pilot-db",
+        oracle: "human-approved",
+        expect: { queryRef: "order-by-run-id" },
+      },
+    ],
+  });
+  assert.equal(result.ok, true);
+});
+
 test("flags short and generic page-wide UI assertions", () => {
   const base = {
     id: "weak",

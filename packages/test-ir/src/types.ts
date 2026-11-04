@@ -25,7 +25,9 @@ export interface TestStep {
 
 export interface TestAssertion {
   id?: string;
-  type: "ui" | "api" | "db" | "event";
+  type: "ui" | "api" | "db" | "event" | "agent" | "custom";
+  provider?: string;
+  configRef?: string;
   target?: Locator;
   contains?: string;
   requestRef?: string;

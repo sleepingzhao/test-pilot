@@ -8,6 +8,7 @@ import { runTestIR, type RunResult } from "@testpilot/runner-web";
 import { snapshotPageContext } from "@testpilot/context-web";
 import { draftToPartialIR, planDraft, planFromIntake, suggestAssertionsForTest, filterForbiddenSuggestionTokens } from "@testpilot/planner";
 import { computeIRHash, IR_HASH_VERSION, validateSemantics, validateTestIR, weakAssertionIssues } from "@testpilot/test-ir";
+import { validateAssertionProviders } from "@testpilot/assertions";
 import { classifyFailure } from "@testpilot/evidence";
 import { chromium } from "playwright";
 import type { FileStore, RecordJob, StoredRun, StoredTest } from "./store.js";
@@ -329,6 +330,13 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       return reply.code(400).send({
         error: "断言违反试点约束，请修改后再批准",
         issues: pilotForbidden,
+      });
+    }
+    const providerIssues = validateAssertionProviders(test.ir);
+    if (providerIssues.length) {
+      return reply.code(400).send({
+        error: "断言 Provider 无效或未配置",
+        issues: providerIssues,
       });
     }
     const actorHeader = req.headers["x-testpilot-actor"];

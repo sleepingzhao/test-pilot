@@ -14,6 +14,11 @@
       "id": "probe-postgres-readonly",
       "provider": "postgres-readonly",
       "file": "examples/negative-probes/postgres-readonly-probe.json"
+    },
+    {
+      "id": "probe-otel-trace",
+      "provider": "otel-trace",
+      "file": "examples/negative-probes/otel-trace-probe.json"
     }
   ]
 }

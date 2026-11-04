@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { TestIR } from "@testpilot/test-ir";
-import { createReadonlyDbClient, type RunEnvironment } from "@testpilot/fixtures";
+import { createReadonlyDbClient, createTraceClient, type RunEnvironment } from "@testpilot/fixtures";
 import { runTestIR, type RunResult } from "./run.js";
 
 export type NegativeProbeSpec = {
@@ -36,6 +36,25 @@ export function loadProbeCatalog(repoRoot: string): NegativeProbeSpec[] {
 function loadProbeIr(repoRoot: string, file: string): TestIR {
   const raw = readFileSync(join(repoRoot, file), "utf8");
   return JSON.parse(raw) as TestIR;
+}
+
+function probeAgentMockEnv(baseEnv: RunEnvironment): RunEnvironment {
+  const configs = {
+    "agent-observability": {
+      tracesDir: "examples/agent-traces",
+      service: "pilot-agent",
+    },
+  };
+  return {
+    ...baseEnv,
+    agentTraces: createTraceClient({
+      configs,
+      mockGetTrace: async () => ({
+        traceId: "probe-trace",
+        toolCalls: [{ name: "wrong_tool_only", args: {} }],
+      }),
+    }),
+  };
 }
 
 function probeDbMockEnv(baseEnv: RunEnvironment): RunEnvironment {
@@ -76,7 +95,12 @@ export async function runNegativeProbe(
   opts?: { headless?: boolean; artifactsDir?: string },
 ): Promise<{ result: NegativeProbeResult; run: RunResult }> {
   const ir = loadProbeIr(repoRoot, spec.file);
-  const runEnv = spec.provider === "postgres-readonly" ? probeDbMockEnv(env) : env;
+  const runEnv =
+    spec.provider === "postgres-readonly"
+      ? probeDbMockEnv(env)
+      : spec.provider === "otel-trace"
+        ? probeAgentMockEnv(env)
+        : env;
   const run = await runTestIR(ir, {
     env: runEnv,
     headless: opts?.headless ?? true,

@@ -1,11 +1,12 @@
 import type { Locator, TestAssertion } from "@testpilot/test-ir";
 import type { Page } from "playwright";
 import { runCapturedHttpAssertion, validateCapturedHttpAssertion } from "./captured-http.js";
-import { getDbConfigBundle } from "@testpilot/fixtures";
+import { getAgentConfigBundle, getDbConfigBundle } from "@testpilot/fixtures";
 import {
   runPostgresReadonlyAssertion,
   validatePostgresReadonlyAssertion,
 } from "./postgres-readonly.js";
+import { runOtelTraceAssertion, validateOtelTraceAssertion } from "./otel-trace.js";
 import {
   getAssertionProvider,
   registerAssertionProvider,
@@ -25,6 +26,7 @@ export {
   runPostgresReadonlyAssertion,
   validatePostgresReadonlyAssertion,
 } from "./postgres-readonly.js";
+export { runOtelTraceAssertion, validateOtelTraceAssertion } from "./otel-trace.js";
 export type { AssertionProvider } from "./providers.js";
 
 export {
@@ -200,4 +202,12 @@ registerAssertionProvider({
   validate: (assertion) =>
     validatePostgresReadonlyAssertion(assertion, (ref) => getDbConfigBundle(ref)),
   run: runPostgresReadonlyAssertion,
+});
+
+registerAssertionProvider({
+  id: "otel-trace",
+  kind: "agent",
+  validate: (assertion) =>
+    validateOtelTraceAssertion(assertion, (ref) => getAgentConfigBundle(ref)),
+  run: runOtelTraceAssertion,
 });

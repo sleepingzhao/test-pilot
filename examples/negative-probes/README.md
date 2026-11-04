@@ -5,6 +5,7 @@
 - `playwright-ui` — 页面上不存在的文案
 - `captured-http` — 重复邮箱场景断言错误状态码
 - `postgres-readonly` — mock 返回 0 行，断言 `rowCount: 1`
+- `otel-trace` — mock trace 缺少指定工具调用
 
 ```bash
 pnpm negative-probes

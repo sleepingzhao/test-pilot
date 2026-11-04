@@ -133,6 +133,59 @@ test("approval rejects db assertion with unknown queryRef", async () => {
   }
 });
 
+test("approval rejects agent assertion with empty expect rules", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-approval-agent-"));
+  const dataRoot = join(root, "data");
+  const store = new FileStore(dataRoot);
+  await store.init();
+
+  const testId = "bad-agent-expect";
+  const ir = {
+    id: testId,
+    version: 1,
+    platform: "web" as const,
+    steps: [{ id: "open", action: "navigate" as const, path: "/" }],
+    assertions: [
+      {
+        id: "a1",
+        type: "agent" as const,
+        provider: "otel-trace",
+        configRef: "agent-observability",
+        oracle: "human-approved" as const,
+        expect: {},
+      },
+    ],
+  };
+  await store.saveTest({
+    id: testId,
+    projectId: "default",
+    title: "bad agent",
+    ir,
+    approvalStatus: "draft",
+    updatedAt: new Date().toISOString(),
+  });
+
+  const app = Fastify();
+  await app.register(sensible);
+  registerRoutes(app, store, join(root, "artifacts"), dataRoot);
+  await app.ready();
+
+  try {
+    const hash = computeIRHash(ir);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tests/${testId}/approve`,
+      payload: { irHash: hash },
+    });
+    assert.equal(res.statusCode, 400);
+    const body = res.json() as { issues?: Array<{ message: string }> };
+    assert.ok(body.issues?.some((i) => i.message.includes("forbiddenTools") || i.message.includes("toolCalls")));
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("approval rejects unknown assertion provider", async () => {
   const root = await mkdtemp(join(tmpdir(), "testpilot-approval-provider-"));
   const dataRoot = join(root, "data");

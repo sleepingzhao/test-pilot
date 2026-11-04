@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "agents": {
+    "agent-observability": {
+      "tracesDir": "examples/agent-traces",
+      "service": "pilot-agent"
+    }
+  }
+}

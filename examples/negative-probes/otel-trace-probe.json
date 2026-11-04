@@ -1,0 +1,18 @@
+{
+  "id": "probe-otel-trace",
+  "version": 1,
+  "platform": "web",
+  "steps": [{ "id": "open", "action": "navigate", "path": "/" }],
+  "assertions": [
+    {
+      "id": "missing-tool",
+      "type": "agent",
+      "provider": "otel-trace",
+      "configRef": "agent-observability",
+      "expect": {
+        "toolCalls": [{ "name": "search_orders", "minCount": 1 }]
+      },
+      "oracle": "human-approved"
+    }
+  ]
+}

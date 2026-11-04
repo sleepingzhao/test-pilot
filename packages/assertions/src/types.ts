@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import type { DbConfigBundle, ReadonlyDbClient } from "@testpilot/fixtures";
+import type { AgentConfigBundle, DbConfigBundle, ReadonlyDbClient, TraceClient } from "@testpilot/fixtures";
 
 export type CapturedNetworkEntry = {
   url: string;
@@ -41,4 +41,6 @@ export type AssertionContext = {
   resolveRef?: (ref: string) => unknown;
   db?: ReadonlyDbClient;
   resolveDbConfig?: (configRef: string) => DbConfigBundle | undefined;
+  traces?: TraceClient;
+  resolveAgentConfig?: (configRef: string) => AgentConfigBundle | undefined;
 };

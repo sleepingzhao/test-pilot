@@ -3,7 +3,7 @@ import { runAssertion } from "@testpilot/assertions";
 import type { RunArtifacts } from "@testpilot/evidence";
 import { classifyFailure, createEvidenceCollector, isTransientFailure } from "@testpilot/evidence";
 import type { RunEnvironment } from "@testpilot/fixtures";
-import { buildReadonlyDbClient, getDbConfigBundle, resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveValueRefs } from "@testpilot/fixtures";
+import { buildReadonlyDbClient, buildAgentTraceClient, getDbConfigBundle, getAgentConfigBundle, resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveValueRefs } from "@testpilot/fixtures";
 import { executeSelectCascader } from "./select-cascader.js";
 import { chromium, type Browser, type Locator as PwLocator, type Page } from "playwright";
 
@@ -210,6 +210,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
       await evidence.waitForNetworkCapture();
       const networkLog = evidence.getNetworkLog();
       const dbClient = buildReadonlyDbClient(options.env);
+      const traceClient = buildAgentTraceClient(options.env);
       const assertionCtx = {
         page,
         runId,
@@ -217,6 +218,8 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         resolveRequestRef: (ref: string) => resolveRequestRef(ref, options.env),
         db: dbClient,
         resolveDbConfig: (ref: string) => getDbConfigBundle(ref),
+        traces: traceClient,
+        resolveAgentConfig: (ref: string) => getAgentConfigBundle(ref),
       };
       for (const assertion of ir.assertions) {
         const outcome = await runAssertion(assertion, assertionCtx);

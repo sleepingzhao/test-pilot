@@ -1,0 +1,10 @@
+{
+  "traceId": "demo-trace-001",
+  "runId": "demo",
+  "toolCalls": [
+    {
+      "name": "search_orders",
+      "args": { "customerId": "demo" }
+    }
+  ]
+}

@@ -1,6 +1,8 @@
 import type { TestIR } from "@testpilot/test-ir";
+import { loadAssertionAgentConfigs } from "./agent-config.js";
 import { loadAssertionDbConfigs } from "./db-config.js";
 import { createReadonlyDbClient, type ReadonlyDbClient } from "./readonly-db-client.js";
+import { createTraceClient } from "./trace-client.js";
 
 export type RunEnvironment = {
   baseUrl: string;
@@ -13,6 +15,8 @@ export type RunEnvironment = {
   commitSha?: string;
   /** Injected readonly DB client (tests) or built from assertion-db-config at run time. */
   readonlyDb?: import("./readonly-db-client.js").ReadonlyDbClient;
+  /** Injected trace client (tests) or built from assertion-agent-config at run time. */
+  agentTraces?: import("./trace-client.js").TraceClient;
 };
 
 export function resolveFixtureRefs(fixtureName: string | undefined, env: RunEnvironment): void {
@@ -91,4 +95,26 @@ export function buildReadonlyDbClient(env: RunEnvironment): ReadonlyDbClient | u
   const configs = loadAssertionDbConfigs();
   if (Object.keys(configs).length === 0) return undefined;
   return createReadonlyDbClient({ configs });
+}
+
+export type { AgentConfigBundle } from "./agent-config.js";
+export {
+  getAgentConfigBundle,
+  loadAssertionAgentConfigs,
+} from "./agent-config.js";
+export type {
+  AgentToolCall,
+  ImportedAgentTrace,
+  TraceClient,
+  TraceClientFactoryOptions,
+} from "./trace-client.js";
+export { createTraceClient, parseAgentTraceJson } from "./trace-client.js";
+
+export function buildAgentTraceClient(
+  env: RunEnvironment,
+): import("./trace-client.js").TraceClient | undefined {
+  if (env.agentTraces) return env.agentTraces;
+  const configs = loadAssertionAgentConfigs();
+  if (Object.keys(configs).length === 0) return undefined;
+  return createTraceClient({ configs });
 }

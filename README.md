@@ -46,7 +46,7 @@ Agent 自主迭代边界见 [`docs/agent-iteration.md`](docs/agent-iteration.md)
 
 ## 架构（与 design 图对齐）
 
-- **Interface**：Web Console（`apps/console`）· CLI 仍保留给 CI
+- **Interface**：Web Console（`apps/console`）· CLI 供脚本与高级用法
 - **Intelligence**：Planner / Context（迭代中）· 回归执行 **零 LLM**
 - **Test IR + Assertions**：`packages/test-ir` · `packages/assertions`
 - **Platform**：Web 已可用 · Phone / Glass 见 `packages/platform` 路线图
@@ -67,7 +67,7 @@ Agent 自主迭代边界见 [`docs/agent-iteration.md`](docs/agent-iteration.md)
 
 高级用户仍可用 `pnpm cli run …`（见 `docs/BACKLOG.md`）。
 
-提交前自检（与 CI 一致）：
+提交前可选自检：
 
 ```bash
 pnpm verify

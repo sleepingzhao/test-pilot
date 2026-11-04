@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Mirrors .github/workflows/ci.yml — run before push.
+ * Optional local check before push — same steps as former GitHub workflow.
  */
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";

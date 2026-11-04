@@ -15,7 +15,7 @@
 | 0.3 | 演示环境 | `examples/demo-webapp` + 10 条 catalog 用例 | done |
 | 0.4 | 架构 / ADR 占位 | `docs/architecture.md`、`docs/adr/` | partial |
 | 0.5 | 工程 ADR 正文 | ADR-001～005 可执行决策 | partial（README + architecture 摘要） |
-| 0.6 | CI 自检 | build + IR 校验 + 单测 + **`pnpm smoke:demo`**；本地 **`pnpm verify`** 镜像 workflow | done |
+| 0.6 | 本地自检 | build + IR 校验 + 单测 + **`pnpm smoke:demo`**；可选 **`pnpm verify`** | done |
 
 ---
 

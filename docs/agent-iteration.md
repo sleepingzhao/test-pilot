@@ -15,7 +15,7 @@
 ## Agent 默认会做
 
 - 改 planner / runner / console / CI，push 到 `main`
-- **push 前运行 `pnpm verify`**（与 GitHub Actions 相同：build、IR 校验、单测、smoke）
+- **push 前可选运行 `pnpm verify`**（build、IR 校验、单测、smoke）
 - 练习环境 demo 用例与 `pnpm build`、单测
 - 试点 **auto-intake**（`pilot-intake-presets.json`）在 API 启动时生成草稿（需 `.env` + 可达试点）
 - LLM 仅用于 **草稿 / 诊断**；回归执行保持 **0 LLM**

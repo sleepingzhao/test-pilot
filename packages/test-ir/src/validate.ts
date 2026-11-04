@@ -73,7 +73,7 @@ export function isWeakAssertionText(text: string): boolean {
 /** Page-wide assertions need specific text; otherwise they pass on any page copy. */
 export function weakAssertionIssues(ir: TestIR): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  for (const [i, a] of ir.assertions.entries()) {
+  for (const [i, a] of (ir.assertions ?? []).entries()) {
     if (a.type !== "ui" || a.target) continue;
     const text = (a.contains ?? "").trim();
     if (!text) continue;

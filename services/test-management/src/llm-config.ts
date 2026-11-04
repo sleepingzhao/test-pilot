@@ -84,8 +84,8 @@ export function llmPlannerConfigFromEnv(): LlmPlannerConfig | null {
     configError = "TESTPILOT_LLM_TEMPERATURE 必须在 0..2 之间";
     return null;
   }
-  if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > 393_216) {
-    configError = "TESTPILOT_LLM_MAX_TOKENS 必须是 1..393216 的整数";
+  if (!Number.isSafeInteger(maxTokens) || maxTokens < 1) {
+    configError = "TESTPILOT_LLM_MAX_TOKENS 必须是正整数";
     return null;
   }
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 300_000) {

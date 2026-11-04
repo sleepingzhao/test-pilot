@@ -14,7 +14,7 @@ type IrAssertion = {
 
 type View = "home" | "tests" | "create" | "history";
 type CreateChannel = "intent" | "prd" | "record";
-type TestFilter = "all" | "draft" | "pilot" | "demo";
+type TestFilter = "all" | "draft" | "weak" | "pilot" | "demo";
 
 function isPilotTest(t: StoredTest): boolean {
   if (t.title.includes("【试点】")) return true;
@@ -54,6 +54,8 @@ export function App() {
     approvedTestCount?: number;
     approvedPilotCount?: number;
     approvedDemoCount?: number;
+    weakApprovedCount?: number;
+    weakApprovedTests?: Array<{ id: string; title: string; count: number }>;
     recentBatches?: Array<{ startedAt: string; total: number; passed: number; durationMs: number }>;
   } | null>(null);
   const [demoOk, setDemoOk] = useState<boolean | null>(null);
@@ -62,7 +64,13 @@ export function App() {
   const [pilotUrl, setPilotUrl] = useState<string | null>(null);
   const [pilotIntakeUrl, setPilotIntakeUrl] = useState<string | null>(null);
   const [pilotScopeNote, setPilotScopeNote] = useState<string | null>(null);
-  const [llmInfo, setLlmInfo] = useState<{ enabled: boolean; provider?: string; model?: string; error?: string } | null>(null);
+  const [llmInfo, setLlmInfo] = useState<{
+    enabled: boolean;
+    provider?: string;
+    model?: string;
+    error?: string;
+    lastError?: string | null;
+  } | null>(null);
   const [diagnoseRun, setDiagnoseRun] = useState<StoredRun | null>(null);
   const [diagnoseDetail, setDiagnoseDetail] = useState<{
     failureKind: string | null;
@@ -107,6 +115,8 @@ export function App() {
         approvedPilotCount?: number;
         approvedDemoCount?: number;
         approvedTestCount?: number;
+        weakApprovedCount?: number;
+        weakApprovedTests?: Array<{ id: string; title: string; count: number }>;
         recentBatches?: Array<{ startedAt: string; total: number; passed: number; durationMs: number }>;
       }>("/api/metrics/summary");
       setSummary(m);
@@ -122,12 +132,13 @@ export function App() {
         pilotIntakeUrl?: string | null;
         pilotSecretsConfigured?: boolean;
         llm?: { enabled: boolean; provider?: string; model?: string; error?: string };
+        llmUsage?: { lastError?: string | null };
       }>("/api/environment");
       setDemoOk(env.demoReachable);
       setPilotOk(env.pilotReachable ?? null);
       setPilotSecrets(env.pilotSecretsConfigured ?? null);
       setPilotUrl(env.pilotUrl ?? null);
-      setLlmInfo(env.llm ?? null);
+      setLlmInfo(env.llm ? { ...env.llm, lastError: env.llmUsage?.lastError ?? null } : null);
       setPilotIntakeUrl(env.pilotIntakeUrl ?? null);
       setCreateUrl((prev) => {
         if (prev) return prev;
@@ -472,10 +483,15 @@ export function App() {
   const sortedTests = [...tests].sort((a, b) => {
     if (a.approvalStatus === "draft" && b.approvalStatus !== "draft") return -1;
     if (a.approvalStatus !== "draft" && b.approvalStatus === "draft") return 1;
+    const aWeak = a.approvalStatus === "approved" && (a.weakAssertions?.length ?? 0) > 0;
+    const bWeak = b.approvalStatus === "approved" && (b.weakAssertions?.length ?? 0) > 0;
+    if (aWeak && !bWeak) return -1;
+    if (!aWeak && bWeak) return 1;
     return a.title.localeCompare(b.title, "zh-CN");
   });
   const filteredTests = sortedTests.filter((t) => {
     if (testFilter === "draft") return t.approvalStatus === "draft";
+    if (testFilter === "weak") return (t.weakAssertions?.length ?? 0) > 0;
     if (testFilter === "pilot") return isPilotTest(t);
     if (testFilter === "demo") return !isPilotTest(t);
     return true;
@@ -508,6 +524,11 @@ export function App() {
           有 <strong>{draftCount}</strong> 条用例待审阅（含试点 auto-intake）。请打开「用例 → 草稿」，核对 UI / API 断言后点「保存并批准」；未批准不会进入「运行全部」。
         </div>
       )}
+      {summary && (summary.weakApprovedCount ?? 0) > 0 && (
+        <div className="alert-bar">
+          有 <strong>{summary.weakApprovedCount}</strong> 条已批准用例使用弱断言，可能产生假阳性。请打开「用例 → 弱断言」审阅并强化。
+        </div>
+      )}
       {demoOk === false && (
         <div className="alert-bar">
           练习应用未启动（端口 4173）。Demo 用例需 <code>pnpm dev</code>；试点用例不受影响。
@@ -529,6 +550,9 @@ export function App() {
             ? `LLM 配置无效：${llmInfo.error}`
             : "LLM 未启用：在 .env 中设置 TESTPILOT_LLM_API_KEY（见 .env.example / docs/llm.md）。"}
         </div>
+      )}
+      {llmInfo?.enabled && llmInfo.lastError && (
+        <div className="alert-bar">最近一次 LLM 调用失败：{llmInfo.lastError}</div>
       )}
 
       <main>
@@ -628,6 +652,7 @@ export function App() {
                 [
                   ["all", "全部"],
                   ["draft", "草稿"],
+                  ["weak", "弱断言"],
                   ["pilot", "试点"],
                   ["demo", "练习"],
                 ] as const
@@ -653,6 +678,14 @@ export function App() {
                         <span className={`badge ${t.approvalStatus === "draft" ? "draft" : ""}`}>
                           {t.approvalStatus === "draft" ? "草稿" : "已批准"}
                         </span>
+                        {(t.weakAssertions?.length ?? 0) > 0 && (
+                          <span
+                            className="badge weak"
+                            title={t.weakAssertions!.map((item) => item.message).join("\n")}
+                          >
+                            弱断言 {t.weakAssertions!.length}
+                          </span>
+                        )}
                         {last && (
                           <span className={`status-pill ${last.status === "passed" ? "pass" : "fail"}`}>
                             {last.status === "passed" ? "通过" : "失败"}
@@ -881,6 +914,16 @@ export function App() {
                     ))}
                   </ul>
                 </>
+              )}
+              {editTest.weakAssertions && editTest.weakAssertions.length > 0 && (
+                <div className="weak-assertion-box">
+                  <p className="hint-inline">弱断言警告（批准前需改强）</p>
+                  <ul className="diagnose-list">
+                    {editTest.weakAssertions.map((item) => (
+                      <li key={item.path}>{item.message}</li>
+                    ))}
+                  </ul>
+                </div>
               )}
               <div className="field">
                 <label>测试意图（可编辑，供建议引擎参考）</label>

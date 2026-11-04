@@ -27,12 +27,21 @@ const baseVars = {
   TESTPILOT_LLM_TIMEOUT_MS: "45000",
 };
 
-test("invalid max_tokens disables LLM with a visible error", () => {
-  withEnv({ ...baseVars, TESTPILOT_LLM_MAX_TOKENS: "1000000" }, () => {
+test("non-positive max_tokens disables LLM with a visible error", () => {
+  withEnv({ ...baseVars, TESTPILOT_LLM_MAX_TOKENS: "0" }, () => {
     assert.equal(llmPlannerConfigFromEnv(), null);
     const info = llmPlannerPublicInfo();
     assert.equal(info.enabled, false);
-    assert.match(info.error ?? "", /MAX_TOKENS/);
+    assert.match(info.error ?? "", /正整数/);
+  });
+});
+
+test("large provider-supported max_tokens is passed through", () => {
+  withEnv({ ...baseVars, TESTPILOT_LLM_MAX_TOKENS: "1000000" }, () => {
+    const config = llmPlannerConfigFromEnv();
+    assert.ok(config);
+    assert.equal(config?.maxTokens, 1_000_000);
+    assert.equal(llmPlannerPublicInfo().enabled, true);
   });
 });
 

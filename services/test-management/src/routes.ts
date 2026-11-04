@@ -65,6 +65,10 @@ function stampTestMeta(test: StoredTest, opts?: { approving?: boolean }): Stored
   return next;
 }
 
+function withWeakAssertions(test: StoredTest) {
+  return { ...test, weakAssertions: weakAssertionIssues(test.ir) };
+}
+
 async function readLocalJson<T>(filename: string): Promise<T | null> {
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
   const primary = join(repoRoot, "docs", filename);
@@ -247,14 +251,14 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   app.get("/api/projects", async () => [store.project()]);
 
-  app.get("/api/projects/:projectId/tests", async () => store.listTests());
+  app.get("/api/projects/:projectId/tests", async () => (await store.listTests()).map(withWeakAssertions));
 
   app.get("/api/tests/:testId", async (req, reply) => {
     const { testId } = req.params as { testId: string };
     if (!isSafeTestId(testId)) return reply.notFound("test not found");
     const test = await store.getTest(testId);
     if (!test) return reply.notFound("test not found");
-    return test;
+    return withWeakAssertions(test);
   });
 
   app.put("/api/tests/:testId", async (req, reply) => {
@@ -274,7 +278,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const v = validateTestIR(updated.ir);
     if (!v.ok) return reply.code(400).send({ issues: v.issues });
     await store.saveTest(updated);
-    return updated;
+    return withWeakAssertions(updated);
   });
 
   app.delete("/api/tests/:testId", async (req, reply) => {
@@ -331,7 +335,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const actor = String(Array.isArray(actorHeader) ? actorHeader[0] : actorHeader ?? "local").slice(0, 80);
     const approved = { ...stampTestMeta(test, { approving: true }), approvedBy: actor };
     await store.saveTest(approved);
-    return approved;
+    return withWeakAssertions(approved);
   });
 
   app.post("/api/tests/:testId/suggest-assertions", async (req, reply) => {
@@ -430,7 +434,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       updatedAt: new Date().toISOString(),
     });
     await store.saveTest(test);
-    return { test, draft: { uncertainties: draft.uncertainties, sources: draft.sources }, llmUsed, llmTokensUsed };
+    return { test: withWeakAssertions(test), draft: { uncertainties: draft.uncertainties, sources: draft.sources }, llmUsed, llmTokensUsed };
   });
 
   app.get("/api/environment", async () => {
@@ -461,6 +465,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const approved = approvedList.length;
     const approvedPilotCount = approvedList.filter((t) => isPilotTest(t)).length;
     const approvedDemoCount = approved - approvedPilotCount;
+    const weakApproved = approvedList
+      .map((t) => ({ id: t.id, title: t.title, count: weakAssertionIssues(t.ir).length }))
+      .filter((t) => t.count > 0);
     const baseline = await loadPilotBaseline();
     const lastBatchMs = estimateLastBatchDurationMs(runs);
     const batchMinutes = lastBatchMs != null ? lastBatchMs / 60_000 : null;
@@ -477,6 +484,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       approvedTestCount: approved,
       approvedPilotCount,
       approvedDemoCount,
+      weakApprovedCount: weakApproved.length,
+      weakApprovedTests: weakApproved,
       lastBatchDurationMs: lastBatchMs,
       lastBatchMinutes: batchMinutes != null ? Math.round(batchMinutes * 10) / 10 : null,
       pilotBaselineMinutes: baselineMin,

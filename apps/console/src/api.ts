@@ -7,6 +7,7 @@ export type StoredTest = {
   irHash?: string;
   approvedAt?: string;
   approvedBy?: string;
+  weakAssertions?: Array<{ path: string; message: string }>;
   intentSummary?: string;
   sourceChannel?: "intent" | "prd" | "record";
   plannerNotes?: string[];

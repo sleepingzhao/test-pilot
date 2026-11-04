@@ -482,6 +482,19 @@ main {
   background: #fff4eb;
 }
 
+.badge.weak {
+  color: #bf4800;
+  background: #fff4eb;
+}
+
+.weak-assertion-box {
+  background: #fff4eb;
+  border: 1px solid #ffd6b8;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+}
+
 .field {
   margin-bottom: 20px;
 }

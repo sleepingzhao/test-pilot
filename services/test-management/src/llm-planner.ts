@@ -2,7 +2,7 @@ import type { PageContext, PlannerDraft } from "@testpilot/planner";
 import { mergeLlmHints, type LlmPlannerHints } from "@testpilot/planner";
 import { planFromIntake } from "@testpilot/planner";
 import { llmPlannerConfigFromEnv, type LlmPlannerConfig } from "./llm-config.js";
-import { recordLlmUsage } from "./llm-usage.js";
+import { recordLlmFailure, recordLlmUsage } from "./llm-usage.js";
 
 export { llmPlannerConfigFromEnv, llmPlannerPublicInfo, type LlmPlannerConfig, type LlmPlannerPublicInfo } from "./llm-config.js";
 
@@ -67,6 +67,7 @@ export async function applyOptionalLlmDraft(input: {
     return { draft: enhanced.draft, llmTokensUsed: enhanced.tokensUsed, llmUsed: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    recordLlmFailure(message);
     return {
       draft: {
         ...input.ruleDraft,
@@ -107,6 +108,7 @@ Existing uncertainties: ${input.ruleDraft.uncertainties.join(" | ")}`;
     if (err instanceof SyntaxError) {
       hints = { uncertainties: ["LLM 返回非 JSON，已忽略。"] };
       tokensUsed = 0;
+      recordLlmFailure("LLM 返回非 JSON");
     } else {
       throw err;
     }
@@ -146,6 +148,7 @@ Existing hints: ${input.ruleSuggestions.join(" | ")}`;
     tokensUsed = out.tokensUsed;
   } catch {
     extra = [];
+    recordLlmFailure("LLM 诊断调用失败");
   }
 
   const merged = [...input.ruleSuggestions];

@@ -2,6 +2,7 @@
   "module": "你的试点模块名称",
   "baseUrl": "https://your-staging-host.example",
   "loginPath": "/admin/login",
+  "intakePath": "/customer",
   "manualRegressionMinutes": 25,
   "manualCaseCount": 10,
   "automatedCaseCount": 0,

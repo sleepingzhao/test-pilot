@@ -1,15 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { snapshotPageContext } from "@testpilot/context-web";
 import { draftToPartialIR, planFromIntake } from "@testpilot/planner";
 import { applyOptionalLlmDraft } from "./llm-planner.js";
 import { assertPlaywrightReady } from "@testpilot/recorder-web";
 import { computeIRHash, IR_HASH_VERSION, validateTestIR, type TestStep } from "@testpilot/test-ir";
-import { chromium } from "playwright";
 import type { FastifyBaseLogger } from "fastify";
 import type { FileStore } from "./store.js";
 import { pilotBaseUrl, pilotSecretsConfigured } from "./run-env.js";
+import { capturePilotIntakeContext } from "./pilot-intake-snapshot.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const presetsPath = join(dirname(fileURLToPath(import.meta.url)), "pilot-intake-presets.json");
@@ -95,47 +94,9 @@ async function pilotLoginSteps(): Promise<TestStep[]> {
 }
 
 async function capturePlanningContext(base: string, pathAfterLogin: string, intent: string) {
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const page = await browser.newPage();
-    const baseNorm = base.replace(/\/$/, "");
-    await page.goto(`${baseNorm}/admin/login`, { waitUntil: "domcontentloaded", timeout: 25_000 });
-    await page
-      .waitForFunction("document.body && document.body.innerText.trim().length > 0", { timeout: 20_000 })
-      .catch(() => undefined);
-
-    const passwordTab = page.getByRole("tab", { name: "密码" });
-    if (await passwordTab.isVisible().catch(() => false)) {
-      await passwordTab.click();
-    }
-
-    const phone = process.env.TESTPILOT_ENV_ADMIN_PHONE?.trim();
-    const password = process.env.TESTPILOT_ENV_ADMIN_PASSWORD?.trim();
-    if (!phone || !password) throw new Error("missing pilot credentials");
-
-    await page.getByLabel("手机号").fill(phone);
-    await page.getByPlaceholder("请输入密码").fill(password);
-    await page.getByRole("button", { name: "登录", exact: true }).click();
-    await page.waitForLoadState("domcontentloaded");
-
-    const targetUrl = `${baseNorm}${pathAfterLogin.startsWith("/") ? pathAfterLogin : `/${pathAfterLogin}`}`;
-    await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 25_000 });
-
-    if (/工单|ticket/.test(intent)) {
-      const openByTestId = page.getByTestId("open-ticket");
-      const openByRole = page.getByRole("button", { name: "提交工单", exact: true });
-      if (await openByTestId.isVisible().catch(() => false)) {
-        await openByTestId.click();
-      } else if (await openByRole.isVisible().catch(() => false)) {
-        await openByRole.click();
-      }
-      await page.waitForTimeout(800);
-    }
-
-    return await snapshotPageContext(page);
-  } finally {
-    await browser.close();
-  }
+  const baseNorm = base.replace(/\/$/, "");
+  const targetUrl = `${baseNorm}${pathAfterLogin.startsWith("/") ? pathAfterLogin : `/${pathAfterLogin}`}`;
+  return capturePilotIntakeContext(base, targetUrl, { intentText: intent });
 }
 
 export async function bootstrapPilotIntakes(store: FileStore, log: FastifyBaseLogger): Promise<number> {

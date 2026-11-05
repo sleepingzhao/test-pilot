@@ -47,6 +47,11 @@ import {
   isWithin,
   resolveWithin,
 } from "./security.js";
+import {
+  capturePilotIntakeContext,
+  isPilotIntakeUrl,
+  looksLikeLoginPageContext,
+} from "./pilot-intake-snapshot.js";
 
 const recordJobs = new Map<string, RecordJob>();
 let recordLock = false;
@@ -159,12 +164,14 @@ async function loadPilotBaseline(): Promise<{
   notes?: string;
   baseUrl?: string;
   loginPath?: string;
+  intakePath?: string;
 } | null> {
   const doc = await readLocalJson<{
     manualRegressionMinutes?: number;
     notes?: string;
     baseUrl?: string;
     loginPath?: string;
+    intakePath?: string;
   }>("pilot-baseline.json");
   if (!doc) return null;
   return {
@@ -177,7 +184,7 @@ async function pilotIntakeDefaultUrl(): Promise<string> {
   const base = pilotBaseUrl();
   if (!base) return "";
   const baseline = await loadPilotBaseline();
-  const path = baseline?.loginPath?.trim() || "/customer";
+  const path = baseline?.intakePath?.trim() || "/customer";
   const normalized = path.startsWith("/") ? path : `/${path}`;
   return `${base.replace(/\/$/, "")}${normalized}`;
 }
@@ -480,13 +487,30 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
 
     let context;
+    const pilotBase = pilotBaseUrl();
+    const onPilot = pilotBase ? isPilotIntakeUrl(url, pilotBase) : false;
     try {
       await assertPlaywrightReady();
-      context = await snapshotAtUrl(url);
+      if (onPilot) {
+        if (!pilotSecretsConfigured()) {
+          return reply.code(400).send({
+            error:
+              "试点 intake 需要先登录再快照：请配置 TESTPILOT_ENV_ADMIN_PHONE 与 TESTPILOT_ENV_ADMIN_PASSWORD",
+          });
+        }
+        context = await capturePilotIntakeContext(pilotBase, url, { intentText: text });
+      } else {
+        context = await snapshotAtUrl(url);
+        if (looksLikeLoginPageContext(context)) {
+          return reply.code(422).send({
+            error: "页面看起来像登录页；试点地址请配置凭据，或先登录后再 intake",
+          });
+        }
+      }
     } catch (err) {
-      return reply.code(503).send({
-        error: err instanceof Error ? err.message : "无法打开页面生成草案",
-      });
+      const message = err instanceof Error ? err.message : "无法打开页面生成草案";
+      const code = message.includes("登录") ? 422 : 503;
+      return reply.code(code).send({ error: message });
     }
 
     const ruleDraft = planFromIntake({

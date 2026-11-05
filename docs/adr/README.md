@@ -19,4 +19,4 @@
 - ADR-007：断言配置版本、审批 hash 与审计。
 - ADR-008：安全默认值（本机绑定、CORS 白名单、目标白名单、令牌）。
 - ADR-009：AI 只建议不自动改；回归零 LLM。
-- ADR-010：本地门禁优先，CI 按需。
+- ADR-010：本地门禁优先（[`docs/LOCAL-GATE.md`](../LOCAL-GATE.md)），远程 CI 按需。

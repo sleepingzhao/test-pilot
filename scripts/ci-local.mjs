@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Optional local check before push — same steps as former GitHub workflow.
+ * Local release gate — run via `pnpm verify`. No remote CI; see docs/LOCAL-GATE.md.
  */
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";

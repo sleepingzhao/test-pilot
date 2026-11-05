@@ -24,7 +24,9 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 
 > 安全默认值：API 只监听 `127.0.0.1`，CORS 只放行本机控制台，写请求校验 `Origin`。若必须设 `HOST` 为非回环地址，同时设置 `TESTPILOT_API_TOKEN`，否则 API 会拒绝启动；自定义控制台域名需加入 `TESTPILOT_ALLOWED_ORIGINS`，额外测试环境需加入 `TESTPILOT_ALLOWED_TARGETS`。
 
-在控制台里：**运行全部用例**、**录制新用例**、**编辑断言**、下载 Trace。
+在控制台里：**运行全部用例**、**录制新用例**、**审阅**（步骤编辑/试跑、UI·HTTP·Provider 断言、保存并批准）、**审批审计**、下载 Trace。
+
+本地发布前门禁（无 GitHub CI）：[`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md) · 命令 `pnpm verify`（需 demo `:4173` 可达，见文档）。
 
 ### 业务试点（P0-1）
 
@@ -43,7 +45,7 @@ pnpm start
 
 LLM（DeepSeek 等）是可选能力，只用于草稿与诊断；密钥只写在 **`.env`** 的 `TESTPILOT_LLM_API_KEY`。默认 `deepseek` / `deepseek-chat` / 2048 tokens；provider 的 token 上限由服务端决定，错误会显示在控制台。完整变量见 `.env.example`。
 
-Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](ROADMAP.md)。
+Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](ROADMAP.md)，本地门禁见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)。
 
 ## 架构（与 design 图对齐）
 
@@ -68,11 +70,14 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 
 高级用户仍可用 `pnpm cli run …`（见 `ROADMAP.md` 附录）。
 
-提交前可选自检：
+提交前自检（唯一硬门槛，无自动 CI）：
 
 ```bash
+# 另开终端或先启动 demo：pnpm --filter @testpilot/demo-webapp start
 pnpm verify
 ```
+
+步骤说明见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)。
 
 ## 清理生成物
 

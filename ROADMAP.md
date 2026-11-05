@@ -2,7 +2,7 @@
 
 ## 从「能演示」到「能信任、能证明业务结果」
 
-**2026-11-04 · 评审重规划 · Cursor 执行，Claude 定期把关**
+**2026-11-06 · Sprint D（P-2～P-7）完成 · Cursor 执行，Claude 定期把关**
 
 > **唯一执行计划。** 原 `docs/BACKLOG.md` 已合并到本文件；`design/` 下的 v0.2 路线 docx 已删除，仅保留架构/概念图。状态只在本文件维护，不要另建待办文件。
 
@@ -25,13 +25,14 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | Test IR v1 | 可用 | schema、validator、per-test baseUrl、IR hash v2 |
 | Web runner | 可用 | 步骤机、重试、定位回退、trace/network/截图 |
 | Web recorder | 已验证（P-3） | 密码/手机号 → env ref；select/cascader 录制限制有明确 warning；练习登录回放见 `recorded-login-p3.test.ts` |
-| Console | 可用 | 弱断言 badge/筛选、审批 hash、首页告警；无步骤编辑器 |
+| Console | 可用 | 步骤编辑/草稿试跑、Provider 审阅面板、审批身份与审计、弱断言门禁 |
 | Planner | 规则式 + 可选 LLM | 否定词已修；LLM 只建议断言，不生成可执行步骤 |
 | 管理 API | 文件存储 | 安全边界已加固；本机无登录；无数据库 |
 | 试点用例 | 15 条已批准 | 登录页与工单必填校验已改强；`pilot-ticket-submit-success` 模板已入库（批准前需对齐级联/HTTP） |
+| 断言引擎 | 可用 | UI / captured-http / postgres-readonly / otel-trace Provider；负向探针 4 路 |
 | 弱断言 | 0 条 | 首页/列表/筛选/审阅弹窗可见；批准时强制拦截 |
-| 本地验证 | 通过 | `pnpm verify`：typecheck + build + 测试 + 4 条 smoke |
-| CI | 无（有意） | 用户要求不做自动 CI；本地 verify 为准 |
+| 本地验证 | 通过 | `pnpm verify`（见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)）；含 IR 校验、单元测试、demo smoke、负向探针 |
+| CI | 无（有意） | 无 `.github/workflows`；[`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md) 为唯一门禁说明 |
 | LLM | 可选 | 1M max_tokens 透传；配置/运行错误在控制台可见 |
 
 **必须诚实记录的事实：** `pilot-auto-ticket-no-attachment` 是「必填校验」负向用例。`pilot-ticket-submit-success.json` 提供成功路径模板，须在真实试点上校对级联文案与 HTTP 后再批准；练习环境由 `demo-ticket-submit-success` + smoke 证明。
@@ -187,7 +188,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - [x] P-4 步骤编辑器 / 草稿试跑 — `@testpilot/test-ir` `step-edit`；控制台 `StepEditorPanel` + 审阅「试跑草稿」；`POST /api/tests/:testId/trial-run`（`trial-run.test.ts`）；批准仍绑定 `irHash`；`pnpm verify` 全绿
 - [x] P-5 审批身份与审计 — `TESTPILOT_APPROVAL_TOKEN` / `TESTPILOT_APPROVAL_ACTORS`；`GET /api/audit` + `audit.jsonl`；控制台审批人/令牌与审计列表；`approval-identity.test.ts`；`pnpm verify` 全绿
 - [x] P-6 Flake 与重试策略 — `retry-policy`（`retry.on` 分型、断言失败不重试）；`attemptCount` / `flakeRecovery`；metrics 汇总与控制台可见；`retry-policy.test.ts` / `flake-metrics.test.ts`；`pnpm verify` 全绿
-- [ ] P-7 文档与门禁
+- [x] P-7 文档与门禁 — `docs/LOCAL-GATE.md`；README/ROADMAP 基线与缺口同步；移除「former GitHub workflow」等过期 CI 表述；`pnpm verify` 全绿
 
 ### 5.2 冲刺顺序
 
@@ -196,7 +197,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 | Sprint A（当前） | AS-1 注册表 + AS-2 HTTP + P-1 真实工单提交 | 工单测试能证明提交请求发生；HTTP 断言可配置；旧 UI 断言不回归 |
 | Sprint B | AS-3 DB + AS-6 负向验证（UI/HTTP/DB） | 工单测试能查 DB 行；三类 Provider 各有预期失败用例 |
 | Sprint C | AS-4 Agent + AS-5 配置 UI | 能配置 trace 源并断言工具调用；控制台可选择 Provider |
-| Sprint D | P-2～P-7 工作流与门禁 | 登录态 intake、录制、步骤编辑、审批审计、flake、文档全绿 |
+| Sprint D | P-2～P-7 工作流与门禁 | **已完成**（2026-11-06）：intake/录制/步骤编辑/审批审计/flake/文档；出口 `pnpm verify` 全绿 |
 
 ### 5.3 任务表
 
@@ -271,7 +272,7 @@ Review 清单：
 | 负向验证覆盖 | 100% 试点用例 | 负向运行报告 |
 | 假绿事故 | 0 | 评审发现的「通过但未发生业务效果」 |
 | 全量回归成功率 | ≥95% | 连续 3 次以上 |
-| Flake 率 | <5% | 同用例重复运行的失败率 |
+| Flake 率 | <5% | `/api/metrics/summary.flakeRecoveryRate`、运行 `attemptCount` |
 | 本地门禁 | 100% 绿 | `pnpm verify` |
 | 人工节省 | 相对基线 ≥50% | 手工耗时基线 vs 回归 + 维护时间 |
 
@@ -290,7 +291,7 @@ Review 清单：
 **新增 ADR：**
 
 - ADR-006：可扩展断言引擎与 Provider 契约（已落：[`docs/adr/ADR-006-extensible-assertions.md`](docs/adr/ADR-006-extensible-assertions.md)）。
-- ADR-007：断言配置版本、审批 hash 与审计（待补）。
+- ADR-007：断言配置版本、审批 hash 与审计（P-5 审计与 `assertionConfigHash` 已落地；完整 ADR 待补）。
 - ADR-008：安全默认值（本机绑定、CORS 白名单、目标白名单、令牌）（待补）。
 - ADR-009：AI 只建议不自动改；回归零 LLM（待补）。
 - ADR-010：本地门禁优先，CI 按需（待补）。
@@ -302,7 +303,7 @@ Review 清单：
 ```bash
 pnpm install
 pnpm dev
-pnpm verify
+pnpm verify          # 见 docs/LOCAL-GATE.md；demo :4173 需可达
 pnpm --filter @testpilot/test-management exec playwright install chromium
 ```
 
@@ -315,15 +316,15 @@ pnpm --filter @testpilot/test-management exec playwright install chromium
 - `TESTPILOT_API_TOKEN`（非本机绑定时必填）
 - `TESTPILOT_ALLOWED_ORIGINS`
 - `TESTPILOT_ALLOWED_TARGETS`
+- `TESTPILOT_APPROVAL_TOKEN` / `TESTPILOT_APPROVAL_ACTORS`（可选，批准身份）
+
+完整说明见 `.env.example`。
 
 ### 11.3 当前已知缺口
 
-- 真实工单提交成功：练习环境已覆盖；试点 IR 模板已入库，待人工对齐级联/HTTP 后批准。
-- Recorder 未验证 select/cascader；复杂表单仍需手工补步。
-- 控制台不能编辑步骤。
-- 无 DB/Agent 断言 Provider。
-- 无 PostgreSQL/多项目/RBAC。
-- 无自动 CI（按用户要求）。
+- 试点「工单提交成功」：练习环境已覆盖；`pilot-ticket-submit-success` 模板须在真实试点上校对级联/HTTP 后再批准。
+- select/cascader：运行支持 `selectCascader` 步骤；录制对 select/cascader 仅 warning，复杂表单可能需手工补步。
+- 无 PostgreSQL 持久化 / 多项目 / RBAC / 远程 CI（按路线后续版本）。
 
 ### 11.4 证据要求
 

@@ -1,7 +1,7 @@
 import type { Locator as TargetLocator, TestIR, TestStep } from "@testpilot/test-ir";
 import { runAssertion } from "@testpilot/assertions";
 import type { RunArtifacts } from "@testpilot/evidence";
-import { classifyFailure, createEvidenceCollector, isTransientFailure, redactForEvidence, redactStringBody, redactStrings } from "@testpilot/evidence";
+import { classifyFailure, createEvidenceCollector, maxRunAttempts, redactForEvidence, redactStringBody, redactStrings, shouldRetryAfterFailure } from "@testpilot/evidence";
 import type { RunEnvironment } from "@testpilot/fixtures";
 import { buildReadonlyDbClient, buildAgentTraceClient, getDbConfigBundle, getAgentConfigBundle, resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveValueRefs } from "@testpilot/fixtures";
 import { executeSelectCascader } from "./select-cascader.js";
@@ -31,6 +31,7 @@ export type RunResult = {
     llmTokensUsed: number;
     failureKind?: string;
     attemptCount: number;
+    flakeRecovery?: boolean;
   };
 };
 
@@ -164,7 +165,7 @@ async function executeStep(
 }
 
 export async function runTestIR(ir: TestIR, options: RunOptions): Promise<RunResult> {
-  const maxAttempts = (ir.policy?.retry?.attempts ?? 0) + 1;
+  const maxAttempts = maxRunAttempts(ir.policy?.retry);
   let last: RunResult | undefined;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     last = await runTestIROnce(ir, {
@@ -172,9 +173,11 @@ export async function runTestIR(ir: TestIR, options: RunOptions): Promise<RunRes
       runId: attempt === 1 ? options.runId : `${options.runId ?? `run_${Date.now()}`}_r${attempt}`,
     });
     last.metrics.attemptCount = attempt;
-    if (last.status === "passed") return last;
-    const msg = last.steps.find((s) => s.message)?.message ?? last.artifacts.notes;
-    if (attempt >= maxAttempts || !isTransientFailure(msg)) return last;
+    if (last.status === "passed") {
+      if (attempt > 1) last.metrics.flakeRecovery = true;
+      return last;
+    }
+    if (attempt >= maxAttempts || !shouldRetryAfterFailure(last, ir.policy?.retry)) return last;
   }
   return last!;
 }

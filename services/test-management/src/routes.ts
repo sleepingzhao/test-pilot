@@ -23,6 +23,7 @@ import {
 import { readNegativeProbeReport } from "./negative-probes.js";
 import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-identity.js";
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
+import { computeFlakeStats } from "./flake-metrics.js";
 import {
   assertionConfigCatalog,
   assertionProviderCatalog,
@@ -263,6 +264,8 @@ async function executeRuns(
         status: stored.status,
         durationMs: stored.metrics?.durationMs,
         failureKind: stored.metrics?.failureKind,
+        attemptCount: stored.metrics?.attemptCount ?? 1,
+        flakeRecovery: stored.metrics?.flakeRecovery ?? false,
         llmTokens: 0,
       })}\n`,
     );
@@ -305,6 +308,8 @@ async function executeSingleIrRun(
       status: stored.status,
       durationMs: stored.metrics?.durationMs,
       failureKind: stored.metrics?.failureKind,
+      attemptCount: stored.metrics?.attemptCount ?? 1,
+      flakeRecovery: stored.metrics?.flakeRecovery ?? false,
       llmTokens: 0,
       trial: true,
     })}\n`,
@@ -710,6 +715,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const minutesSavedVsBaseline =
       batchMinutes != null && baselineMin != null ? Math.max(0, Math.round((baselineMin - batchMinutes) * 10) / 10) : null;
     const llmUsage = llmUsageSnapshot();
+    const flake = computeFlakeStats(runs);
     return {
       runCount: runs.length,
       passRate: runs.length ? passed / runs.length : 0,
@@ -727,6 +733,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       pilotBaselineNotes: baseline?.notes ?? null,
       minutesSavedVsBaseline,
       recentBatches: groupRunsIntoBatches(runs).slice(0, 8),
+      flakeRecoveryCount: flake.flakeRecoveryCount,
+      flakeRecoveryRate: flake.flakeRecoveryRate,
+      multiAttemptRuns: flake.multiAttemptRuns,
       negativeProbes: await readNegativeProbeReport(artifactsRoot),
     };
   });

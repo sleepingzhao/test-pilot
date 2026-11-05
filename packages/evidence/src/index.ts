@@ -181,3 +181,11 @@ export function isTransientFailure(message?: string): boolean {
   if (!message) return false;
   return /timeout|net::|ERR_|503|ECONNRESET/i.test(message);
 }
+
+export {
+  maxRunAttempts,
+  normalizeRetryKind,
+  shouldRetryAfterFailure,
+  type RetryDecisionInput,
+  type RetryPolicy,
+} from "./retry-policy.js";

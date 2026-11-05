@@ -81,6 +81,9 @@ export function App() {
     weakApprovedCount?: number;
     weakApprovedTests?: Array<{ id: string; title: string; count: number }>;
     recentBatches?: Array<{ startedAt: string; total: number; passed: number; durationMs: number }>;
+    flakeRecoveryCount?: number;
+    flakeRecoveryRate?: number;
+    multiAttemptRuns?: number;
   } | null>(null);
   const [demoOk, setDemoOk] = useState<boolean | null>(null);
   const [pilotOk, setPilotOk] = useState<boolean | null>(null);
@@ -179,6 +182,9 @@ export function App() {
         weakApprovedCount?: number;
         weakApprovedTests?: Array<{ id: string; title: string; count: number }>;
         recentBatches?: Array<{ startedAt: string; total: number; passed: number; durationMs: number }>;
+        flakeRecoveryCount?: number;
+        flakeRecoveryRate?: number;
+        multiAttemptRuns?: number;
       }>("/api/metrics/summary");
       setSummary(m);
     } catch {
@@ -883,6 +889,9 @@ export function App() {
                 {summary.minutesSavedVsBaseline != null && summary.minutesSavedVsBaseline > 0
                   ? ` · 较基线节省约 ${summary.minutesSavedVsBaseline} 分钟`
                   : ""}
+                {(summary.multiAttemptRuns ?? 0) > 0
+                  ? ` · 重试 ${summary.multiAttemptRuns} 次 · flake 恢复 ${summary.flakeRecoveryCount ?? 0}（${Math.round((summary.flakeRecoveryRate ?? 0) * 100)}%）`
+                  : ""}
               </p>
             )}
             {summary && summary.recentBatches?.length ? (
@@ -1156,6 +1165,9 @@ export function App() {
                     <h3>{r.testTitle}</h3>
                     <p>
                       {new Date(r.completedAt).toLocaleString()} · {r.metrics?.durationMs ?? "—"} ms
+                      {(r.metrics?.attemptCount ?? 1) > 1
+                        ? ` · ${r.metrics?.attemptCount} 次尝试${r.metrics?.flakeRecovery ? "（flake 恢复）" : ""}`
+                        : ""}
                       {failureKindLabel(r.metrics?.failureKind)
                         ? ` · ${failureKindLabel(r.metrics?.failureKind)}`
                         : ""}

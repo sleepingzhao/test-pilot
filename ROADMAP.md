@@ -186,7 +186,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - [x] P-3 Recorder 端到端 — `practice-login.html` + 黄金 events；`recorder-p3.test.ts` / `recorded-login-p3.test.ts`（env ref 回放）；select/cascader 录制 warning；`pnpm verify` 全绿
 - [x] P-4 步骤编辑器 / 草稿试跑 — `@testpilot/test-ir` `step-edit`；控制台 `StepEditorPanel` + 审阅「试跑草稿」；`POST /api/tests/:testId/trial-run`（`trial-run.test.ts`）；批准仍绑定 `irHash`；`pnpm verify` 全绿
 - [x] P-5 审批身份与审计 — `TESTPILOT_APPROVAL_TOKEN` / `TESTPILOT_APPROVAL_ACTORS`；`GET /api/audit` + `audit.jsonl`；控制台审批人/令牌与审计列表；`approval-identity.test.ts`；`pnpm verify` 全绿
-- [ ] P-6 Flake 与重试策略
+- [x] P-6 Flake 与重试策略 — `retry-policy`（`retry.on` 分型、断言失败不重试）；`attemptCount` / `flakeRecovery`；metrics 汇总与控制台可见；`retry-policy.test.ts` / `flake-metrics.test.ts`；`pnpm verify` 全绿
 - [ ] P-7 文档与门禁
 
 ### 5.2 冲刺顺序

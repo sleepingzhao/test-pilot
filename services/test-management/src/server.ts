@@ -39,7 +39,13 @@ const app = Fastify({ logger: true });
 await app.register(cors, {
   origin: corsOrigin,
   methods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-TestPilot-Token"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-TestPilot-Token",
+    "X-TestPilot-Actor",
+    "X-TestPilot-Approval-Token",
+  ],
 });
 await app.register(sensible);
 registerSecurity(app);

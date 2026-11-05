@@ -21,6 +21,8 @@ import {
   suggestDiagnoseWithLlm,
 } from "./llm-planner.js";
 import { readNegativeProbeReport } from "./negative-probes.js";
+import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-identity.js";
+import { appendAuditEvent, readAuditLog } from "./audit-log.js";
 import {
   assertionConfigCatalog,
   assertionProviderCatalog,
@@ -484,13 +486,24 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         issues: providerIssues,
       });
     }
-    const actorHeader = req.headers["x-testpilot-actor"];
-    const actor = String(Array.isArray(actorHeader) ? actorHeader[0] : actorHeader ?? "local").slice(0, 80);
+    const actorResult = resolveApprovalActor(req);
+    if (!actorResult.ok) {
+      return reply.code(actorResult.statusCode).send({ error: actorResult.error });
+    }
     const approved = {
       ...stampTestMeta(test, { approving: true, assertionConfigHash: currentConfigHash }),
-      approvedBy: actor,
+      approvedBy: actorResult.actor,
     };
     await store.saveTest(approved);
+    await appendAuditEvent(dataRoot, {
+      at: new Date().toISOString(),
+      action: "test.approve",
+      testId,
+      title: test.title,
+      actor: actorResult.actor,
+      irHash: currentHash,
+      assertionConfigHash: currentConfigHash,
+    });
     return withWeakAssertions(approved);
   });
 
@@ -666,8 +679,16 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       pilotSecretsConfigured: pilotSecretsConfigured(),
       llm: llmPlannerPublicInfo(),
       llmUsage: llmUsageSnapshot(),
+      approval: approvalIdentityPublicInfo(),
       apiVersion: "0.2.0",
     };
+  });
+
+  app.get("/api/audit", async (req) => {
+    const query = req.query as { limit?: string };
+    const limit = query.limit ? Number.parseInt(query.limit, 10) : 50;
+    const entries = await readAuditLog(dataRoot, Number.isFinite(limit) ? limit : 50);
+    return { entries };
   });
 
   app.get("/api/metrics/summary", async () => {

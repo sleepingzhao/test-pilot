@@ -107,6 +107,43 @@ export function App() {
   const [batchProgress, setBatchProgress] = useState<{ completed: number; total: number; title?: string } | null>(
     null,
   );
+  const [approvalInfo, setApprovalInfo] = useState<{
+    approvalTokenRequired: boolean;
+    approvalActors: string[] | null;
+  } | null>(null);
+  const [approvalActor, setApprovalActor] = useState(() => {
+    try {
+      return localStorage.getItem("testpilot-approval-actor") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [approvalTokenInput, setApprovalTokenInput] = useState("");
+  const [auditEntries, setAuditEntries] = useState<
+    Array<{ at: string; testId: string; title: string; actor: string; irHash: string }>
+  >([]);
+
+  const persistApprovalActor = (value: string) => {
+    setApprovalActor(value);
+    try {
+      const trimmed = value.trim();
+      if (trimmed) localStorage.setItem("testpilot-approval-actor", trimmed);
+      else localStorage.removeItem("testpilot-approval-actor");
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const persistApprovalToken = (value: string) => {
+    setApprovalTokenInput(value);
+    try {
+      const trimmed = value.trim();
+      if (trimmed) localStorage.setItem("testpilot-approval-token", trimmed);
+      else localStorage.removeItem("testpilot-approval-token");
+    } catch {
+      /* ignore */
+    }
+  };
 
   const notify = (msg: string) => {
     setToast(msg);
@@ -157,7 +194,9 @@ export function App() {
         pilotSecretsConfigured?: boolean;
         llm?: { enabled: boolean; provider?: string; model?: string; error?: string };
         llmUsage?: { lastError?: string | null };
+        approval?: { approvalTokenRequired: boolean; approvalActors: string[] | null };
       }>("/api/environment");
+      setApprovalInfo(env.approval ?? null);
       setDemoOk(env.demoReachable);
       setPilotOk(env.pilotReachable ?? null);
       setPilotSecrets(env.pilotSecretsConfigured ?? null);
@@ -171,6 +210,14 @@ export function App() {
       });
     } catch {
       setDemoOk(null);
+    }
+    try {
+      const audit = await api<{
+        entries: Array<{ at: string; testId: string; title: string; actor: string; irHash: string }>;
+      }>("/api/audit?limit=12");
+      setAuditEntries(audit.entries);
+    } catch {
+      setAuditEntries([]);
     }
     try {
       const c = await api<{ scopeNotes?: string[] }>("/api/pilot-constraints");
@@ -597,6 +644,21 @@ export function App() {
       notify("请填写 UI 断言、API expect，或合法的 Provider 断言");
       return;
     }
+    if (approvalInfo?.approvalTokenRequired) {
+      try {
+        if (!localStorage.getItem("testpilot-approval-token")?.trim()) {
+          notify("服务端要求审批令牌：请在审阅区填写 TESTPILOT_APPROVAL_TOKEN");
+          return;
+        }
+      } catch {
+        notify("无法读取本地审批令牌");
+        return;
+      }
+    }
+    if (approvalInfo?.approvalActors?.length && !approvalActor.trim()) {
+      notify("请选择或填写审批人标识");
+      return;
+    }
     if (/附件|upload/i.test(assertionText)) {
       notify("试点约束：断言不要包含附件相关文案");
       return;
@@ -841,6 +903,64 @@ export function App() {
                 </ul>
               </div>
             ) : null}
+            <div className="audit-panel">
+              <h3 className="batch-trend-title">审批身份与审计</h3>
+              <p className="hint-inline">
+                批准请求会携带 <code>x-testpilot-actor</code>
+                {approvalInfo?.approvalTokenRequired ? " 与本地保存的审批令牌" : ""}；服务端写入{" "}
+                <code>data/audit.jsonl</code>。
+              </p>
+              <div className="audit-identity-fields">
+                <div className="field">
+                  <label>审批人（x-testpilot-actor）</label>
+                  {approvalInfo?.approvalActors?.length ? (
+                    <select
+                      value={approvalActor}
+                      onChange={(e) => persistApprovalActor(e.target.value)}
+                    >
+                      <option value="">请选择…</option>
+                      {approvalInfo.approvalActors.map((a) => (
+                        <option key={a} value={a}>
+                          {a}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={approvalActor}
+                      onChange={(e) => persistApprovalActor(e.target.value)}
+                      placeholder="例如 qa-lead"
+                    />
+                  )}
+                </div>
+                {approvalInfo?.approvalTokenRequired ? (
+                  <div className="field">
+                    <label>审批令牌（仅保存在本机浏览器）</label>
+                    <input
+                      type="password"
+                      value={approvalTokenInput}
+                      onChange={(e) => persistApprovalToken(e.target.value)}
+                      placeholder="与 .env 中 TESTPILOT_APPROVAL_TOKEN 一致"
+                      autoComplete="off"
+                    />
+                  </div>
+                ) : null}
+              </div>
+              {auditEntries.length > 0 ? (
+                <ul className="audit-log-list">
+                  {auditEntries.map((e) => (
+                    <li key={`${e.at}-${e.testId}-${e.actor}`}>
+                      <span>{new Date(e.at).toLocaleString()}</span>
+                      <span className="audit-log-actor">{e.actor}</span>
+                      <span>{e.title}</span>
+                      <span className="audit-log-hash">{e.irHash.slice(0, 8)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="hint-inline">尚无审批审计记录。</p>
+              )}
+            </div>
           </section>
         )}
 
@@ -1169,6 +1289,15 @@ export function App() {
                 onTestConnection={() => void testProviderConnection()}
                 onPreview={() => void previewProviderDraft()}
               />
+              {(approvalInfo?.approvalTokenRequired || approvalInfo?.approvalActors?.length) && (
+                <div className="approval-identity-box">
+                  <p className="hint-inline">
+                    批准将记录为{" "}
+                    <strong>{approvalActor.trim() || "（未设置审批人）"}</strong>
+                    {approvalInfo.approvalTokenRequired ? "；需已在首页填写审批令牌。" : ""}
+                  </p>
+                </div>
+              )}
             </div>
             <footer className="sheet-review-footer">
               <div className="sheet-actions">

@@ -1020,3 +1020,47 @@ main {
   color: var(--muted);
   font-size: 13px;
 }
+
+.audit-panel {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #e5e5ea;
+  max-width: 640px;
+}
+
+.audit-identity-fields {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.audit-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+}
+
+.audit-log-list li {
+  display: grid;
+  grid-template-columns: 140px 80px 1fr 56px;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f5;
+}
+
+.audit-log-actor {
+  font-weight: 600;
+}
+
+.audit-log-hash {
+  font-family: ui-monospace, monospace;
+  color: var(--muted);
+}
+
+.approval-identity-box {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #f5f5f7;
+  border-radius: 10px;
+}

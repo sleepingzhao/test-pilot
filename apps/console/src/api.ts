@@ -30,10 +30,23 @@ export type StoredRun = {
   artifacts: { dir: string; artifacts: Array<{ kind: string; path: string }> };
 };
 
+function approvalHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  try {
+    const actor = localStorage.getItem("testpilot-approval-actor")?.trim();
+    if (actor) headers["x-testpilot-actor"] = actor;
+    const token = localStorage.getItem("testpilot-approval-token")?.trim();
+    if (token) headers["x-testpilot-approval-token"] = token;
+  } catch {
+    /* ignore */
+  }
+  return headers;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: { "Content-Type": "application/json", ...approvalHeaders(), ...init?.headers },
   });
   if (!res.ok) {
     const text = await res.text();

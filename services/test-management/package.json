@@ -7,7 +7,7 @@
     "dev": "node --import tsx src/server.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/batch-metrics.test.ts src/security.test.ts src/approval.test.ts src/assertion-config.test.ts src/pilot-intake-snapshot.test.ts src/llm-config.test.ts src/llm-usage.test.ts src/run-env.test.ts src/run-target.test.ts src/seed.test.ts src/quality.test.ts src/negative-probes.test.ts src/trial-run.test.ts",
+    "test": "node --import tsx --test src/batch-metrics.test.ts src/security.test.ts src/approval.test.ts src/approval-identity.test.ts src/assertion-config.test.ts src/pilot-intake-snapshot.test.ts src/llm-config.test.ts src/llm-usage.test.ts src/run-env.test.ts src/run-target.test.ts src/seed.test.ts src/quality.test.ts src/negative-probes.test.ts src/trial-run.test.ts",
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {

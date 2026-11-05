@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>练习登录 — Recorder P-3</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 420px;
+        margin: 48px auto;
+        padding: 0 16px;
+      }
+      [role="tablist"] {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+      [role="tab"] {
+        padding: 8px 12px;
+        border: 1px solid #ccc;
+        background: #f5f5f5;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      [role="tab"][aria-selected="true"] {
+        background: #fff;
+        font-weight: 600;
+      }
+      label {
+        display: block;
+        margin: 12px 0 4px;
+      }
+      input {
+        width: 100%;
+        padding: 8px;
+        box-sizing: border-box;
+      }
+      button[type="submit"] {
+        margin-top: 16px;
+        padding: 10px 16px;
+      }
+      #home {
+        display: none;
+        margin-top: 32px;
+      }
+      #home.visible {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="login-panel">
+      <h1>练习登录</h1>
+      <div role="tablist">
+        <button type="button" role="tab" aria-selected="true" id="tab-password">密码</button>
+      </div>
+      <form id="login-form">
+        <label for="phone">手机号</label>
+        <input id="phone" type="tel" name="phone" autocomplete="tel" />
+        <input id="password" type="password" placeholder="请输入密码" autocomplete="current-password" />
+        <button type="submit">登录</button>
+      </form>
+    </div>
+    <div id="home" role="main">
+      <h2>我的工单</h2>
+      <p>练习登录成功 — 用于验证录制回放（env ref，无明文凭据）。</p>
+    </div>
+    <script>
+      document.getElementById("login-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        document.getElementById("login-panel").style.display = "none";
+        document.getElementById("home").classList.add("visible");
+      });
+    </script>
+  </body>
+</html>

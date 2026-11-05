@@ -1,0 +1,19 @@
+[
+  { "kind": "navigate", "path": "/practice-login.html" },
+  { "kind": "click", "target": { "role": "tab", "name": "密码" } },
+  {
+    "kind": "fill",
+    "target": { "label": "手机号" },
+    "sensitive": true,
+    "fieldKey": "phone",
+    "value": "19900008888"
+  },
+  {
+    "kind": "fill",
+    "target": { "placeholder": "请输入密码" },
+    "sensitive": true,
+    "fieldKey": "password",
+    "value": "super-secret-password"
+  },
+  { "kind": "click", "target": { "role": "button", "name": "登录" } }
+]

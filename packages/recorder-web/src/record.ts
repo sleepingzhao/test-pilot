@@ -118,6 +118,44 @@ export function eventsToIR(testId: string, baseUrl: string, events: RecordedEven
   return ir;
 }
 
+const PHONE_LIKE = /1[3-9]\d{9}/;
+
+export function recorderLimitationWarnings(events: RecordedEvent[]): string[] {
+  const warnings: string[] = [];
+  let selectSeen = false;
+  let cascaderSeen = false;
+  for (const ev of events) {
+    if (ev.kind === "fill" && ev.inputKind === "select" && !selectSeen) {
+      selectSeen = true;
+      warnings.push(
+        "检测到原生 <select>：已录为 fill；若回放失败请改为 click 或手动编辑 IR。级联选择器请使用 selectCascader 步骤（不支持自动录制）。",
+      );
+    }
+    if (ev.kind === "click" && ev.limitation === "cascader" && !cascaderSeen) {
+      cascaderSeen = true;
+      warnings.push(
+        "检测到级联选择器 (cascader) 点击：不支持自动录制；请在 IR 中手动添加 selectCascader 步骤。",
+      );
+    }
+  }
+  return warnings;
+}
+
+/** Fail if serialized IR still embeds obvious secrets from recording. */
+export function assertRecordedIrHasNoPlaintextSecrets(ir: TestIR, events: RecordedEvent[]): void {
+  const raw = JSON.stringify(ir);
+  for (const ev of events) {
+    if (ev.kind === "fill" && ev.sensitive && ev.value && raw.includes(ev.value)) {
+      throw new Error("recorded IR must not contain sensitive fill values");
+    }
+  }
+  for (const step of ir.steps) {
+    if (step.value && PHONE_LIKE.test(step.value)) {
+      throw new Error("recorded IR contains phone-like plaintext in step value");
+    }
+  }
+}
+
 export async function assertPlaywrightReady(): Promise<void> {
   let browser;
   try {
@@ -194,9 +232,11 @@ export async function recordSession(options: RecordSessionOptions): Promise<Reco
   options.onStop?.();
 
   const ir = eventsToIR(options.testId, startUrl, events);
+  assertRecordedIrHasNoPlaintextSecrets(ir, events);
   if (events.filter((e) => e.kind !== "navigate").length === 0) {
     warnings.push("Only navigation was recorded — try clicking and filling fields before closing.");
   }
+  warnings.push(...recorderLimitationWarnings(events));
   const valueRefSteps = ir.steps.filter((s) => s.valueRef);
   if (valueRefSteps.length > 0) {
     warnings.push(

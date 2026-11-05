@@ -77,9 +77,14 @@ export const RECORDER_INIT_SCRIPT = `
     (ev) => {
       const el = ev.target instanceof Element ? ev.target.closest("button, a, [role=button], input[type=submit], input[type=button]") : null;
       if (!el) return;
+      const cascader = el.closest("[data-testid*='cascader'], .ant-cascader, [class*='cascader']");
       const target = describeTarget(el);
       if (!target) return;
-      emit({ kind: "click", target });
+      emit({
+        kind: "click",
+        target,
+        ...(cascader ? { limitation: "cascader" as const } : {}),
+      });
     },
     true,
   );
@@ -91,11 +96,15 @@ export const RECORDER_INIT_SCRIPT = `
       if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return;
       const target = describeTarget(el);
       if (!target) return;
+      if (el instanceof HTMLSelectElement) {
+        emit({ kind: "fill", target, value: el.value, inputKind: "select" });
+        return;
+      }
       if (isSensitiveInput(el)) {
         emit({ kind: "fill", target, sensitive: true, fieldKey: el.name || el.id || labelFor(el) || "secret" });
         return;
       }
-      emit({ kind: "fill", target, value: el.value });
+      emit({ kind: "fill", target, value: el.value, inputKind: "text" });
     },
     true,
   );
@@ -104,5 +113,12 @@ export const RECORDER_INIT_SCRIPT = `
 
 export type RecordedEvent =
   | { kind: "navigate"; path: string }
-  | { kind: "click"; target: Record<string, string> }
-  | { kind: "fill"; target: Record<string, string>; value?: string; sensitive?: boolean; fieldKey?: string };
+  | { kind: "click"; target: Record<string, string>; limitation?: "cascader" }
+  | {
+      kind: "fill";
+      target: Record<string, string>;
+      value?: string;
+      sensitive?: boolean;
+      fieldKey?: string;
+      inputKind?: "select" | "text";
+    };

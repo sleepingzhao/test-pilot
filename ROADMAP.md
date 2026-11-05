@@ -24,7 +24,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 |---|---|---|
 | Test IR v1 | 可用 | schema、validator、per-test baseUrl、IR hash v2 |
 | Web runner | 可用 | 步骤机、重试、定位回退、trace/network/截图 |
-| Web recorder | 基本可用 | 密码/手机号映射 env ref；select/cascader 尚未验证 |
+| Web recorder | 已验证（P-3） | 密码/手机号 → env ref；select/cascader 录制限制有明确 warning；练习登录回放见 `recorded-login-p3.test.ts` |
 | Console | 可用 | 弱断言 badge/筛选、审批 hash、首页告警；无步骤编辑器 |
 | Planner | 规则式 + 可选 LLM | 否定词已修；LLM 只建议断言，不生成可执行步骤 |
 | 管理 API | 文件存储 | 安全边界已加固；本机无登录；无数据库 |
@@ -183,7 +183,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - [x] R-7 负向探针 assertion id — `expectedAssertionId` + `negative-probes.test.ts` + `probe-catalog.json`；`pnpm verify` 全绿（2026-11-06）
 - [x] R-8 启动清理 + AS-4 service — `negative-probes.mjs` / `ticket-p1.test.ts` try/finally；`trace-client.ts` 缺 `service.name` 跳过 + `trace-client.test.ts`；`pnpm verify` 全绿（2026-11-06）
 - [x] P-2 登录态 intake 快照 — `pilot-intake-snapshot.ts`（试点 URL 先登录再导航/快照）；`/api/intake` 缺凭据 400、登录页 422；默认 intake 路径 `intakePath`（非 loginPath）；`pilot-intake-snapshot.test.ts`；`pnpm verify` 全绿
-- [ ] P-3 Recorder 端到端
+- [x] P-3 Recorder 端到端 — `practice-login.html` + 黄金 events；`recorder-p3.test.ts` / `recorded-login-p3.test.ts`（env ref 回放）；select/cascader 录制 warning；`pnpm verify` 全绿
 - [ ] P-4 步骤编辑器 / 草稿试跑
 - [ ] P-5 审批身份与审计
 - [ ] P-6 Flake 与重试策略

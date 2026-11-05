@@ -184,7 +184,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - [x] R-8 启动清理 + AS-4 service — `negative-probes.mjs` / `ticket-p1.test.ts` try/finally；`trace-client.ts` 缺 `service.name` 跳过 + `trace-client.test.ts`；`pnpm verify` 全绿（2026-11-06）
 - [x] P-2 登录态 intake 快照 — `pilot-intake-snapshot.ts`（试点 URL 先登录再导航/快照）；`/api/intake` 缺凭据 400、登录页 422；默认 intake 路径 `intakePath`（非 loginPath）；`pilot-intake-snapshot.test.ts`；`pnpm verify` 全绿
 - [x] P-3 Recorder 端到端 — `practice-login.html` + 黄金 events；`recorder-p3.test.ts` / `recorded-login-p3.test.ts`（env ref 回放）；select/cascader 录制 warning；`pnpm verify` 全绿
-- [ ] P-4 步骤编辑器 / 草稿试跑
+- [x] P-4 步骤编辑器 / 草稿试跑 — `@testpilot/test-ir` `step-edit`；控制台 `StepEditorPanel` + 审阅「试跑草稿」；`POST /api/tests/:testId/trial-run`（`trial-run.test.ts`）；批准仍绑定 `irHash`；`pnpm verify` 全绿
 - [ ] P-5 审批身份与审计
 - [ ] P-6 Flake 与重试策略
 - [ ] P-7 文档与门禁

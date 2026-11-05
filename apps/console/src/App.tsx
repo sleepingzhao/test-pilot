@@ -7,7 +7,9 @@ import {
   type ProviderDraft,
   type ProviderFeedback,
 } from "./AssertionProviderPanel";
-import { describeStep, failureKindLabel, failureScreenshotPath, summarizeAssertion } from "./stepSummary";
+import type { TestStep } from "./stepEditor";
+import { StepEditorPanel } from "./StepEditorPanel";
+import { failureKindLabel, failureScreenshotPath, summarizeAssertion } from "./stepSummary";
 
 type IrAssertion = {
   id?: string;
@@ -47,6 +49,8 @@ export function App() {
   const [assertionHelp, setAssertionHelp] = useState("");
   const [assertionSuggestions, setAssertionSuggestions] = useState<string[]>([]);
   const [reviewIntent, setReviewIntent] = useState("");
+  const [reviewSteps, setReviewSteps] = useState<TestStep[]>([]);
+  const [trialRunning, setTrialRunning] = useState(false);
   const [assertionCatalog, setAssertionCatalog] = useState<AssertionCatalog | null>(null);
   const [providerDraft, setProviderDraft] = useState<ProviderDraft>({
     enabled: false,
@@ -210,6 +214,7 @@ export function App() {
 
   const openReview = async (t: StoredTest, withHints = true) => {
     setEditTest(t);
+    setReviewSteps([...(t.ir.steps ?? [])] as TestStep[]);
     setReviewIntent(t.intentSummary ?? "");
     setProviderFeedback({});
     const a = t.ir.assertions?.find((x) => (x as IrAssertion).type === "ui") as { contains?: string } | undefined;
@@ -437,7 +442,39 @@ export function App() {
       }
     }
 
-    return { ...editTest.ir, assertions: base };
+    return { ...editTest.ir, assertions: base, steps: reviewSteps };
+  };
+
+  const trialRunReview = async () => {
+    if (!editTest) return;
+    const ir = buildReviewIr();
+    if (!ir) {
+      notify("请修正 API expect / Provider 后再试跑");
+      return;
+    }
+    if (reviewSteps.length === 0) {
+      notify("至少保留一个步骤");
+      return;
+    }
+    setTrialRunning(true);
+    try {
+      const res = await api<{ run: StoredRun; trial?: boolean }>(`/api/tests/${editTest.id}/trial-run`, {
+        method: "POST",
+        body: JSON.stringify({ ir }),
+      });
+      const run = res.run;
+      await refresh();
+      if (run.status === "passed") {
+        notify("试跑通过（未写入批准状态）");
+        return;
+      }
+      notify("试跑未通过，打开诊断");
+      void openDiagnose(run);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTrialRunning(false);
+    }
   };
 
   const validateProviderDraft = async () => {
@@ -1047,7 +1084,7 @@ export function App() {
               </div>
               <p className="sheet-review-subtitle">{editTest.title}</p>
               <p className="hint-inline sheet-review-meta">
-                {editTest.ir.steps?.length ?? 0} 个步骤 · 来源 {editTest.sourceChannel ?? "未知"}
+                {reviewSteps.length} 个步骤 · 来源 {editTest.sourceChannel ?? "未知"}
                 {editTest.irHash ? ` · IR ${editTest.irHash.slice(0, 8)}` : ""}
                 {editTest.currentAssertionConfigHash
                   ? ` · 配置 ${editTest.currentAssertionConfigHash}`
@@ -1064,16 +1101,7 @@ export function App() {
                   ))}
                 </ul>
               )}
-              {(editTest.ir.steps?.length ?? 0) > 0 && (
-                <>
-                  <p className="hint-inline">步骤预览</p>
-                  <ul className="step-list">
-                    {(editTest.ir.steps as Parameters<typeof describeStep>[0][]).map((step, i) => (
-                      <li key={(step as { id?: string }).id ?? i}>{describeStep(step, i)}</li>
-                    ))}
-                  </ul>
-                </>
-              )}
+              <StepEditorPanel steps={reviewSteps} onChange={setReviewSteps} />
               {(editTest.ir.assertions?.length ?? 0) > 0 && (
                 <>
                   <p className="hint-inline">当前断言（保存时会更新 UI 文案与 API expect，不会删掉 API 断言）</p>
@@ -1149,6 +1177,14 @@ export function App() {
                 </button>
                 <button type="button" className="btn btn-secondary" onClick={saveDraft}>
                   仅保存草稿
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={trialRunning || reviewSteps.length === 0}
+                  onClick={() => void trialRunReview()}
+                >
+                  {trialRunning ? "试跑中…" : "试跑草稿"}
                 </button>
                 <button type="button" className="btn btn-tertiary sheet-action-span" onClick={applySuggest}>
                   刷新建议

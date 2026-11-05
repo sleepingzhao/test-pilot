@@ -268,6 +268,48 @@ async function executeRuns(
   return results;
 }
 
+async function executeSingleIrRun(
+  store: FileStore,
+  test: StoredTest,
+  ir: StoredTest["ir"],
+  baseUrl: string,
+  projectId: string,
+  artifactsRoot: string,
+  dataRoot: string,
+): Promise<StoredRun> {
+  const v = validateTestIR(ir);
+  if (!v.ok) {
+    throw new Error(`IR 校验失败: ${v.issues.map((i) => i.message).join("; ")}`);
+  }
+  const runEnv = buildRunEnvironment(baseUrl);
+  const result = await runTestIR(v.value, {
+    headless: true,
+    artifactsDir: join(artifactsRoot, "runs"),
+    env: runEnv,
+  });
+  const artifacts = await ensureNetworkArtifact(result.artifacts);
+  const stored: StoredRun = {
+    ...result,
+    artifacts,
+    projectId,
+    testTitle: test.title,
+  };
+  await store.saveRun(stored);
+  await appendFile(
+    join(dataRoot, "metrics.jsonl"),
+    `${JSON.stringify({
+      at: stored.completedAt,
+      testId: stored.testId,
+      status: stored.status,
+      durationMs: stored.metrics?.durationMs,
+      failureKind: stored.metrics?.failureKind,
+      llmTokens: 0,
+      trial: true,
+    })}\n`,
+  );
+  return stored;
+}
+
 export function registerRoutes(app: FastifyInstance, store: FileStore, artifactsRoot: string, dataRoot: string) {
   app.get("/api/health", async () => ({
     ok: true,
@@ -318,6 +360,64 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (!isSafeTestId(testId)) return reply.notFound("test not found");
     await store.deleteTest(testId);
     return { ok: true };
+  });
+
+  app.post("/api/tests/:testId/trial-run", async (req, reply) => {
+    const { testId } = req.params as { testId: string };
+    if (!isSafeTestId(testId)) return reply.notFound("test not found");
+    const test = await store.getTest(testId);
+    if (!test) return reply.notFound("test not found");
+    const body = (req.body ?? {}) as { ir?: StoredTest["ir"] };
+    if (!body.ir) {
+      return reply.code(400).send({ error: "试跑需要提交 ir 草稿" });
+    }
+    if (body.ir.id !== testId) {
+      return reply.code(400).send({ error: "ir.id 必须与 testId 一致" });
+    }
+    const v = validateTestIR(body.ir);
+    if (!v.ok) return reply.code(400).send({ issues: v.issues });
+    const providerIssues = validateAssertionProviders(body.ir);
+    if (providerIssues.length) {
+      return reply.code(400).send({ issues: providerIssues, error: "断言 Provider 校验失败" });
+    }
+    const project = store.project();
+    const runEnv = buildRunEnvironment(project.defaultBaseUrl);
+    let targets: string[];
+    try {
+      targets = uniqueTargetBaseUrls([{ ...test, ir: body.ir }], runEnv);
+    } catch (err) {
+      return reply.code(503).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+    for (const url of targets) {
+      if (!isAllowedTargetUrl(url)) {
+        return reply.code(400).send({ error: `用例目标地址不在允许列表: ${url}` });
+      }
+    }
+    const missingSecrets = missingEnvRefs(body.ir);
+    if (missingSecrets.length) {
+      return reply.code(503).send({
+        error: `缺少用例所需环境变量：${missingSecrets.join(", ")}（见 .env.example）`,
+      });
+    }
+    for (const url of targets) {
+      if (!(await checkTargetReachable(url))) {
+        return reply.code(503).send({ error: `目标环境不可达: ${url}` });
+      }
+    }
+    try {
+      const run = await executeSingleIrRun(
+        store,
+        test,
+        body.ir,
+        project.defaultBaseUrl,
+        project.id,
+        artifactsRoot,
+        dataRoot,
+      );
+      return { run, trial: true };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   app.post("/api/tests/:testId/approve", async (req, reply) => {

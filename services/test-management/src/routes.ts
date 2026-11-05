@@ -39,6 +39,7 @@ import {
   pilotBaseUrl,
   pilotSecretsConfigured,
   uniqueTargetBaseUrls,
+  absoluteStepUrls,
   DEMO_BASE_URL,
 } from "./run-env.js";
 import { estimateLastBatchDurationMs, groupRunsIntoBatches } from "./batch-metrics.js";
@@ -298,6 +299,7 @@ async function executeSingleIrRun(
     artifacts,
     projectId,
     testTitle: test.title,
+    trial: true,
   };
   await store.saveRun(stored);
   await appendFile(
@@ -400,6 +402,11 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         return reply.code(400).send({ error: `用例目标地址不在允许列表: ${url}` });
       }
     }
+    for (const url of absoluteStepUrls([{ ...test, ir: body.ir }])) {
+      if (!isAllowedTargetUrl(url)) {
+        return reply.code(400).send({ error: `步骤目标地址不在允许列表: ${url}` });
+      }
+    }
     const missingSecrets = missingEnvRefs(body.ir);
     if (missingSecrets.length) {
       return reply.code(503).send({
@@ -500,15 +507,19 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       approvedBy: actorResult.actor,
     };
     await store.saveTest(approved);
-    await appendAuditEvent(dataRoot, {
-      at: new Date().toISOString(),
-      action: "test.approve",
-      testId,
-      title: test.title,
-      actor: actorResult.actor,
-      irHash: currentHash,
-      assertionConfigHash: currentConfigHash,
-    });
+    try {
+      await appendAuditEvent(dataRoot, {
+        at: new Date().toISOString(),
+        action: "test.approve",
+        testId,
+        title: test.title,
+        actor: actorResult.actor,
+        irHash: currentHash,
+        assertionConfigHash: currentConfigHash,
+      });
+    } catch (err) {
+      req.log.error({ err, testId }, "approval audit append failed");
+    }
     return withWeakAssertions(approved);
   });
 
@@ -616,7 +627,10 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
               "试点 intake 需要先登录再快照：请配置 TESTPILOT_ENV_ADMIN_PHONE 与 TESTPILOT_ENV_ADMIN_PASSWORD",
           });
         }
-        context = await capturePilotIntakeContext(pilotBase, url, { intentText: text });
+        context = await capturePilotIntakeContext(pilotBase, url, {
+          intentText: text,
+          loginPath: (await loadPilotBaseline())?.loginPath,
+        });
       } else {
         context = await snapshotAtUrl(url);
         if (looksLikeLoginPageContext(context)) {
@@ -697,7 +711,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
   });
 
   app.get("/api/metrics/summary", async () => {
-    const runs = await store.listRuns(100);
+    const allRuns = await store.listRuns(100);
+    const runs = allRuns.filter((r) => !r.trial);
     const passed = runs.filter((r) => r.status === "passed").length;
     const totalMs = runs.reduce((s, r) => s + (r.metrics?.durationMs ?? 0), 0);
     const tests = await store.listTests();
@@ -796,6 +811,11 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     for (const url of targets) {
       if (!isAllowedTargetUrl(url)) {
         return reply.code(400).send({ error: `用例目标地址不在允许列表: ${url}` });
+      }
+    }
+    for (const url of absoluteStepUrls(list)) {
+      if (!isAllowedTargetUrl(url)) {
+        return reply.code(400).send({ error: `步骤目标地址不在允许列表: ${url}` });
       }
     }
     const missingSecrets = [...new Set(list.flatMap((t) => missingEnvRefs(t.ir)))];

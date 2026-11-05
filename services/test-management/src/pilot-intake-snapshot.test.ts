@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   isPilotIntakeUrl,
   looksLikeLoginPageContext,
+  resolveLoginUrl,
   resolvePilotTargetPath,
 } from "./pilot-intake-snapshot.js";
 
@@ -49,5 +50,29 @@ test("looksLikeLoginPageContext detects login form without app shell", () => {
       ],
     }),
     true,
+  );
+});
+
+test("looksLikeLoginPageContext detects English login pages", () => {
+  assert.equal(
+    looksLikeLoginPageContext({
+      url: "https://pilot.example/auth",
+      elements: [
+        { role: "textbox", name: "Email" },
+        { role: "textbox", name: "Password" },
+        { role: "button", name: "Sign in" },
+      ],
+    }),
+    true,
+  );
+});
+
+test("resolveLoginUrl honors pilot-baseline loginPath", () => {
+  assert.equal(resolveLoginUrl("https://pilot.example/", "/signin"), "https://pilot.example/signin");
+  assert.equal(resolveLoginUrl("https://pilot.example/", "signin"), "https://pilot.example/signin");
+  assert.equal(resolveLoginUrl("https://pilot.example/"), "https://pilot.example/admin/login");
+  assert.equal(
+    resolveLoginUrl("https://pilot.example/", "https://sso.example/login"),
+    "https://sso.example/login",
   );
 });

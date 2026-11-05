@@ -93,10 +93,23 @@ async function pilotLoginSteps(): Promise<TestStep[]> {
   return ir.steps.filter((s) => s.action !== "wait" || s.id === "wait-dashboard");
 }
 
-async function capturePlanningContext(base: string, pathAfterLogin: string, intent: string) {
+async function loadLoginPath(): Promise<string | undefined> {
+  for (const name of ["pilot-baseline.json", "pilot-baseline.example.json"]) {
+    try {
+      const raw = await readFile(join(repoRoot, "docs", name), "utf8");
+      const doc = JSON.parse(raw) as { loginPath?: string };
+      if (doc.loginPath?.trim()) return doc.loginPath.trim();
+    } catch {
+      /* next */
+    }
+  }
+  return undefined;
+}
+
+async function capturePlanningContext(base: string, pathAfterLogin: string, intent: string, loginPath?: string) {
   const baseNorm = base.replace(/\/$/, "");
   const targetUrl = `${baseNorm}${pathAfterLogin.startsWith("/") ? pathAfterLogin : `/${pathAfterLogin}`}`;
-  return capturePilotIntakeContext(base, targetUrl, { intentText: intent });
+  return capturePilotIntakeContext(base, targetUrl, { intentText: intent, loginPath });
 }
 
 export async function bootstrapPilotIntakes(store: FileStore, log: FastifyBaseLogger): Promise<number> {
@@ -111,6 +124,7 @@ export async function bootstrapPilotIntakes(store: FileStore, log: FastifyBaseLo
   }
 
   const constraints = await loadPilotConstraints();
+  const loginPath = await loadLoginPath();
   let saved = 0;
 
   try {
@@ -126,7 +140,7 @@ export async function bootstrapPilotIntakes(store: FileStore, log: FastifyBaseLo
     if (existing && !preset.refreshDraft) continue;
 
     try {
-      const context = await capturePlanningContext(base, preset.pathAfterLogin ?? "/customer", preset.intent);
+      const context = await capturePlanningContext(base, preset.pathAfterLogin ?? "/customer", preset.intent, loginPath);
       const constraintLine = constraints?.scopeNotes?.[0];
       const text = [preset.intent, constraintLine].filter(Boolean).join("\n");
       const ruleDraft = planFromIntake({
@@ -181,13 +195,19 @@ export async function bootstrapPilotIntakes(store: FileStore, log: FastifyBaseLo
         ir: validated.value,
         irHash: computeIRHash(validated.value),
         irHashVersion: IR_HASH_VERSION,
-        approvalStatus: preset.refreshDraft && existing?.approvedAt ? "approved" : "draft",
-        approvedAt: preset.refreshDraft && existing?.approvedAt ? existing.approvedAt : undefined,
+        // Regenerated IR must be reviewed again; never keep an old approval.
+        approvalStatus: "draft",
+        approvedAt: undefined,
+        approvedBy: undefined,
+        assertionConfigHash: undefined,
         intentSummary: preset.intent,
         sourceChannel: "intent",
         plannerNotes: draft.uncertainties,
         updatedAt: new Date().toISOString(),
       });
+      if (existing?.approvalStatus === "approved") {
+        log.warn({ preset: preset.id }, "Refreshed pilot draft was demoted from approved; review required");
+      }
       saved += 1;
       log.info(`Auto-intake saved draft: ${preset.id}`);
     } catch (err) {

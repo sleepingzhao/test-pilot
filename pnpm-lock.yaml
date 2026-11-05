@@ -20,6 +20,9 @@ importers:
 
   apps/console:
     dependencies:
+      '@testpilot/test-ir':
+        specifier: workspace:*
+        version: link:../../packages/test-ir
       react:
         specifier: ^19.0.0
         version: 19.3.1

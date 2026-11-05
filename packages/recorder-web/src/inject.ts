@@ -63,7 +63,9 @@ export const RECORDER_INIT_SCRIPT = `
     if (!(el instanceof HTMLInputElement)) return false;
     if (el.type === "password" || el.type === "tel") return true;
     const hint = (el.name + " " + el.id + " " + el.autocomplete + " " + (labelFor(el) || "")).toLowerCase();
-    return /password|passwd|secret|token|phone|mobile|手机|电话/.test(hint);
+    return /password|passwd|secret|token|phone|mobile|email|one-time-code|otp|手机|电话|邮箱|验证码|身份证|证件|idcard/.test(
+      hint,
+    );
   }
 
   function emit(payload) {
@@ -72,19 +74,45 @@ export const RECORDER_INIT_SCRIPT = `
     fn(payload).catch(() => {});
   }
 
+  function fillPayload(el) {
+    const target = describeTarget(el);
+    if (!target) return null;
+    if (el instanceof HTMLSelectElement) {
+      return { kind: "fill", target, value: el.value, inputKind: "select" };
+    }
+    if (isSensitiveInput(el)) {
+      return { kind: "fill", target, sensitive: true, fieldKey: el.name || el.id || labelFor(el) || "secret" };
+    }
+    return { kind: "fill", target, value: el.value, inputKind: "text" };
+  }
+
+  const pending = new Map();
+  function flushAll() {
+    for (const payload of pending.values()) emit(payload);
+    pending.clear();
+  }
+
   document.addEventListener(
     "click",
     (ev) => {
+      flushAll();
       const el = ev.target instanceof Element ? ev.target.closest("button, a, [role=button], input[type=submit], input[type=button]") : null;
       if (!el) return;
       const cascader = el.closest("[data-testid*='cascader'], .ant-cascader, [class*='cascader']");
       const target = describeTarget(el);
       if (!target) return;
-      emit({
-        kind: "click",
-        target,
-        ...(cascader ? { limitation: "cascader" as const } : {}),
-      });
+      emit(cascader ? { kind: "click", target, limitation: "cascader" } : { kind: "click", target });
+    },
+    true,
+  );
+
+  document.addEventListener(
+    "input",
+    (ev) => {
+      const el = ev.target;
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
+      const payload = fillPayload(el);
+      if (payload) pending.set(el, payload);
     },
     true,
   );
@@ -94,20 +122,16 @@ export const RECORDER_INIT_SCRIPT = `
     (ev) => {
       const el = ev.target;
       if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return;
-      const target = describeTarget(el);
-      if (!target) return;
-      if (el instanceof HTMLSelectElement) {
-        emit({ kind: "fill", target, value: el.value, inputKind: "select" });
-        return;
-      }
-      if (isSensitiveInput(el)) {
-        emit({ kind: "fill", target, sensitive: true, fieldKey: el.name || el.id || labelFor(el) || "secret" });
-        return;
-      }
-      emit({ kind: "fill", target, value: el.value, inputKind: "text" });
+      const payload = fillPayload(el);
+      if (!payload) return;
+      pending.delete(el);
+      emit(payload);
     },
     true,
   );
+
+  document.addEventListener("submit", flushAll, true);
+  window.addEventListener("beforeunload", flushAll);
 })();
 `;
 

@@ -78,6 +78,17 @@ test("accepts selectCascader step", () => {
   assert.equal(result.ok, true);
 });
 
+test("accepts select step with value", () => {
+  const result = validateTestIR({
+    id: "select",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "pick", action: "select", target: { label: "优先级" }, value: "high" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, true);
+});
+
 test("flags short and generic page-wide UI assertions", () => {
   const base = {
     id: "weak",

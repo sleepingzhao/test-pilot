@@ -1,5 +1,7 @@
 import type { TestStep } from "./types.js";
 
+export type { TestStep } from "./types.js";
+
 export function moveStep(steps: TestStep[], index: number, delta: -1 | 1): TestStep[] {
   const next = index + delta;
   if (next < 0 || next >= steps.length) return steps;

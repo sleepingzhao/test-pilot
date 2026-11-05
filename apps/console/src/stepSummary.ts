@@ -1,20 +1,28 @@
 type StepLike = {
   action?: string;
   path?: string;
-  target?: { role?: string; name?: string; label?: string };
+  target?: { role?: string; name?: string; label?: string; placeholder?: string; testId?: string };
   valueRef?: string;
   key?: string;
 };
 
 export function describeStep(step: StepLike, index: number): string {
   const n = index + 1;
+  const targetLabel =
+    step.target?.label ??
+    step.target?.name ??
+    step.target?.placeholder ??
+    step.target?.testId ??
+    step.target?.role;
   switch (step.action) {
     case "navigate":
       return `${n}. 打开 ${step.path ?? "/"}`;
     case "click":
-      return `${n}. 点击「${step.target?.name ?? step.target?.role ?? "元素"}」`;
+      return `${n}. 点击「${targetLabel ?? "元素"}」`;
     case "fill":
-      return `${n}. 填写「${step.target?.label ?? step.target?.name ?? "字段"}」${step.valueRef ? "（凭据）" : ""}`;
+      return `${n}. 填写「${targetLabel ?? "字段"}」${step.valueRef ? "（凭据）" : ""}`;
+    case "select":
+      return `${n}. 选择「${targetLabel ?? "下拉框"}」`;
     case "press":
       return `${n}. 按键 ${step.key ?? "?"}`;
     case "wait":

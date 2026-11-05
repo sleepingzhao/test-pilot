@@ -79,3 +79,40 @@ test("runs reject pinned targets outside the allow-list and missing env refs", a
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("runs reject absolute step URLs outside the allow-list", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-abs-step-"));
+  const dataRoot = join(root, "data");
+  const store = new FileStore(dataRoot);
+  await store.init();
+
+  const ir: TestIR = {
+    id: "absolute-step",
+    version: 1,
+    platform: "web",
+    baseUrl: "http://127.0.0.1:4173",
+    steps: [
+      { id: "open", action: "navigate", path: "/" },
+      { id: "ssrf", action: "navigate", path: "http://169.254.169.254/latest/meta-data" },
+    ],
+    assertions: [{ id: "ok", type: "ui", contains: "ok", oracle: "human-approved" }],
+  };
+  await store.saveTest(makeTest(ir.id, ir));
+
+  const app = Fastify();
+  await app.register(sensible);
+  registerRoutes(app, store, join(root, "artifacts"), dataRoot);
+  await app.ready();
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects/default/runs",
+      payload: { testId: ir.id },
+    });
+    assert.equal(res.statusCode, 400);
+    assert.match(res.json().error, /步骤目标地址不在允许列表/);
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

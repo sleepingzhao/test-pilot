@@ -126,6 +126,15 @@ async function executeStep(
         await loc.fill(value, { timeout: 15_000 });
         break;
       }
+      case "select": {
+        if (!step.target) throw new Error("select requires target");
+        const raw = step.value ?? (step.valueRef ? refs[step.valueRef] : undefined);
+        if (raw === undefined) throw new Error("select requires value or resolvable valueRef");
+        const value = raw.replace(/\{\{runId\}\}/g, runId);
+        const loc = await resolveStepLocator(page, step.target);
+        await loc.selectOption(value, { timeout: 15_000 });
+        break;
+      }
       case "press": {
         if (!step.key) throw new Error("press requires key");
         await page.keyboard.press(step.key);

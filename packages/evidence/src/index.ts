@@ -162,13 +162,14 @@ export {
 } from "./redact.js";
 
 export function classifyFailure(input: FailureClassifierInput): string {
-  if (input.stepError?.includes("timeout") || input.httpStatus === 503) {
+  const stepError = input.stepError?.toLowerCase() ?? "";
+  if (stepError.includes("timeout") || input.httpStatus === 503) {
     return "ENVIRONMENT";
   }
-  if (input.stepError?.includes("net::") || input.stepError?.includes("ERR_")) {
+  if (stepError.includes("net::") || stepError.includes("err_")) {
     return "ENVIRONMENT";
   }
-  if (input.stepError?.includes("locator") || input.stepError?.includes("strict mode")) {
+  if (stepError.includes("locator") || stepError.includes("strict mode")) {
     return "LOCATOR_BREAKAGE";
   }
   if (input.assertionMessage) {

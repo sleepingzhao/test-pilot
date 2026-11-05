@@ -1,11 +1,15 @@
 import type { Locator, TestIR, TestStep } from "@testpilot/test-ir";
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import type { RecordedEvent } from "./inject.js";
 import { RECORDER_INIT_SCRIPT } from "./inject.js";
 
 export type RecordSessionOptions = {
   url: string;
   testId: string;
+  /** Tests run headless; interactive recording defaults to a visible window. */
+  headless?: boolean;
+  /** Test hook: runs after the recorder is installed and the page loaded. */
+  onPage?: (page: Page) => Promise<void> | void;
   /** Called when recording finishes (browser closed or stop invoked). */
   onStop?: () => void;
 };
@@ -45,6 +49,13 @@ function toLocator(raw: Record<string, string>): Locator {
   };
 }
 
+const PII_VALUE =
+  /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|1[3-9]\d{9}|\b\d{17}[\dXx]\b/;
+
+function isPiiValue(value?: string): boolean {
+  return Boolean(value && PII_VALUE.test(value));
+}
+
 export function eventsToIR(testId: string, baseUrl: string, events: RecordedEvent[]): TestIR {
   const origin = new URL(baseUrl).origin;
   const steps: TestStep[] = [];
@@ -74,19 +85,20 @@ export function eventsToIR(testId: string, baseUrl: string, events: RecordedEven
     if (ev.kind === "fill") {
       fillN += 1;
       const label = ev.target.label ? slug(ev.target.label) : `field-${fillN}`;
-      if (ev.sensitive) {
-        const ref = secretRefFor(ev.target, ev.fieldKey);
+      const action = ev.inputKind === "select" ? "select" : "fill";
+      if (ev.sensitive || isPiiValue(ev.value)) {
+        const ref = ev.sensitive ? secretRefFor(ev.target, ev.fieldKey) : `fixture.${label || "value"}`;
         valueRefs.add(ref);
         steps.push({
-          id: `fill-${label}-${fillN}`,
-          action: "fill",
+          id: `${action}-${label}-${fillN}`,
+          action,
           target: toLocator(ev.target),
           valueRef: ref,
         });
       } else {
         steps.push({
-          id: `fill-${label}-${fillN}`,
-          action: "fill",
+          id: `${action}-${label}-${fillN}`,
+          action,
           target: toLocator(ev.target),
           value: ev.value ?? "",
         });
@@ -118,25 +130,25 @@ export function eventsToIR(testId: string, baseUrl: string, events: RecordedEven
   return ir;
 }
 
-const PHONE_LIKE = /1[3-9]\d{9}/;
-
 export function recorderLimitationWarnings(events: RecordedEvent[]): string[] {
   const warnings: string[] = [];
-  let selectSeen = false;
   let cascaderSeen = false;
+  const piiFields: string[] = [];
   for (const ev of events) {
-    if (ev.kind === "fill" && ev.inputKind === "select" && !selectSeen) {
-      selectSeen = true;
-      warnings.push(
-        "检测到原生 <select>：已录为 fill；若回放失败请改为 click 或手动编辑 IR。级联选择器请使用 selectCascader 步骤（不支持自动录制）。",
-      );
-    }
     if (ev.kind === "click" && ev.limitation === "cascader" && !cascaderSeen) {
       cascaderSeen = true;
       warnings.push(
         "检测到级联选择器 (cascader) 点击：不支持自动录制；请在 IR 中手动添加 selectCascader 步骤。",
       );
     }
+    if (ev.kind === "fill" && !ev.sensitive && isPiiValue(ev.value)) {
+      piiFields.push(ev.target.label ?? ev.fieldKey ?? ev.target.name ?? "字段");
+    }
+  }
+  if (piiFields.length) {
+    warnings.push(
+      `检测到疑似 PII（${piiFields.join("、")}）：已转为 fixture 引用，运行前请配置对应值。`,
+    );
   }
   return warnings;
 }
@@ -150,8 +162,8 @@ export function assertRecordedIrHasNoPlaintextSecrets(ir: TestIR, events: Record
     }
   }
   for (const step of ir.steps) {
-    if (step.value && PHONE_LIKE.test(step.value)) {
-      throw new Error("recorded IR contains phone-like plaintext in step value");
+    if (step.value && isPiiValue(step.value)) {
+      throw new Error("recorded IR contains plaintext PII in step value");
     }
   }
 }
@@ -179,7 +191,7 @@ export async function recordSession(options: RecordSessionOptions): Promise<Reco
   const startUrl = options.url;
   const parsed = new URL(startUrl);
 
-  const browser = await chromium.launch({ headless: false });
+  const browser = await chromium.launch({ headless: options.headless ?? false });
   const context = await browser.newContext();
   const page = await context.newPage();
 
@@ -218,10 +230,17 @@ export async function recordSession(options: RecordSessionOptions): Promise<Reco
     document.documentElement.appendChild(bar);
   });
 
-  await new Promise<void>((resolve) => {
+  const closed = new Promise<void>((resolve) => {
     page.on("close", () => resolve());
     browser.on("disconnected", () => resolve());
   });
+  try {
+    await options.onPage?.(page);
+    await closed;
+  } catch (err) {
+    await browser.close().catch(() => {});
+    throw err;
+  }
 
   try {
     await browser.close();

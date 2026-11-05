@@ -16,15 +16,16 @@ const PRACTICE_LOGIN_RECORD_EVENTS = JSON.parse(
   readFileSync(join(repoRoot, "examples/demo-webapp/recorder/practice-login-events.json"), "utf8"),
 ) as RecordedEvent[];
 
-test("recorderLimitationWarnings flags select and cascader once", () => {
+test("recorderLimitationWarnings flags cascader once and accepts native select", () => {
   const warnings = recorderLimitationWarnings([
     { kind: "fill", target: { label: "Region" }, value: "x", inputKind: "select" },
     { kind: "fill", target: { label: "Region2" }, value: "y", inputKind: "select" },
     { kind: "click", target: { testId: "cascader-x" }, limitation: "cascader" },
     { kind: "click", target: { testId: "cascader-y" }, limitation: "cascader" },
   ]);
-  assert.equal(warnings.length, 2);
+  assert.equal(warnings.length, 1);
   assert.match(warnings.join(" "), /selectCascader/);
+  assert.doesNotMatch(warnings.join(" "), /原生 <select>/);
 });
 
 test("eventsToIR login recording uses env refs and strips secrets from IR", () => {

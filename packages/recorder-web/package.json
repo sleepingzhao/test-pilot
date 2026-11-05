@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/record.test.ts src/recorder-p3.test.ts",
+    "test": "node --import tsx --test src/record.test.ts src/recorder-p3.test.ts src/recorded-session.test.ts",
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {

@@ -69,7 +69,7 @@
         },
         "action": {
           "type": "string",
-          "enum": ["navigate", "click", "fill", "press", "wait", "selectCascader"]
+          "enum": ["navigate", "click", "fill", "press", "wait", "select", "selectCascader"]
         },
         "path": { "type": "string" },
         "target": { "$ref": "#/$defs/locator" },
@@ -93,6 +93,15 @@
         },
         {
           "if": { "properties": { "action": { "const": "fill" } } },
+          "then": {
+            "anyOf": [
+              { "required": ["target", "value"] },
+              { "required": ["target", "valueRef"] }
+            ]
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "select" } } },
           "then": {
             "anyOf": [
               { "required": ["target", "value"] },

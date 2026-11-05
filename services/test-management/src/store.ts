@@ -32,6 +32,8 @@ export type StoredTest = {
 export type StoredRun = RunResult & {
   projectId: string;
   testTitle: string;
+  /** Draft trial runs are evidence, not regression runs; excluded from metrics. */
+  trial?: boolean;
 };
 
 export type RecordJob = {

@@ -65,3 +65,41 @@ test("trial-run rejects missing ir, id mismatch, and invalid IR", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("trial runs are excluded from regression metrics", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-trial-metrics-"));
+  const dataRoot = join(root, "data");
+  const store = new FileStore(dataRoot);
+  await store.init();
+
+  const baseRun = {
+    testId: "trial-draft",
+    testTitle: "trial",
+    testVersion: 1,
+    startedAt: new Date().toISOString(),
+    completedAt: new Date().toISOString(),
+    steps: [],
+    assertions: [],
+    artifacts: { runId: "r1", dir: "artifacts/r1", artifacts: [] },
+    metrics: { durationMs: 10, llmTokensUsed: 0, attemptCount: 1 },
+    projectId: "default",
+  };
+  await store.saveRun({ ...baseRun, runId: "trial-1", status: "failed", trial: true });
+  await store.saveRun({ ...baseRun, runId: "normal-1", status: "passed" });
+
+  const app = Fastify();
+  await app.register(sensible);
+  registerRoutes(app, store, join(root, "artifacts"), dataRoot);
+  await app.ready();
+
+  try {
+    const res = await app.inject({ method: "GET", url: "/api/metrics/summary" });
+    assert.equal(res.statusCode, 200);
+    const summary = res.json() as { runCount: number; passRate: number };
+    assert.equal(summary.runCount, 1);
+    assert.equal(summary.passRate, 1);
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

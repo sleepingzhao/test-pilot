@@ -100,3 +100,15 @@ export function uniqueTargetBaseUrls(tests: Array<{ ir: TestIR }>, env: RunEnvir
   }
   return [...urls];
 }
+
+/** Absolute navigate targets bypass baseUrl; they must still clear the allow-list. */
+export function absoluteStepUrls(tests: Array<{ ir: TestIR }>): string[] {
+  const urls = new Set<string>();
+  for (const t of tests) {
+    for (const step of t.ir.steps ?? []) {
+      const path = step.path ?? "";
+      if (step.action === "navigate" && /^https?:\/\//i.test(path)) urls.add(path);
+    }
+  }
+  return [...urls];
+}

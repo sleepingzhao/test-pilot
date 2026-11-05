@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type StoredRun, type StoredTest } from "./api";
 import {
   AssertionProviderPanel,
@@ -7,7 +7,7 @@ import {
   type ProviderDraft,
   type ProviderFeedback,
 } from "./AssertionProviderPanel";
-import type { TestStep } from "./stepEditor";
+import type { TestStep } from "@testpilot/test-ir/step-edit";
 import { StepEditorPanel } from "./StepEditorPanel";
 import { failureKindLabel, failureScreenshotPath, summarizeAssertion } from "./stepSummary";
 
@@ -23,7 +23,7 @@ type IrAssertion = {
   oracle?: string;
 };
 
-type View = "home" | "tests" | "create" | "history";
+type View = "home" | "tests" | "create" | "history" | "audit";
 type CreateChannel = "intent" | "prd" | "record";
 type TestFilter = "all" | "draft" | "weak" | "pilot" | "demo";
 
@@ -42,7 +42,9 @@ export function App() {
   const [lastByTest, setLastByTest] = useState<Record<string, StoredRun>>({});
   const [bootstrapped, setBootstrapped] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; kind: "info" | "success" | "error" } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reviewToken = useRef(0);
   const [editTest, setEditTest] = useState<StoredTest | null>(null);
   const [assertionText, setAssertionText] = useState("");
   const [apiExpectJson, setApiExpectJson] = useState("");
@@ -50,7 +52,9 @@ export function App() {
   const [assertionSuggestions, setAssertionSuggestions] = useState<string[]>([]);
   const [reviewIntent, setReviewIntent] = useState("");
   const [reviewSteps, setReviewSteps] = useState<TestStep[]>([]);
+  const [reviewDirty, setReviewDirty] = useState(false);
   const [trialRunning, setTrialRunning] = useState(false);
+  const [trialResult, setTrialResult] = useState<StoredRun | null>(null);
   const [assertionCatalog, setAssertionCatalog] = useState<AssertionCatalog | null>(null);
   const [providerDraft, setProviderDraft] = useState<ProviderDraft>({
     enabled: false,
@@ -86,6 +90,7 @@ export function App() {
     multiAttemptRuns?: number;
   } | null>(null);
   const [demoOk, setDemoOk] = useState<boolean | null>(null);
+  const [demoUrl, setDemoUrl] = useState("http://127.0.0.1:4173/");
   const [pilotOk, setPilotOk] = useState<boolean | null>(null);
   const [pilotSecrets, setPilotSecrets] = useState<boolean | null>(null);
   const [pilotUrl, setPilotUrl] = useState<string | null>(null);
@@ -121,7 +126,13 @@ export function App() {
       return "";
     }
   });
-  const [approvalTokenInput, setApprovalTokenInput] = useState("");
+  const [approvalTokenInput, setApprovalTokenInput] = useState(() => {
+    try {
+      return localStorage.getItem("testpilot-approval-token") ?? "";
+    } catch {
+      return "";
+    }
+  });
   const [auditEntries, setAuditEntries] = useState<
     Array<{ at: string; testId: string; title: string; actor: string; irHash: string }>
   >([]);
@@ -148,9 +159,10 @@ export function App() {
     }
   };
 
-  const notify = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 4500);
+  const notify = (message: string, kind: "info" | "success" | "error" = "info") => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ message, kind });
+    toastTimer.current = setTimeout(() => setToast(null), 4500);
   };
 
   const refresh = useCallback(async () => {
@@ -204,6 +216,7 @@ export function App() {
       }>("/api/environment");
       setApprovalInfo(env.approval ?? null);
       setDemoOk(env.demoReachable);
+      if (env.demoUrl) setDemoUrl(env.demoUrl);
       setPilotOk(env.pilotReachable ?? null);
       setPilotSecrets(env.pilotSecretsConfigured ?? null);
       setPilotUrl(env.pilotUrl ?? null);
@@ -253,21 +266,26 @@ export function App() {
     });
   };
 
-  const loadAssertionHints = async (t: StoredTest) => {
+  const loadAssertionHints = async (t: StoredTest, token?: number) => {
     const res = await api<{
       assertions: StoredTest["ir"]["assertions"];
       help?: string;
       suggestions?: string[];
     }>(`/api/tests/${t.id}/suggest-assertions`, { method: "POST", body: "{}" });
+    if (token !== undefined && token !== reviewToken.current) return;
     const contains = (res.assertions[0] as { contains?: string })?.contains ?? "";
-    setAssertionText(contains);
+    // Suggestions must never overwrite a reviewed assertion; only fill an empty field.
+    setAssertionText((prev) => (prev.trim() ? prev : contains));
     setAssertionHelp(res.help ?? "");
     setAssertionSuggestions(res.suggestions ?? []);
   };
 
   const openReview = async (t: StoredTest, withHints = true) => {
+    const requestToken = ++reviewToken.current;
     setEditTest(t);
     setReviewSteps([...(t.ir.steps ?? [])] as TestStep[]);
+    setReviewDirty(false);
+    setTrialResult(null);
     setReviewIntent(t.intentSummary ?? "");
     setProviderFeedback({});
     const a = t.ir.assertions?.find((x) => (x as IrAssertion).type === "ui") as { contains?: string } | undefined;
@@ -304,7 +322,7 @@ export function App() {
     }
     if (withHints) {
       try {
-        await loadAssertionHints(t);
+        await loadAssertionHints(t, requestToken);
       } catch {
         /* ignore */
       }
@@ -449,18 +467,50 @@ export function App() {
     notify("已更新建议，请确认后保存");
   };
 
+  const closeReview = () => {
+    if (reviewDirty && !window.confirm("有未保存的步骤或断言修改，确定关闭？")) return;
+    setEditTest(null);
+    setTrialResult(null);
+    setReviewDirty(false);
+  };
+
+  useEffect(() => {
+    if (!editTest) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeReview();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const markReviewDirty = () => {
+    setReviewDirty(true);
+    setTrialResult(null);
+  };
+
+  const updateReviewSteps = (next: TestStep[]) => {
+    setReviewSteps(next);
+    markReviewDirty();
+  };
+
   const buildReviewIr = () => {
     if (!editTest) return null;
     const base = [...((editTest.ir.assertions ?? []) as IrAssertion[])];
-    let uiIdx = base.findIndex((a) => a.type === "ui");
-    const uiPatch: IrAssertion = {
-      ...(uiIdx >= 0 ? base[uiIdx]! : { id: "review-assertion", type: "ui", oracle: "human-approved" }),
-      type: "ui",
-      contains: assertionText,
-      oracle: "human-approved",
-    };
-    if (uiIdx >= 0) base[uiIdx] = uiPatch;
-    else base.unshift(uiPatch);
+    const uiIdx = base.findIndex((a) => a.type === "ui");
+    if (assertionText.trim()) {
+      const uiPatch: IrAssertion = {
+        ...(uiIdx >= 0 ? base[uiIdx]! : { id: "review-assertion", type: "ui", oracle: "human-approved" }),
+        type: "ui",
+        contains: assertionText,
+        oracle: "human-approved",
+      };
+      if (uiIdx >= 0) base[uiIdx] = uiPatch;
+      else base.unshift(uiPatch);
+    } else {
+      for (let i = base.length - 1; i >= 0; i -= 1) {
+        if (base[i]!.type === "ui") base.splice(i, 1);
+      }
+    }
 
     if (apiExpectJson.trim()) {
       try {
@@ -510,21 +560,23 @@ export function App() {
       return;
     }
     setTrialRunning(true);
+    setTrialResult(null);
     try {
       const res = await api<{ run: StoredRun; trial?: boolean }>(`/api/tests/${editTest.id}/trial-run`, {
         method: "POST",
         body: JSON.stringify({ ir }),
       });
       const run = res.run;
+      setTrialResult(run);
       await refresh();
       if (run.status === "passed") {
-        notify("试跑通过（未写入批准状态）");
+        notify("试跑通过（未写入批准状态）", "success");
         return;
       }
-      notify("试跑未通过，打开诊断");
+      notify("试跑未通过，可查看下方证据或诊断", "error");
       void openDiagnose(run);
     } catch (e) {
-      notify(e instanceof Error ? e.message : String(e));
+      notify(e instanceof Error ? e.message : String(e), "error");
     } finally {
       setTrialRunning(false);
     }
@@ -612,7 +664,6 @@ export function App() {
   };
 
   const reviewIrValid = () => {
-    if (!assertionText.trim() && !apiExpectJson.trim() && !providerDraft.enabled) return false;
     if (apiExpectJson.trim()) {
       try {
         JSON.parse(apiExpectJson);
@@ -624,7 +675,8 @@ export function App() {
       const built = buildProviderAssertion(providerDraft);
       if (!built.ok) return false;
     }
-    return Boolean(buildReviewIr());
+    const ir = buildReviewIr();
+    return Boolean(ir && (ir.assertions?.length ?? 0) > 0);
   };
 
   const saveDraft = async () => {
@@ -639,7 +691,8 @@ export function App() {
       body: JSON.stringify({ ir, intentSummary: reviewIntent }),
     });
     setEditTest(null);
-    notify("草稿已保存");
+    setReviewDirty(false);
+    notify("草稿已保存", "success");
     await refresh();
   };
 
@@ -682,10 +735,25 @@ export function App() {
         }),
       });
       setEditTest(null);
-      notify("已保存并批准");
+      setReviewDirty(false);
+      notify("已保存并批准", "success");
       await refresh();
     } catch (e) {
-      notify(e instanceof Error ? e.message : String(e));
+      notify(e instanceof Error ? e.message : String(e), "error");
+    }
+  };
+
+  const deleteDraft = async () => {
+    if (!editTest) return;
+    if (!window.confirm(`删除草稿「${editTest.title}」？此操作不可撤销。`)) return;
+    try {
+      await api(`/api/tests/${editTest.id}`, { method: "DELETE" });
+      setEditTest(null);
+      setReviewDirty(false);
+      notify("草稿已删除", "success");
+      await refresh();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e), "error");
     }
   };
 
@@ -766,6 +834,50 @@ export function App() {
     return true;
   });
 
+  const statusItems: Array<{
+    key: string;
+    text: string;
+    tone: "warn" | "bad" | "muted";
+    onClick?: () => void;
+  }> = [];
+  if (draftCount > 0) {
+    statusItems.push({
+      key: "draft",
+      text: `${draftCount} 条草稿待审阅`,
+      tone: "warn",
+      onClick: () => {
+        setTestFilter("draft");
+        setView("tests");
+      },
+    });
+  }
+  if ((summary?.weakApprovedCount ?? 0) > 0) {
+    statusItems.push({
+      key: "weak",
+      text: `${summary!.weakApprovedCount} 条弱断言`,
+      tone: "bad",
+      onClick: () => {
+        setTestFilter("weak");
+        setView("tests");
+      },
+    });
+  }
+  if (demoOk === false) statusItems.push({ key: "demo", text: "练习应用未启动（:4173）", tone: "bad" });
+  if (pilotOk === false) statusItems.push({ key: "pilot", text: "试点环境不可达", tone: "bad" });
+  if (pilotSecrets === false) statusItems.push({ key: "secrets", text: "试点凭据未配置", tone: "warn" });
+  if (llmInfo && !llmInfo.enabled) {
+    statusItems.push({
+      key: "llm",
+      text: llmInfo.error ? `LLM 配置无效：${llmInfo.error}` : "LLM 未启用（可选）",
+      tone: "muted",
+    });
+  } else if (llmInfo?.lastError) {
+    statusItems.push({ key: "llm-error", text: `最近 LLM 调用失败：${llmInfo.lastError}`, tone: "warn" });
+  }
+
+  const pendingIr = editTest ? buildReviewIr() : null;
+  const pendingAssertions = (pendingIr?.assertions ?? editTest?.ir.assertions ?? []) as IrAssertion[];
+
   return (
     <div className="shell">
       <aside className="sidebar" aria-label="主导航">
@@ -784,88 +896,84 @@ export function App() {
           <button type="button" className={view === "history" ? "active" : ""} onClick={() => setView("history")}>
             结果
           </button>
+          <button type="button" className={view === "audit" ? "active" : ""} onClick={() => setView("audit")}>
+            审计
+          </button>
         </nav>
       </aside>
 
       <div className="content-column">
-      {draftCount > 0 && (
-        <div className="alert-bar alert-bar-draft">
-          有 <strong>{draftCount}</strong> 条用例待审阅（含试点 auto-intake）。请打开「用例 → 草稿」，核对 UI / API 断言后点「保存并批准」；未批准不会进入「运行全部」。
+      {statusItems.length > 0 && (
+        <div className="status-strip" role="status">
+          {statusItems.map((item) =>
+            item.onClick ? (
+              <button key={item.key} type="button" className={`status-chip ${item.tone}`} onClick={item.onClick}>
+                {item.text}
+              </button>
+            ) : (
+              <span key={item.key} className={`status-chip ${item.tone}`}>
+                {item.text}
+              </span>
+            ),
+          )}
         </div>
-      )}
-      {summary && (summary.weakApprovedCount ?? 0) > 0 && (
-        <div className="alert-bar">
-          有 <strong>{summary.weakApprovedCount}</strong> 条已批准用例使用弱断言，可能产生假阳性。请打开「用例 → 弱断言」审阅并强化。
-        </div>
-      )}
-      {demoOk === false && (
-        <div className="alert-bar">
-          练习应用未启动（端口 4173）。Demo 用例需 <code>pnpm dev</code>；试点用例不受影响。
-        </div>
-      )}
-      {pilotOk === false && (
-        <div className="alert-bar">
-          试点环境不可达{pilotUrl ? `（${pilotUrl}）` : ""}。请检查网络或 TESTPILOT_PILOT_BASE_URL。
-        </div>
-      )}
-      {pilotSecrets === false && (
-        <div className="alert-bar">
-          试点登录凭据未配置：复制 <code>.env.example</code> 为 <code>.env</code> 并填写管理员手机号与密码，然后重启 API。
-        </div>
-      )}
-      {llmInfo && !llmInfo.enabled && pilotOk !== false && (
-        <div className="alert-bar" style={{ background: "#f5f5f7", color: "#6e6e73", borderColor: "#d2d2d7" }}>
-          {llmInfo.error
-            ? `LLM 配置无效：${llmInfo.error}`
-            : "LLM 未启用：在 .env 中设置 TESTPILOT_LLM_API_KEY（见 .env.example）。"}
-        </div>
-      )}
-      {llmInfo?.enabled && llmInfo.lastError && (
-        <div className="alert-bar">最近一次 LLM 调用失败：{llmInfo.lastError}</div>
       )}
 
       <main>
         {view === "home" && (
           <section className="hero">
-            <h1>Web 测试，几步就好。</h1>
-            <p>
-              在练习环境里一键回归 {approvedCount ?? "…"} 条已批准用例
+            <p className="hero-eyebrow">TestPilot · 可信回归</p>
+            <h1>把手工回归，变成可信任的自动化。</h1>
+            <p className="hero-lede">
+              {approvedCount ?? "…"} 条已批准用例
               {approvedPilot > 0 ? `（试点 ${approvedPilot} · 练习 ${approvedDemo}）` : ""}
-              。试点草稿由 API 自动生成，新用例审阅批准一次即可。
-              {llmInfo?.enabled ? (
-                <>
-                  {" "}
-                  LLM 已启用（{llmInfo.provider}/{llmInfo.model}），仅用于草稿与诊断。
-                </>
-              ) : null}
+              。先审阅草稿确认断言，再一键回归；每条通过的用例都能给出 HTTP、DB 或 Agent 证据。
             </p>
-            <div className="cta-stack">
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={loading || (demoOk === false && pilotOk === false)}
-                onClick={runAll}
-              >
-                {loading ? "运行中…" : "运行全部回归"}
+            <div className="hero-actions">
+              {draftCount > 0 ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setTestFilter("draft");
+                    setView("tests");
+                  }}
+                >
+                  审阅 {draftCount} 条草稿
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={loading || (demoOk === false && pilotOk === false)}
+                  onClick={runAll}
+                >
+                  {loading ? "运行中…" : "运行全部回归"}
+                </button>
+              )}
+              {draftCount > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={loading || (demoOk === false && pilotOk === false)}
+                  onClick={runAll}
+                >
+                  {loading ? "运行中…" : "运行全部回归"}
+                </button>
+              )}
+              <button type="button" className="btn btn-secondary" onClick={() => setView("create")}>
+                创建用例
               </button>
             </div>
             <div className="hero-links">
-              {draftCount > 0 && (
-                <button type="button" className="btn btn-primary" onClick={() => setView("tests")}>
-                  审阅 {draftCount} 条草稿
-                </button>
-              )}
-              <button type="button" className="btn btn-secondary" onClick={() => setView("tests")}>
-                查看用例
-              </button>
-              <a className="btn btn-secondary" href="http://127.0.0.1:4173/" target="_blank" rel="noreferrer">
-                打开练习应用
+              <a className="link-quiet" href={demoUrl} target="_blank" rel="noreferrer">
+                练习应用 ↗
               </a>
               <a
-                className="btn btn-secondary"
-                href={pilotIntakeUrl ?? pilotUrl ?? "#"}
+                className="link-quiet"
+                href={pilotUrl ?? "#"}
                 onClick={(e) => {
-                  if (!pilotIntakeUrl && !pilotUrl) {
+                  if (!pilotUrl) {
                     e.preventDefault();
                     notify("请在本机 .env 配置 TESTPILOT_PILOT_BASE_URL");
                   }
@@ -873,27 +981,51 @@ export function App() {
                 target="_blank"
                 rel="noreferrer"
               >
-                打开试点登录
+                试点地址 ↗
               </a>
+              {llmInfo?.enabled ? (
+                <span className="link-quiet">LLM：{llmInfo.provider}/{llmInfo.model}（仅草稿与诊断）</span>
+              ) : null}
             </div>
-            {summary && summary.runCount > 0 && (
-              <p className="stat">
-                最近 {summary.runCount} 次运行 · 通过率 {Math.round(summary.passRate * 100)}% · 平均{" "}
-                {summary.avgDurationMs} ms
-                {summary.lastBatchDurationMs != null
-                  ? ` · 上批回归 ${Math.round(summary.lastBatchDurationMs / 1000)}s`
-                  : ""}
-                {summary.pilotBaselineMinutes != null
-                  ? ` · 人工基线约 ${summary.pilotBaselineMinutes} 分钟`
-                  : ""}
-                {summary.minutesSavedVsBaseline != null && summary.minutesSavedVsBaseline > 0
-                  ? ` · 较基线节省约 ${summary.minutesSavedVsBaseline} 分钟`
-                  : ""}
-                {(summary.multiAttemptRuns ?? 0) > 0
-                  ? ` · 重试 ${summary.multiAttemptRuns} 次 · flake 恢复 ${summary.flakeRecoveryCount ?? 0}（${Math.round((summary.flakeRecoveryRate ?? 0) * 100)}%）`
-                  : ""}
+            <div className="stat-grid">
+              <div className="stat-card">
+                <span className="stat-label">已批准</span>
+                <strong>{approvedCount ?? "…"}</strong>
+                <span className="stat-sub">
+                  试点 {approvedPilot} · 练习 {approvedDemo}
+                </span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-label">通过率</span>
+                <strong>{summary && summary.runCount > 0 ? `${Math.round(summary.passRate * 100)}%` : "—"}</strong>
+                <span className="stat-sub">最近 {summary?.runCount ?? 0} 次运行</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-label">平均耗时</span>
+                <strong>{summary && summary.runCount > 0 ? `${summary.avgDurationMs} ms` : "—"}</strong>
+                <span className="stat-sub">
+                  {summary?.lastBatchDurationMs != null
+                    ? `上批 ${Math.round(summary.lastBatchDurationMs / 1000)}s`
+                    : "尚无批次"}
+                </span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-label">弱断言</span>
+                <strong className={(summary?.weakApprovedCount ?? 0) > 0 ? "stat-bad" : "stat-ok"}>
+                  {summary?.weakApprovedCount ?? 0}
+                </strong>
+                <span className="stat-sub">
+                  {summary?.multiAttemptRuns
+                    ? `重试 ${summary.multiAttemptRuns} · flake 恢复 ${Math.round((summary.flakeRecoveryRate ?? 0) * 100)}%`
+                    : "无重试记录"}
+                </span>
+              </div>
+            </div>
+            {summary?.minutesSavedVsBaseline != null && summary.minutesSavedVsBaseline > 0 ? (
+              <p className="stat-note">
+                人工基线约 {summary.pilotBaselineMinutes} 分钟 · 本批节省约 {summary.minutesSavedVsBaseline} 分钟
               </p>
-            )}
+            ) : null}
             {summary && summary.recentBatches?.length ? (
               <div className="batch-trend">
                 <h3 className="batch-trend-title">最近回归批次</h3>
@@ -912,64 +1044,6 @@ export function App() {
                 </ul>
               </div>
             ) : null}
-            <div className="audit-panel">
-              <h3 className="batch-trend-title">审批身份与审计</h3>
-              <p className="hint-inline">
-                批准请求会携带 <code>x-testpilot-actor</code>
-                {approvalInfo?.approvalTokenRequired ? " 与本地保存的审批令牌" : ""}；服务端写入{" "}
-                <code>data/audit.jsonl</code>。
-              </p>
-              <div className="audit-identity-fields">
-                <div className="field">
-                  <label>审批人（x-testpilot-actor）</label>
-                  {approvalInfo?.approvalActors?.length ? (
-                    <select
-                      value={approvalActor}
-                      onChange={(e) => persistApprovalActor(e.target.value)}
-                    >
-                      <option value="">请选择…</option>
-                      {approvalInfo.approvalActors.map((a) => (
-                        <option key={a} value={a}>
-                          {a}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      value={approvalActor}
-                      onChange={(e) => persistApprovalActor(e.target.value)}
-                      placeholder="例如 qa-lead"
-                    />
-                  )}
-                </div>
-                {approvalInfo?.approvalTokenRequired ? (
-                  <div className="field">
-                    <label>审批令牌（仅保存在本机浏览器）</label>
-                    <input
-                      type="password"
-                      value={approvalTokenInput}
-                      onChange={(e) => persistApprovalToken(e.target.value)}
-                      placeholder="与 .env 中 TESTPILOT_APPROVAL_TOKEN 一致"
-                      autoComplete="off"
-                    />
-                  </div>
-                ) : null}
-              </div>
-              {auditEntries.length > 0 ? (
-                <ul className="audit-log-list">
-                  {auditEntries.map((e) => (
-                    <li key={`${e.at}-${e.testId}-${e.actor}`}>
-                      <span>{new Date(e.at).toLocaleString()}</span>
-                      <span className="audit-log-actor">{e.actor}</span>
-                      <span>{e.title}</span>
-                      <span className="audit-log-hash">{e.irHash.slice(0, 8)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="hint-inline">尚无审批审计记录。</p>
-              )}
-            </div>
           </section>
         )}
 
@@ -1162,7 +1236,10 @@ export function App() {
                 return (
                 <div className="row row-history" key={r.runId}>
                   <div className="row-main">
-                    <h3>{r.testTitle}</h3>
+                    <h3>
+                      {r.testTitle}
+                      {r.trial ? <span className="badge trial">试跑</span> : null}
+                    </h3>
                     <p>
                       {new Date(r.completedAt).toLocaleString()} · {r.metrics?.durationMs ?? "—"} ms
                       {(r.metrics?.attemptCount ?? 1) > 1
@@ -1201,31 +1278,107 @@ export function App() {
             </div>
           </section>
         )}
+        {view === "audit" && (
+          <section>
+            <h2 className="section-title">审批与审计</h2>
+            <p className="section-lede">
+              批准请求会携带审批人标识{approvalInfo?.approvalTokenRequired ? "与审批令牌" : ""}；服务端写入{" "}
+              <code>data/audit.jsonl</code>。
+            </p>
+            <div className="card-panel">
+              <h3>审批身份</h3>
+              <div className="audit-identity-fields">
+                <div className="field">
+                  <label>审批人（x-testpilot-actor）</label>
+                  {approvalInfo?.approvalActors?.length ? (
+                    <select value={approvalActor} onChange={(e) => persistApprovalActor(e.target.value)}>
+                      <option value="">请选择…</option>
+                      {approvalInfo.approvalActors.map((a) => (
+                        <option key={a} value={a}>
+                          {a}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={approvalActor}
+                      onChange={(e) => persistApprovalActor(e.target.value)}
+                      placeholder="例如 qa-lead"
+                    />
+                  )}
+                </div>
+                {approvalInfo?.approvalTokenRequired ? (
+                  <div className="field">
+                    <label>审批令牌（仅保存在本机浏览器）</label>
+                    <input
+                      type="password"
+                      value={approvalTokenInput}
+                      onChange={(e) => persistApprovalToken(e.target.value)}
+                      placeholder="与 .env 中 TESTPILOT_APPROVAL_TOKEN 一致"
+                      autoComplete="off"
+                    />
+                    <p className="hint-inline">
+                      {approvalTokenInput.trim() ? "已保存到本机浏览器。" : "未填写时无法批准。"}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="hint-inline">服务端未启用审批令牌；本机默认以审批人标识记录。</p>
+                )}
+              </div>
+            </div>
+            <div className="card-panel">
+              <h3>最近批准</h3>
+              {auditEntries.length > 0 ? (
+                <ul className="audit-log-list">
+                  {auditEntries.map((e) => (
+                    <li key={`${e.at}-${e.testId}-${e.actor}`}>
+                      <span>{new Date(e.at).toLocaleString()}</span>
+                      <span className="audit-log-actor">{e.actor}</span>
+                      <span>{e.title}</span>
+                      <span className="audit-log-hash">{e.irHash.slice(0, 8)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="hint-inline">尚无审批审计记录。</p>
+              )}
+            </div>
+          </section>
+        )}
+
       </main>
       </div>
 
       {editTest && (
-        <div className="overlay" onClick={() => setEditTest(null)}>
-          <div className="sheet sheet-wide sheet-review" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="review-title">
+        <div className="overlay" onClick={closeReview}>
+          <div className="sheet sheet-wide sheet-review" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="review-title">
             <header className="sheet-review-header">
               <div className="sheet-review-header-row">
-                <h2 id="review-title">审阅用例</h2>
-                <button type="button" className="sheet-close" aria-label="关闭" onClick={() => setEditTest(null)}>
-                  ×
-                </button>
+                <div>
+                  <h2 id="review-title">审阅用例</h2>
+                  <p className="sheet-review-subtitle">{editTest.title}</p>
+                </div>
+                <div className="sheet-header-actions">
+                  {editTest.approvalStatus === "draft" && (
+                    <button type="button" className="btn-mini danger" onClick={() => void deleteDraft()}>
+                      删除草稿
+                    </button>
+                  )}
+                  <button type="button" className="sheet-close" aria-label="关闭" onClick={closeReview}>
+                    ×
+                  </button>
+                </div>
               </div>
-              <p className="sheet-review-subtitle">{editTest.title}</p>
               <p className="hint-inline sheet-review-meta">
                 {reviewSteps.length} 个步骤 · 来源 {editTest.sourceChannel ?? "未知"}
                 {editTest.irHash ? ` · IR ${editTest.irHash.slice(0, 8)}` : ""}
-                {editTest.currentAssertionConfigHash
-                  ? ` · 配置 ${editTest.currentAssertionConfigHash}`
-                  : ""}
+                {editTest.currentAssertionConfigHash ? ` · 配置 ${editTest.currentAssertionConfigHash}` : ""}
                 {editTest.configHashStale ? " · 配置已变化，需重新批准" : ""}
+                {reviewDirty ? " · 有未保存修改" : ""}
               </p>
             </header>
             <div className="sheet-review-body">
-              {pilotScopeNote && <p className="hint-inline">试点：{pilotScopeNote}</p>}
+              {pilotScopeNote && isPilotTest(editTest) && <p className="hint-inline">试点：{pilotScopeNote}</p>}
               {editTest.plannerNotes && editTest.plannerNotes.length > 0 && (
                 <ul className="diagnose-list planner-notes">
                   {editTest.plannerNotes.map((n) => (
@@ -1233,91 +1386,199 @@ export function App() {
                   ))}
                 </ul>
               )}
-              <StepEditorPanel steps={reviewSteps} onChange={setReviewSteps} />
-              {(editTest.ir.assertions?.length ?? 0) > 0 && (
-                <>
-                  <p className="hint-inline">当前断言（保存时会更新 UI 文案与 API expect，不会删掉 API 断言）</p>
+              <StepEditorPanel steps={reviewSteps} onChange={updateReviewSteps} />
+
+              <section className="review-section">
+                <div className="review-section-head">
+                  <h3>2 · 断言</h3>
+                  <span className="review-count">{pendingAssertions.length} 条</span>
+                </div>
+                {pendingAssertions.length > 0 ? (
                   <ul className="step-list assertion-list">
-                    {(editTest.ir.assertions as IrAssertion[]).map((a, i) => (
+                    {pendingAssertions.map((a, i) => (
                       <li key={a.id ?? i}>{summarizeAssertion(a, i)}</li>
                     ))}
                   </ul>
-                </>
-              )}
-              {editTest.weakAssertions && editTest.weakAssertions.length > 0 && (
-                <div className="weak-assertion-box">
-                  <p className="hint-inline">弱断言警告（批准前需改强）</p>
-                  <ul className="diagnose-list">
-                    {editTest.weakAssertions.map((item) => (
-                      <li key={item.path}>{item.message}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              <div className="field">
-                <label>测试意图（可编辑，供建议引擎参考）</label>
-                <textarea
-                  className="textarea"
-                  rows={2}
-                  value={reviewIntent}
-                  onChange={(e) => setReviewIntent(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>页面应包含（UI 断言）</label>
-                <p className="hint-inline">{assertionHelp || "填写操作成功后页面上可见的稳定文案。"}</p>
-                <input value={assertionText} onChange={(e) => setAssertionText(e.target.value)} />
-                {assertionSuggestions.length > 0 && (
-                  <div className="chips">
-                    {assertionSuggestions.map((s) => (
-                      <button key={s} type="button" className="chip" onClick={() => setAssertionText(s)}>
-                        {s}
-                      </button>
-                    ))}
+                ) : (
+                  <p className="empty-note">还没有断言；至少需要一条才能保存或批准。</p>
+                )}
+                {editTest.weakAssertions && editTest.weakAssertions.length > 0 && (
+                  <div className="weak-assertion-box">
+                    <p className="hint-inline">弱断言警告（批准前需改强）</p>
+                    <ul className="diagnose-list">
+                      {editTest.weakAssertions.map((item) => (
+                        <li key={item.path}>{item.message}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
-              </div>
-              <div className="field field-last">
-                <label>API expect（JSON，可选）</label>
-                <p className="hint-inline">
-                  支持 <code>statusCode</code>、<code>jsonBody</code>（请求体字段）、<code>requestBodyContains</code>（子串）。例：{" "}
-                  {`{"statusCode":409,"jsonBody":{"error":"duplicate"}}`}
-                </p>
-                <textarea
-                  className="textarea"
-                  rows={4}
-                  value={apiExpectJson}
-                  onChange={(e) => setApiExpectJson(e.target.value)}
-                  placeholder='{"statusCode": 201, "requestBodyContains": "@example.com"}'
-                />
-              </div>
-              <AssertionProviderPanel
-                catalog={assertionCatalog}
-                draft={providerDraft}
-                onDraftChange={setProviderDraft}
-                feedback={providerFeedback}
-                busy={providerBusy}
-                onValidate={() => void validateProviderDraft()}
-                onTestConnection={() => void testProviderConnection()}
-                onPreview={() => void previewProviderDraft()}
-              />
-              {(approvalInfo?.approvalTokenRequired || approvalInfo?.approvalActors?.length) && (
-                <div className="approval-identity-box">
-                  <p className="hint-inline">
-                    批准将记录为{" "}
-                    <strong>{approvalActor.trim() || "（未设置审批人）"}</strong>
-                    {approvalInfo.approvalTokenRequired ? "；需已在首页填写审批令牌。" : ""}
-                  </p>
+                <div className="field">
+                  <label>测试意图（可编辑，供建议引擎参考）</label>
+                  <textarea
+                    className="textarea"
+                    rows={2}
+                    value={reviewIntent}
+                    onChange={(e) => {
+                      setReviewIntent(e.target.value);
+                      markReviewDirty();
+                    }}
+                  />
                 </div>
+                <div className="field">
+                  <label>页面应包含（UI 断言）</label>
+                  <p className="hint-inline">
+                    {assertionHelp || "填写操作成功后页面上可见的稳定文案；留空则只保留 API / 业务断言。"}
+                  </p>
+                  <input
+                    value={assertionText}
+                    onChange={(e) => {
+                      setAssertionText(e.target.value);
+                      markReviewDirty();
+                    }}
+                  />
+                  {assertionSuggestions.length > 0 && (
+                    <div className="chips">
+                      {assertionSuggestions.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          className="chip"
+                          onClick={() => {
+                            setAssertionText(s);
+                            markReviewDirty();
+                          }}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="field field-last">
+                  <label>API expect（JSON，可选）</label>
+                  <p className="hint-inline">
+                    支持 <code>statusCode</code>、<code>jsonBody</code>（请求体字段）、
+                    <code>requestBodyContains</code>（子串）。例：{" "}
+                    {`{"statusCode":409,"jsonBody":{"error":"duplicate"}}`}
+                  </p>
+                  <textarea
+                    className="textarea"
+                    rows={4}
+                    value={apiExpectJson}
+                    onChange={(e) => {
+                      setApiExpectJson(e.target.value);
+                      markReviewDirty();
+                    }}
+                    placeholder='{"statusCode": 201, "requestBodyContains": "@example.com"}'
+                  />
+                </div>
+              </section>
+
+              <section className="review-section">
+                <div className="review-section-head">
+                  <h3>3 · 业务断言</h3>
+                  <span className="review-count">可选</span>
+                </div>
+                <AssertionProviderPanel
+                  catalog={assertionCatalog}
+                  draft={providerDraft}
+                  onDraftChange={(next) => {
+                    setProviderDraft(next);
+                    markReviewDirty();
+                  }}
+                  feedback={providerFeedback}
+                  busy={providerBusy}
+                  onValidate={() => void validateProviderDraft()}
+                  onTestConnection={() => void testProviderConnection()}
+                  onPreview={() => void previewProviderDraft()}
+                />
+              </section>
+
+              {(approvalInfo?.approvalTokenRequired || approvalInfo?.approvalActors?.length) && (
+                <section className="review-section approval-box">
+                  <div className="review-section-head">
+                    <h3>4 · 批准身份</h3>
+                  </div>
+                  <p className="hint-inline">
+                    批准将记录为 <strong>{approvalActor.trim() || "（未设置审批人）"}</strong>。
+                  </p>
+                  <div className="audit-identity-fields">
+                    <div className="field">
+                      <label>审批人</label>
+                      {approvalInfo.approvalActors?.length ? (
+                        <select value={approvalActor} onChange={(e) => persistApprovalActor(e.target.value)}>
+                          <option value="">请选择…</option>
+                          {approvalInfo.approvalActors.map((a) => (
+                            <option key={a} value={a}>
+                              {a}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          value={approvalActor}
+                          onChange={(e) => persistApprovalActor(e.target.value)}
+                          placeholder="例如 qa-lead"
+                        />
+                      )}
+                    </div>
+                    {approvalInfo.approvalTokenRequired ? (
+                      <div className="field">
+                        <label>审批令牌</label>
+                        <input
+                          type="password"
+                          value={approvalTokenInput}
+                          onChange={(e) => persistApprovalToken(e.target.value)}
+                          placeholder="与 .env 中 TESTPILOT_APPROVAL_TOKEN 一致"
+                          autoComplete="off"
+                        />
+                        <p className="hint-inline">
+                          {approvalTokenInput.trim() ? "已保存到本机浏览器。" : "未填写时无法批准。"}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                  <p className="hint-inline">也可以在「审计」页设置一次，之后自动复用。</p>
+                </section>
               )}
+
             </div>
             <footer className="sheet-review-footer">
+              {trialResult && (
+                <section className={`trial-result ${trialResult.status === "passed" ? "ok" : "bad"}`}>
+                  <div className="trial-result-head">
+                    <strong>{trialResult.status === "passed" ? "试跑通过" : "试跑未通过"}</strong>
+                    <span>
+                      {trialResult.metrics?.durationMs ?? "—"} ms · {trialResult.metrics?.attemptCount ?? 1} 次尝试
+                      {trialResult.metrics?.flakeRecovery ? "（flake 恢复）" : ""}
+                    </span>
+                  </div>
+                  {trialResult.assertions.find((a) => !a.passed)?.message ? (
+                    <p className="diagnose-msg">{trialResult.assertions.find((a) => !a.passed)?.message}</p>
+                  ) : null}
+                  <div className="trial-result-links">
+                    <a className="btn-mini" href={`/api/runs/${trialResult.runId}/artifacts/trace.zip`}>
+                      Trace
+                    </a>
+                    <a className="btn-mini" href={`/api/runs/${trialResult.runId}/artifacts/network.json`}>
+                      网络
+                    </a>
+                    {failureScreenshotPath(trialResult) && (
+                      <a
+                        className="btn-mini"
+                        href={failureScreenshotPath(trialResult)!}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        截图
+                      </a>
+                    )}
+                  </div>
+                </section>
+              )}
               <div className="sheet-actions">
-                <button type="button" className="btn btn-primary" onClick={saveAndApprove}>
+                <button type="button" className="btn btn-primary" onClick={saveAndApprove} disabled={trialRunning}>
                   保存并批准
-                </button>
-                <button type="button" className="btn btn-secondary" onClick={saveDraft}>
-                  仅保存草稿
                 </button>
                 <button
                   type="button"
@@ -1327,7 +1588,10 @@ export function App() {
                 >
                   {trialRunning ? "试跑中…" : "试跑草稿"}
                 </button>
-                <button type="button" className="btn btn-tertiary sheet-action-span" onClick={applySuggest}>
+                <button type="button" className="btn btn-tertiary" onClick={saveDraft} disabled={trialRunning}>
+                  仅保存草稿
+                </button>
+                <button type="button" className="btn btn-tertiary" onClick={applySuggest}>
                   刷新建议
                 </button>
               </div>
@@ -1394,7 +1658,7 @@ export function App() {
         </div>
       )}
 
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <div className={`toast toast-${toast.kind}`}>{toast.message}</div>}
     </div>
   );
 }

@@ -6,6 +6,7 @@ export type RetryPolicy = {
 export type RetryDecisionInput = {
   status: "passed" | "failed" | "error";
   failureKind?: string;
+  metrics?: { failureKind?: string };
   assertions: Array<{ passed: boolean }>;
 };
 
@@ -20,10 +21,12 @@ export function shouldRetryAfterFailure(input: RetryDecisionInput, policy?: Retr
   if (input.status === "passed") return false;
   if (input.assertions.some((a) => !a.passed)) return false;
 
-  const allowed = (policy?.on ?? []).map(normalizeRetryKind).filter(Boolean);
+  // Legacy IRs set only `attempts`; keep retrying transient environment failures.
+  const configured = policy?.on ?? ["ENVIRONMENT"];
+  const allowed = configured.map(normalizeRetryKind).filter(Boolean);
   if (!allowed.length) return false;
 
-  const kind = normalizeRetryKind(input.failureKind ?? "UNKNOWN");
+  const kind = normalizeRetryKind(input.failureKind ?? input.metrics?.failureKind ?? "UNKNOWN");
   return allowed.includes(kind);
 }
 

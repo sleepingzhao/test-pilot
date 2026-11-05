@@ -2,7 +2,7 @@ export type OracleSource = "human-approved" | "requirement" | "api-contract";
 
 export type Platform = "web";
 
-export type StepAction = "navigate" | "click" | "fill" | "press" | "wait" | "selectCascader";
+export type StepAction = "navigate" | "click" | "fill" | "press" | "wait" | "select" | "selectCascader";
 
 export interface Locator {
   testId?: string;

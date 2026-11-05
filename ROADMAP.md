@@ -24,14 +24,15 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 |---|---|---|
 | Test IR v1 | 可用 | schema、validator、per-test baseUrl、IR hash v2 |
 | Web runner | 可用 | 步骤机、重试、定位回退、trace/network/截图 |
-| Web recorder | 已验证（P-3） | 密码/手机号 → env ref；select/cascader 录制限制有明确 warning；练习登录回放见 `recorded-login-p3.test.ts` |
-| Console | 可用 | 步骤编辑/草稿试跑、Provider 审阅面板、审批身份与审计、弱断言门禁 |
+| Web recorder | 已验证（P-3） | 密码/手机号/PII → env/fixture ref；真实浏览器录制测试 `recorded-session.test.ts`；原生 select 录为 `select` 步骤；cascader 仍需手工补 `selectCascader` |
+| Console | 可用 | 步骤编辑/草稿试跑（试跑不计入回归指标）、Provider 审阅面板、审批身份与审计、删除草稿、弱断言门禁 |
 | Planner | 规则式 + 可选 LLM | 否定词已修；LLM 只建议断言，不生成可执行步骤 |
 | 管理 API | 文件存储 | 安全边界已加固；本机无登录；无数据库 |
 | 试点用例 | 15 条已批准 | 登录页与工单必填校验已改强；`pilot-ticket-submit-success` 模板已入库（批准前需对齐级联/HTTP） |
 | 断言引擎 | 可用 | UI / captured-http / postgres-readonly / otel-trace Provider；负向探针 4 路 |
 | 弱断言 | 0 条 | 首页/列表/筛选/审阅弹窗可见；批准时强制拦截 |
 | 本地验证 | 通过 | `pnpm verify`（见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)）；含 IR 校验、单元测试、demo smoke、负向探针 |
+| 全量回归 | 16/16 通过 | 2026-11-06 控制台「运行全部回归」实跑，含 4 条试点用例；单次 pilot 登录超时归为 `ENVIRONMENT` 并已由重试策略覆盖 |
 | CI | 无（有意） | 无 `.github/workflows`；[`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md) 为唯一门禁说明 |
 | LLM | 可选 | 1M max_tokens 透传；配置/运行错误在控制台可见 |
 
@@ -183,11 +184,11 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - [x] R-6 脱敏表单/纯文本/URL — `redact.ts` + `redact.test.ts`；`pnpm verify` 全绿（2026-11-06）
 - [x] R-7 负向探针 assertion id — `expectedAssertionId` + `negative-probes.test.ts` + `probe-catalog.json`；`pnpm verify` 全绿（2026-11-06）
 - [x] R-8 启动清理 + AS-4 service — `negative-probes.mjs` / `ticket-p1.test.ts` try/finally；`trace-client.ts` 缺 `service.name` 跳过 + `trace-client.test.ts`；`pnpm verify` 全绿（2026-11-06）
-- [x] P-2 登录态 intake 快照 — `pilot-intake-snapshot.ts`（试点 URL 先登录再导航/快照）；`/api/intake` 缺凭据 400、登录页 422；默认 intake 路径 `intakePath`（非 loginPath）；`pilot-intake-snapshot.test.ts`；`pnpm verify` 全绿
-- [x] P-3 Recorder 端到端 — `practice-login.html` + 黄金 events；`recorder-p3.test.ts` / `recorded-login-p3.test.ts`（env ref 回放）；select/cascader 录制 warning；`pnpm verify` 全绿
-- [x] P-4 步骤编辑器 / 草稿试跑 — `@testpilot/test-ir` `step-edit`；控制台 `StepEditorPanel` + 审阅「试跑草稿」；`POST /api/tests/:testId/trial-run`（`trial-run.test.ts`）；批准仍绑定 `irHash`；`pnpm verify` 全绿
-- [x] P-5 审批身份与审计 — `TESTPILOT_APPROVAL_TOKEN` / `TESTPILOT_APPROVAL_ACTORS`；`GET /api/audit` + `audit.jsonl`；控制台审批人/令牌与审计列表；`approval-identity.test.ts`；`pnpm verify` 全绿
-- [x] P-6 Flake 与重试策略 — `retry-policy`（`retry.on` 分型、断言失败不重试）；`attemptCount` / `flakeRecovery`；metrics 汇总与控制台可见；`retry-policy.test.ts` / `flake-metrics.test.ts`；`pnpm verify` 全绿
+- [x] P-2 登录态 intake 快照 — `pilot-intake-snapshot.ts`（试点 URL 先登录再导航/快照）；`loginPath` 从 `pilot-baseline.json` 读取，选择器兼容中英文；`/api/intake` 缺凭据 400、登录页 422；`pilot-intake-snapshot.test.ts`；`pnpm verify` 全绿
+- [x] P-3 Recorder 端到端 — `recorded-session.test.ts` 真正驱动浏览器录制（注入脚本已可解析，修复 `as const` 语法错误）；密码/手机号 → env ref，邮箱/手机号/证件号 → fixture ref；原生 select 录为 `select` 步骤；cascader warning；`recorded-login-p3.test.ts` 回放；`pnpm verify` 全绿
+- [x] P-4 步骤编辑器 / 草稿试跑 — `@testpilot/test-ir/step-edit`；控制台步骤编辑（上移/下移/编辑/删除/添加）、草稿试跑与试跑证据；试跑记录标记 `trial` 且不计入回归指标；批准仍绑定 `irHash`；`trial-run.test.ts`；`pnpm verify` 全绿
+- [x] P-5 审批身份与审计 — `TESTPILOT_APPROVAL_TOKEN` / `TESTPILOT_APPROVAL_ACTORS`；`GET /api/audit` + `audit.jsonl`；控制台「审计」页与审阅内联身份；审计写入失败不影响已保存的批准；`approval-identity.test.ts`；`pnpm verify` 全绿
+- [x] P-6 Flake 与重试策略 — 修复 `failureKind` 从 `metrics` 读取、Playwright `Timeout` 大小写分类、legacy `attempts` 无 `on` 时默认重试 `ENVIRONMENT`；断言失败不重试；`retry-policy.test.ts` / `retry-integration.test.ts` / `flake-metrics.test.ts`；`pnpm verify` 全绿
 - [x] P-7 文档与门禁 — `docs/LOCAL-GATE.md`；README/ROADMAP 基线与缺口同步；移除「former GitHub workflow」等过期 CI 表述；`pnpm verify` 全绿
 
 ### 5.2 冲刺顺序
@@ -323,7 +324,8 @@ pnpm --filter @testpilot/test-management exec playwright install chromium
 ### 11.3 当前已知缺口
 
 - 试点「工单提交成功」：练习环境已覆盖；`pilot-ticket-submit-success` 模板须在真实试点上校对级联/HTTP 后再批准。
-- select/cascader：运行支持 `selectCascader` 步骤；录制对 select/cascader 仅 warning，复杂表单可能需手工补步。
+- 原生 select 已支持录制/回放；cascader 录制仍只给 warning，需手工补 `selectCascader` 步骤。
+- 回归批次按时间窗口聚合，手动单跑靠近批次时会被并入同一批次；V0.4 再引入显式 batchId。
 - 无 PostgreSQL 持久化 / 多项目 / RBAC / 远程 CI（按路线后续版本）。
 
 ### 11.4 证据要求

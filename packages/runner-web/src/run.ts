@@ -1,7 +1,7 @@
 import type { Locator as TargetLocator, TestIR, TestStep } from "@testpilot/test-ir";
 import { runAssertion } from "@testpilot/assertions";
 import type { RunArtifacts } from "@testpilot/evidence";
-import { classifyFailure, createEvidenceCollector, isTransientFailure } from "@testpilot/evidence";
+import { classifyFailure, createEvidenceCollector, isTransientFailure, redactForEvidence } from "@testpilot/evidence";
 import type { RunEnvironment } from "@testpilot/fixtures";
 import { buildReadonlyDbClient, buildAgentTraceClient, getDbConfigBundle, getAgentConfigBundle, resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveValueRefs } from "@testpilot/fixtures";
 import { executeSelectCascader } from "./select-cascader.js";
@@ -40,6 +40,13 @@ export type RunOptions = {
   artifactsDir?: string;
   env: RunEnvironment;
 };
+
+type AssertionResult = Awaited<ReturnType<typeof runAssertion>>;
+
+function redactAssertionForEvidence(outcome: AssertionResult): AssertionResult {
+  if (outcome.actual === undefined) return outcome;
+  return { ...outcome, actual: redactForEvidence(outcome.actual) as AssertionResult["actual"] };
+}
 
 function locatorCandidates(page: Page, target: TargetLocator): PwLocator[] {
   const out: PwLocator[] = [];
@@ -222,7 +229,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         resolveAgentConfig: (ref: string) => getAgentConfigBundle(ref),
       };
       for (const assertion of ir.assertions) {
-        const outcome = await runAssertion(assertion, assertionCtx);
+        const outcome = redactAssertionForEvidence(await runAssertion(assertion, assertionCtx));
         assertionResults.push(outcome);
         if (!outcome.passed) {
           status = "failed";

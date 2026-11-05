@@ -1,4 +1,5 @@
 import type { TestAssertion, ValidationIssue } from "@testpilot/test-ir";
+import { redactForEvidence } from "@testpilot/evidence";
 import type { AssertionContext, AssertionOutcome, CapturedNetworkEntry, RequestRefSpec } from "./types.js";
 import { partialJsonMatch } from "./api-match.js";
 import {
@@ -35,6 +36,12 @@ function parseJsonBody(raw: string | undefined): unknown {
   } catch {
     return undefined;
   }
+}
+
+/** Evidence-safe actual; matching still uses raw `ctx.network`. */
+function withRedactedActual(outcome: AssertionOutcome): AssertionOutcome {
+  if (outcome.actual === undefined) return outcome;
+  return { ...outcome, actual: redactForEvidence(outcome.actual) };
 }
 
 export function validateCapturedHttpAssertion(assertion: TestAssertion): ValidationIssue[] {
@@ -121,32 +128,32 @@ export async function runCapturedHttpAssertion(
         ? matched.filter((n) => n.status === expect.statusCode)
         : matched;
     if (pool.length > 0) {
-      return {
+      return withRedactedActual({
         assertionId: id,
         passed: false,
         expected: { requestRef: ref, ...expect },
         actual: pool.slice(-3).map((n) => ({ url: n.url, status: n.status })),
         errorKind: "PRODUCT_DEFECT",
         message: `expected no matching request for ${ref}`,
-      };
+      });
     }
-    return {
+    return withRedactedActual({
       assertionId: id,
       passed: true,
       expected: { requestRef: ref, ...expect },
       actual: { requestCount: 0 },
-    };
+    });
   }
 
   if (matched.length === 0) {
-    return {
+    return withRedactedActual({
       assertionId: id,
       passed: false,
       expected: spec,
       actual: [],
       errorKind: "PRODUCT_DEFECT",
       message: `no network entry matched requestRef ${ref}`,
-    };
+    });
   }
 
   const pickForStatus =
@@ -155,14 +162,14 @@ export async function runCapturedHttpAssertion(
       : matched;
 
   if (typeof expect.statusCode === "number" && pickForStatus.length === 0) {
-    return {
+    return withRedactedActual({
       assertionId: id,
       passed: false,
       expected: { requestRef: ref, statusCode: expect.statusCode },
       actual: matched.map((n) => ({ url: n.url, status: n.status })),
       errorKind: "PRODUCT_DEFECT",
       message: `no ${spec.method ?? "request"} ${ref} with status ${expect.statusCode}`,
-    };
+    });
   }
 
   const pool = pickForStatus.length ? pickForStatus : matched;
@@ -171,14 +178,14 @@ export async function runCapturedHttpAssertion(
   if (expect.userCountDelta === 0) {
     const created = matched.filter((n) => n.status === 201);
     const passed = created.length === 0;
-    return {
+    return withRedactedActual({
       assertionId: id,
       passed,
       expected: { userCountDelta: 0 },
       actual: { create201Count: created.length },
       errorKind: passed ? undefined : "PRODUCT_DEFECT",
       message: passed ? undefined : "unexpected user create (HTTP 201)",
-    };
+    });
   }
 
   const failures: string[] = [];
@@ -248,20 +255,20 @@ export async function runCapturedHttpAssertion(
   }
 
   if (failures.length) {
-    return {
+    return withRedactedActual({
       assertionId: id,
       passed: false,
       expected: { requestRef: ref, ...expect },
       actual,
       errorKind: "PRODUCT_DEFECT",
       message: failures.join("; "),
-    };
+    });
   }
 
   const hasExplicitExpect = hasSupportedCapturedHttpExpect(expect);
 
   if (hasExplicitExpect) {
-    return {
+    return withRedactedActual({
       assertionId: id,
       passed: true,
       expected: { requestRef: ref, ...expect },
@@ -270,17 +277,17 @@ export async function runCapturedHttpAssertion(
         status: primary.status,
         ...actual,
       },
-    };
+    });
   }
 
-  return {
+  return withRedactedActual({
     assertionId: id,
     passed: false,
     errorKind: "ASSERTION_ORACLE",
     message: "HTTP 断言缺少受支持的 expect 字段，无法判定通过或失败",
     expected: { requestRef: ref },
     actual: matched.slice(-3),
-  };
+  });
 }
 
 /** @deprecated use runCapturedHttpAssertion */

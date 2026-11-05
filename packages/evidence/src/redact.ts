@@ -43,6 +43,17 @@ export function redactForEvidence(value: unknown): unknown {
       out[key] = redactUrl(val);
     } else if (key === "responseHeaders" || key === "headers") {
       out[key] = redactHeaders(val as Record<string, string>);
+    } else if (key === "requestBodies" || key === "responseBodies") {
+      out[key] = Array.isArray(val)
+        ? val.map((item) => (typeof item === "string" ? redactStringBody(item) : redactForEvidence(item)))
+        : redactForEvidence(val);
+    } else if (key === "requestJson" || key === "responseJson") {
+      out[key] =
+        typeof val === "string"
+          ? redactStringBody(val)
+          : val !== null && typeof val === "object"
+            ? redactForEvidence(val)
+            : val;
     } else {
       out[key] = redactForEvidence(val);
     }

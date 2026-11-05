@@ -258,3 +258,73 @@ test("captured-http: empty schema and empty contains fail as oracle (negative)",
   assert.equal(emptyContains.passed, false);
   assert.equal(emptyContains.errorKind, "ASSERTION_ORACLE");
 });
+
+const PII_PHONE = "13800138000";
+const PII_EMAIL = "secret-pii@example.com";
+const PII_COOKIE = "session=supersecret; phone=13800138000";
+
+const sensitiveNetwork = [
+  {
+    url: `http://127.0.0.1:4173/api/users?phone=${PII_PHONE}`,
+    method: "POST",
+    status: 201,
+    resourceType: "fetch",
+    requestBody: JSON.stringify({ phone: PII_PHONE, email: PII_EMAIL }),
+    responseBody: JSON.stringify({ id: "u1", status: "ok" }),
+    responseHeaders: {
+      "content-type": "application/json; charset=utf-8",
+      "set-cookie": PII_COOKIE,
+    },
+  },
+];
+
+test("captured-http: assertion actual redacts PII while raw network still matches (positive)", async () => {
+  const outcome = await runCapturedHttpAssertion(
+    {
+      id: "redact-pass",
+      type: "api",
+      requestRef: "users-create",
+      expect: {
+        statusCode: 201,
+        requestJsonBody: { phone: PII_PHONE, email: PII_EMAIL },
+        responseHeaders: { "content-type": "application/json" },
+      },
+      oracle: "api-contract",
+    },
+    { page, network: sensitiveNetwork, resolveRequestRef: resolveRef },
+  );
+  assert.equal(outcome.passed, true);
+  const actualSerialized = JSON.stringify(outcome.actual);
+  assert.doesNotMatch(actualSerialized, new RegExp(PII_PHONE));
+  assert.doesNotMatch(actualSerialized, new RegExp(PII_EMAIL.replace(".", "\\.")));
+  assert.doesNotMatch(actualSerialized, /supersecret/);
+  assert.match(actualSerialized, /"\*\*\*"/);
+});
+
+test("captured-http: failed assertion redacts actual and message omits raw PII (negative)", async () => {
+  const outcome = await runCapturedHttpAssertion(
+    {
+      id: "redact-fail",
+      type: "api",
+      requestRef: "users-create",
+      expect: {
+        statusCode: 201,
+        responseJsonBody: { id: "WRONG_ID" },
+      },
+      oracle: "api-contract",
+    },
+    { page, network: sensitiveNetwork, resolveRequestRef: resolveRef },
+  );
+  assert.equal(outcome.passed, false);
+  assert.equal(outcome.errorKind, "PRODUCT_DEFECT");
+  const actualSerialized = JSON.stringify(outcome.actual);
+  assert.doesNotMatch(actualSerialized, new RegExp(PII_PHONE));
+  assert.doesNotMatch(actualSerialized, new RegExp(PII_EMAIL.replace(".", "\\.")));
+  if (outcome.message) {
+    assert.doesNotMatch(outcome.message, new RegExp(PII_PHONE));
+    assert.doesNotMatch(outcome.message, new RegExp(PII_EMAIL.replace(".", "\\.")));
+  }
+  const actual = outcome.actual as Record<string, unknown>;
+  assert.ok(actual.responseJson);
+  assert.doesNotMatch(JSON.stringify(actual.responseJson), new RegExp(PII_EMAIL.replace(".", "\\.")));
+});

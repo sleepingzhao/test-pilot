@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { computeIRHash, IR_HASH_VERSION, type TestIR } from "@testpilot/test-ir";
-import { syncCatalogFromFile } from "./seed.js";
+import { seedIfEmpty, syncCatalogFromFile, syncPilotCatalogTests } from "./seed.js";
 import { FileStore, type StoredTest } from "./store.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -77,4 +77,24 @@ test("draft catalog tests do not keep stale approval metadata", async () => {
   assert.equal(saved?.approvalStatus, "draft");
   assert.equal(saved?.approvedAt, undefined);
   assert.equal(saved?.approvedBy, undefined);
+});
+
+test("pilot catalog sync loads pilot-ticket-no-region as draft", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-pilot-seed-"));
+  const store = new FileStore(join(root, "data"));
+  await store.init();
+  try {
+    await seedIfEmpty(store);
+    let saved = await store.getTest("pilot-ticket-no-region");
+    if (!saved) {
+      await syncPilotCatalogTests(store);
+      saved = await store.getTest("pilot-ticket-no-region");
+    }
+    assert.ok(saved, "pilot-ticket-no-region should be in store after seed/sync");
+    assert.equal(saved.id, "pilot-ticket-no-region");
+    assert.equal(saved.approvalStatus, "draft");
+    assert.ok(saved.ir.steps.some((s) => s.id === "wait-region-alert"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

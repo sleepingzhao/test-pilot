@@ -99,7 +99,7 @@ export function buildReadonlyDbClient(env: RunEnvironment): ReadonlyDbClient | u
 }
 
 export type { AgentConfigBundle } from "./agent-config.js";
-export { computeAssertionConfigHash } from "./config-hash.js";
+export { computeAssertionConfigHash, invalidateAssertionConfigCache } from "./config-hash.js";
 export { waitForHttpReady } from "./wait-ready.js";
 export {
   getAgentConfigBundle,

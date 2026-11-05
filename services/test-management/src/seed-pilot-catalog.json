@@ -10,5 +10,9 @@
   {
     "file": "examples/pilot-admin/tests/pilot-ticket-submit-success.json",
     "title": "【试点】用例1 — 提交工单成功（无附件）"
+  },
+  {
+    "file": "examples/pilot-admin/tests/pilot-ticket-no-region.json",
+    "title": "【试点】用例1 — 未选省市区不提交"
   }
 ]

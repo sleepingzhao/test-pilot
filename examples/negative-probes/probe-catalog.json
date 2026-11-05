@@ -3,22 +3,26 @@
     {
       "id": "probe-playwright-ui",
       "provider": "playwright-ui",
-      "file": "examples/negative-probes/playwright-ui-probe.json"
+      "file": "examples/negative-probes/playwright-ui-probe.json",
+      "expectedAssertionId": "must-not-find"
     },
     {
       "id": "probe-captured-http",
       "provider": "captured-http",
-      "file": "examples/negative-probes/captured-http-probe.json"
+      "file": "examples/negative-probes/captured-http-probe.json",
+      "expectedAssertionId": "wrong-status"
     },
     {
       "id": "probe-postgres-readonly",
       "provider": "postgres-readonly",
-      "file": "examples/negative-probes/postgres-readonly-probe.json"
+      "file": "examples/negative-probes/postgres-readonly-probe.json",
+      "expectedAssertionId": "wrong-rowcount"
     },
     {
       "id": "probe-otel-trace",
       "provider": "otel-trace",
-      "file": "examples/negative-probes/otel-trace-probe.json"
+      "file": "examples/negative-probes/otel-trace-probe.json",
+      "expectedAssertionId": "missing-tool"
     }
   ]
 }

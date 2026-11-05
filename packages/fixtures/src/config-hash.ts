@@ -31,3 +31,15 @@ export function computeAssertionConfigHash(repoRoot: string): string {
   const canonical = JSON.stringify(snapshot);
   return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
 }
+
+type CacheInvalidator = () => void;
+const cacheInvalidators: CacheInvalidator[] = [];
+
+/** Register loader cache reset (db/agent config modules). */
+export function registerAssertionConfigCacheInvalidator(fn: CacheInvalidator): void {
+  cacheInvalidators.push(fn);
+}
+
+export function invalidateAssertionConfigCache(): void {
+  for (const fn of cacheInvalidators) fn();
+}

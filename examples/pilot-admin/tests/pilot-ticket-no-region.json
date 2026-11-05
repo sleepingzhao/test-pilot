@@ -43,7 +43,12 @@
       "target": { "label": "需求说明" },
       "value": "未选省市区负向草稿 {{runId}}"
     },
-    { "id": "confirm-submit", "action": "click", "target": { "role": "button", "name": "确认提交" } }
+    { "id": "confirm-submit", "action": "click", "target": { "role": "button", "name": "确认提交" } },
+    {
+      "id": "wait-region-alert",
+      "action": "wait",
+      "target": { "role": "alert" }
+    }
   ],
   "assertions": [
     {

@@ -16,8 +16,8 @@ const env: RunEnvironment = {
 
 test("P-1 demo ticket: region required negative passes; full submit hits HTTP", async () => {
   const demo = spawn("node", ["server.mjs"], { cwd: demoDir, stdio: "ignore" });
-  await waitForHttpReady("http://127.0.0.1:4173/");
   try {
+    await waitForHttpReady("http://127.0.0.1:4173/");
     const negative = JSON.parse(
       readFileSync(join(demoDir, "tests/demo-ticket-no-attachment.json"), "utf8"),
     );

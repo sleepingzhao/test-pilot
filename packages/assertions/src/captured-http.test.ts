@@ -328,3 +328,113 @@ test("captured-http: failed assertion redacts actual and message omits raw PII (
   assert.ok(actual.responseJson);
   assert.doesNotMatch(JSON.stringify(actual.responseJson), new RegExp(PII_EMAIL.replace(".", "\\.")));
 });
+
+test("captured-http: absent statusCode fails when matching request exists (negative)", async () => {
+  const network = [
+    {
+      url: "http://127.0.0.1:4173/api/users",
+      method: "POST",
+      status: 201,
+      requestBody: "{}",
+    },
+    {
+      url: "http://127.0.0.1:4173/api/users",
+      method: "POST",
+      status: 400,
+      requestBody: "{}",
+    },
+  ];
+  const outcome = await runCapturedHttpAssertion(
+    {
+      id: "absent-201",
+      type: "api",
+      requestRef: "users-create",
+      expect: { absent: true, statusCode: 201 },
+      oracle: "api-contract",
+    },
+    { page, network, resolveRequestRef: resolveRef },
+  );
+  assert.equal(outcome.passed, false);
+  assert.equal(outcome.errorKind, "PRODUCT_DEFECT");
+});
+
+test("captured-http: absent statusCode passes with only 400/404 (positive)", async () => {
+  const network = [
+    { url: "http://127.0.0.1/api/users", method: "POST", status: 400 },
+    { url: "http://127.0.0.1/api/users", method: "POST", status: 404 },
+  ];
+  const outcome = await runCapturedHttpAssertion(
+    {
+      id: "absent-ok",
+      type: "api",
+      requestRef: "users-create",
+      expect: { absent: true, statusCode: 201 },
+      oracle: "api-contract",
+    },
+    { page, network, resolveRequestRef: resolveRef },
+  );
+  assert.equal(outcome.passed, true);
+});
+
+test("captured-http: absent passes on empty network (positive)", async () => {
+  const outcome = await runCapturedHttpAssertion(
+    {
+      id: "absent-empty",
+      type: "api",
+      requestRef: "users-create",
+      expect: { absent: true, statusCode: 201 },
+      oracle: "api-contract",
+    },
+    { page, network: [], resolveRequestRef: resolveRef },
+  );
+  assert.equal(outcome.passed, true);
+});
+
+test("captured-http: requestCount 0 fails when requests exist (negative)", async () => {
+  const outcome = await runCapturedHttpAssertion(
+    {
+      id: "count-fail",
+      type: "api",
+      requestRef: "users-create",
+      expect: { requestCount: 0, statusCode: 201 },
+      oracle: "api-contract",
+    },
+    { page, network: baseNetwork, resolveRequestRef: resolveRef },
+  );
+  assert.equal(outcome.passed, false);
+  assert.equal(outcome.errorKind, "PRODUCT_DEFECT");
+});
+
+test("captured-http: requestCount 0 passes when no matching status (positive)", async () => {
+  const outcome = await runCapturedHttpAssertion(
+    {
+      id: "count-ok",
+      type: "api",
+      requestRef: "users-create",
+      expect: { requestCount: 0, statusCode: 500 },
+      oracle: "api-contract",
+    },
+    { page, network: baseNetwork, resolveRequestRef: resolveRef },
+  );
+  assert.equal(outcome.passed, true);
+});
+
+test("validateCapturedHttpAssertion rejects absent false and requestCount non-zero (negative)", () => {
+  const absentFalse = validateCapturedHttpAssertion({
+    id: "bad-absent",
+    type: "api",
+    requestRef: "users-create",
+    expect: { absent: false, statusCode: 201 },
+    oracle: "api-contract",
+  });
+  assert.ok(absentFalse.some((i) => i.path.includes("absent")));
+
+  const countOne = validateCapturedHttpAssertion({
+    id: "bad-count",
+    type: "api",
+    requestRef: "users-create",
+    expect: { requestCount: 1, statusCode: 201 },
+    oracle: "api-contract",
+  });
+  assert.ok(countOne.some((i) => i.path.includes("requestCount")));
+});

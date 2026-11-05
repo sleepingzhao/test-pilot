@@ -31,12 +31,34 @@ function stripSqlComments(sql: string): string {
   return out;
 }
 
+function parseTableIdentifier(fragment: string): string | undefined {
+  const trimmed = fragment.trim();
+  if (!trimmed || trimmed.startsWith("(")) return undefined;
+  const token = trimmed.split(/\s+/)[0]!;
+  if (!/^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(token)) return undefined;
+  const base = token.includes(".") ? token.split(".").pop()! : token;
+  return base.toLowerCase();
+}
+
 function extractReferencedTables(sql: string): string[] {
   const tables: string[] = [];
-  const re = /\b(?:from|join)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi;
+  const joinRe =
+    /\b(?:inner|left|right|full|cross)?\s*join\s+([a-zA-Z_][a-zA-Z0-9_.]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)/gi;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(sql)) !== null) {
-    tables.push(m[1]!.toLowerCase());
+  while ((m = joinRe.exec(sql)) !== null) {
+    const ref = parseTableIdentifier(m[1]!);
+    if (ref) tables.push(ref);
+  }
+
+  const fromRe =
+    /\bfrom\b([\s\S]+?)(?=\bwhere\b|\bgroup\s+by\b|\border\s+by\b|\blimit\b|\bhaving\b|\bunion\b|\bexcept\b|\bintersect\b|$)/gi;
+  while ((m = fromRe.exec(sql)) !== null) {
+    let clause = m[1]!;
+    clause = clause.replace(/\b(?:inner|left|right|full|cross)?\s*join\b[\s\S]*/gi, "");
+    for (const part of clause.split(",")) {
+      const ref = parseTableIdentifier(part);
+      if (ref) tables.push(ref);
+    }
   }
   return tables;
 }

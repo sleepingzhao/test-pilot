@@ -11,10 +11,9 @@ const demoDir = join(root, "examples/demo-webapp");
 const outPath = join(root, "artifacts/negative-probes-last.json");
 
 const demo = spawn("node", ["server.mjs"], { cwd: demoDir, stdio: "ignore" });
-await waitForHttpReady("http://127.0.0.1:4173/");
-
 let exitCode = 0;
 try {
+  await waitForHttpReady("http://127.0.0.1:4173/");
   const report = await runNegativeProbeCatalog(root, {
     baseUrl: "http://127.0.0.1:4173",
   });

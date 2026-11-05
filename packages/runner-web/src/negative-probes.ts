@@ -8,6 +8,7 @@ export type NegativeProbeSpec = {
   id: string;
   provider: string;
   file: string;
+  expectedAssertionId: string;
 };
 
 export type NegativeProbeResult = {
@@ -43,11 +44,13 @@ export function evaluateNegativeProbeRun(spec: NegativeProbeSpec, run: RunResult
   const failed = run.assertions.filter((a) => !a.passed);
   const failedAssertionIds = failed.map((a) => a.assertionId);
   const primaryKind = failed[0]?.errorKind;
-  const ok =
+  const productDefectOnly =
     run.status === "failed" &&
     failedAssertionIds.length > 0 &&
     failed.every((a) => a.errorKind === "PRODUCT_DEFECT") &&
     primaryKind === "PRODUCT_DEFECT";
+  const expectedIdOk = failedAssertionIds.includes(spec.expectedAssertionId);
+  const ok = productDefectOnly && expectedIdOk;
   return {
     id: spec.id,
     provider: spec.provider,
@@ -58,7 +61,11 @@ export function evaluateNegativeProbeRun(spec: NegativeProbeSpec, run: RunResult
     errorKind: primaryKind,
     message: ok
       ? undefined
-      : `expected failed run with PRODUCT_DEFECT assertion (got ${primaryKind ?? "none"})`,
+      : !productDefectOnly
+        ? `expected failed run with PRODUCT_DEFECT assertion (got ${primaryKind ?? "none"})`
+        : !expectedIdOk
+          ? `expected failed assertion id ${spec.expectedAssertionId} (got ${failedAssertionIds.join(", ") || "none"})`
+          : undefined,
   };
 }
 

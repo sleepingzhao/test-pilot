@@ -24,9 +24,17 @@ export function redactHeaders(headers: Record<string, string> | undefined): Reco
 }
 
 export function redactStringBody(raw: string): string {
-  return raw
-    .replace(/"(password|token|secret|api[_-]?key|phone|mobile|email|address|idCard)"\s*:\s*"[^"]*"/gi, '"$1":"***"')
-    .slice(0, 4000);
+  let out = raw.replace(
+    /"(password|token|secret|api[_-]?key|phone|mobile|email|address|idCard)"\s*:\s*"[^"]*"/gi,
+    '"$1":"***"',
+  );
+  out = out.replace(
+    /(^|[&?])(phone|mobile|email|password|token|secret|api[_-]?key)=([^&\s]+)/gi,
+    "$1$2=***",
+  );
+  out = out.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "***");
+  out = out.replace(/\b1[3-9]\d{9}\b/g, "***");
+  return out.slice(0, 4000);
 }
 
 export function redactForEvidence(value: unknown): unknown {

@@ -1,11 +1,47 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { redactStringBody } from "./redact.js";
+import { redactForEvidence, redactHeaders, redactStringBody, redactUrl } from "./redact.js";
 
-test("assertions use raw capture; artifacts redact sensitive JSON keys", () => {
-  const raw = '{"email":"user@example.com","phone":"13800138000"}';
-  assert.match(raw, /@example\.com/);
-  const redacted = redactStringBody(raw);
-  assert.doesNotMatch(redacted, /user@example\.com/);
-  assert.match(redacted, /"\*\*\*"/);
+test("redactStringBody covers JSON, urlencoded form, and plain text", () => {
+  const json = '{"email":"user@example.com","phone":"13800138000"}';
+  assert.doesNotMatch(redactStringBody(json), /user@example\.com/);
+
+  const form = "phone=13800138000&email=u@example.com&count=3";
+  const redactedForm = redactStringBody(form);
+  assert.doesNotMatch(redactedForm, /13800138000/);
+  assert.doesNotMatch(redactedForm, /u@example\.com/);
+  assert.match(redactedForm, /count=3/);
+
+  const plain = "contact 13800138000 or u@example.com";
+  const redactedPlain = redactStringBody(plain);
+  assert.doesNotMatch(redactedPlain, /13800138000/);
+  assert.doesNotMatch(redactedPlain, /u@example\.com/);
+});
+
+test("redactHeaders masks set-cookie and authorization", () => {
+  const headers = redactHeaders({
+    "set-cookie": "session=abc",
+    authorization: "Bearer secret",
+    "content-type": "application/json",
+  });
+  assert.equal(headers?.["set-cookie"], "***");
+  assert.equal(headers?.authorization, "***");
+  assert.match(headers?.["content-type"] ?? "", /json/);
+});
+
+test("redactUrl masks sensitive query params", () => {
+  const url = redactUrl("https://app.example.com/api?phone=13800138000&email=u@example.com&page=1");
+  assert.doesNotMatch(url, /13800138000/);
+  assert.doesNotMatch(url, /u@example\.com/);
+  assert.match(url, /page=1/);
+});
+
+test("redactForEvidence applies header and body rules on nested actual", () => {
+  const out = redactForEvidence({
+    requestBodies: ["phone=13800138000&email=u@example.com"],
+    responseHeaders: { "set-cookie": "sid=1" },
+    url: "http://127.0.0.1/x?phone=13800138000",
+  }) as Record<string, unknown>;
+  assert.doesNotMatch(JSON.stringify(out), /13800138000/);
+  assert.doesNotMatch(JSON.stringify(out), /u@example\.com/);
 });

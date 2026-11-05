@@ -38,6 +38,21 @@ test("assertSafeReadonlySql rejects JOIN pg_shadow (negative)", () => {
   );
 });
 
+test("assertSafeReadonlySql rejects comma-separated forbidden table (negative)", () => {
+  assert.throws(() =>
+    assertSafeReadonlySql("SELECT * FROM work_order, pg_shadow", ["work_order"]),
+  );
+  assert.throws(() =>
+    assertSafeReadonlySql("SELECT * FROM work_order w, pg_shadow p", ["work_order"]),
+  );
+});
+
+test("assertSafeReadonlySql allows schema-qualified allowed table (positive)", () => {
+  assert.doesNotThrow(() =>
+    assertSafeReadonlySql("SELECT id FROM public.work_order WHERE ref = :runId", ["work_order"]),
+  );
+});
+
 test("assertSafeReadonlySql rejects multi-statement (negative)", () => {
   assert.throws(() =>
     assertSafeReadonlySql("SELECT id FROM work_order; DELETE FROM work_order", ["work_order"]),

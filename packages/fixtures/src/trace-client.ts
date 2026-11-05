@@ -161,7 +161,7 @@ export function parseAgentTraceJson(raw: unknown, options: ParseAgentTraceOption
   for (const rs of resourceSpans) {
     if (options.service) {
       const svc = resourceServiceName(rs);
-      if (svc && svc !== options.service) continue;
+      if (!svc || svc !== options.service) continue;
     }
     for (const scope of rs.scopeSpans ?? []) {
       for (const span of scope.spans ?? []) {

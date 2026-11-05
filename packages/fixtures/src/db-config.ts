@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  computeAssertionConfigHash,
+  registerAssertionConfigCacheInvalidator,
+} from "./config-hash.js";
 
 export type DbConfigBundle = {
   connectionRef: string;
@@ -27,25 +31,36 @@ export function resolveConfigEnvRef(ref: string): string | undefined {
 }
 
 let cachedConfigs: Record<string, DbConfigBundle> | undefined;
+let cachedAtHash: string | undefined;
+
+registerAssertionConfigCacheInvalidator(() => {
+  cachedConfigs = undefined;
+  cachedAtHash = undefined;
+});
 
 export function loadAssertionDbConfigs(
   repoRoot?: string,
   opts?: { fresh?: boolean },
 ): Record<string, DbConfigBundle> {
-  if (cachedConfigs && !opts?.fresh) return cachedConfigs;
   const root =
     repoRoot ?? join(dirname(fileURLToPath(import.meta.url)), "../../..");
+  const currentHash = computeAssertionConfigHash(root);
+  if (cachedConfigs && cachedAtHash === currentHash && !opts?.fresh) {
+    return cachedConfigs;
+  }
   for (const name of ["assertion-db-config.json", "assertion-db-config.example.json"]) {
     try {
       const raw = readFileSync(join(root, "docs", name), "utf8");
       const parsed = JSON.parse(raw) as AssertionDbConfigFile;
       cachedConfigs = parsed.dbs ?? {};
+      cachedAtHash = currentHash;
       return cachedConfigs;
     } catch {
       /* try next */
     }
   }
   cachedConfigs = {};
+  cachedAtHash = currentHash;
   return cachedConfigs;
 }
 

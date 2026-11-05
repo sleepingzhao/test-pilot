@@ -329,6 +329,31 @@ test("captured-http: failed assertion redacts actual and message omits raw PII (
   assert.doesNotMatch(JSON.stringify(actual.responseJson), new RegExp(PII_EMAIL.replace(".", "\\.")));
 });
 
+test("captured-http: expected and failure message redact PII (negative)", async () => {
+  const outcome = await runCapturedHttpAssertion(
+    {
+      id: "redact-expected",
+      type: "api",
+      requestRef: "users-create",
+      expect: {
+        statusCode: 201,
+        requestBodyContains: PII_PHONE,
+      },
+      oracle: "api-contract",
+    },
+    { page, network: baseNetwork, resolveRequestRef: resolveRef },
+  );
+  assert.equal(outcome.passed, false);
+  const serialized = JSON.stringify({
+    expected: outcome.expected,
+    message: outcome.message,
+    actual: outcome.actual,
+  });
+  assert.doesNotMatch(serialized, new RegExp(PII_PHONE));
+  assert.doesNotMatch(serialized, new RegExp(PII_EMAIL.replace(".", "\\.")));
+  assert.equal((outcome.expected as Record<string, unknown>).requestBodyContains, "***");
+});
+
 test("captured-http: absent statusCode fails when matching request exists (negative)", async () => {
   const network = [
     {

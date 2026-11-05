@@ -1,7 +1,7 @@
 import type { Locator as TargetLocator, TestIR, TestStep } from "@testpilot/test-ir";
 import { runAssertion } from "@testpilot/assertions";
 import type { RunArtifacts } from "@testpilot/evidence";
-import { classifyFailure, createEvidenceCollector, isTransientFailure, redactForEvidence } from "@testpilot/evidence";
+import { classifyFailure, createEvidenceCollector, isTransientFailure, redactForEvidence, redactStringBody, redactStrings } from "@testpilot/evidence";
 import type { RunEnvironment } from "@testpilot/fixtures";
 import { buildReadonlyDbClient, buildAgentTraceClient, getDbConfigBundle, getAgentConfigBundle, resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveValueRefs } from "@testpilot/fixtures";
 import { executeSelectCascader } from "./select-cascader.js";
@@ -44,8 +44,12 @@ export type RunOptions = {
 type AssertionResult = Awaited<ReturnType<typeof runAssertion>>;
 
 function redactAssertionForEvidence(outcome: AssertionResult): AssertionResult {
-  if (outcome.actual === undefined) return outcome;
-  return { ...outcome, actual: redactForEvidence(outcome.actual) as AssertionResult["actual"] };
+  return {
+    ...outcome,
+    actual: outcome.actual === undefined ? outcome.actual : (redactForEvidence(outcome.actual) as AssertionResult["actual"]),
+    expected: outcome.expected === undefined ? outcome.expected : redactStrings(outcome.expected),
+    message: outcome.message === undefined ? outcome.message : redactStringBody(outcome.message),
+  };
 }
 
 function locatorCandidates(page: Page, target: TargetLocator): PwLocator[] {

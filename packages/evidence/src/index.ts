@@ -157,6 +157,7 @@ export {
   redactForEvidence,
   redactHeaders,
   redactStringBody,
+  redactStrings,
   redactUrl,
 } from "./redact.js";
 

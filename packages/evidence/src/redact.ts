@@ -37,6 +37,18 @@ export function redactStringBody(raw: string): string {
   return out.slice(0, 4000);
 }
 
+/** Redact string values while preserving object keys (e.g. assertion expect schemas). */
+export function redactStrings(value: unknown): unknown {
+  if (typeof value === "string") return redactStringBody(value);
+  if (Array.isArray(value)) return value.map((item) => redactStrings(item));
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) out[key] = redactStrings(val);
+    return out;
+  }
+  return value;
+}
+
 export function redactForEvidence(value: unknown): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === "string") return redactStringBody(value);

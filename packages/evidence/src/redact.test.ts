@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { redactForEvidence, redactHeaders, redactStringBody, redactUrl } from "./redact.js";
+import { redactForEvidence, redactHeaders, redactStringBody, redactStrings, redactUrl } from "./redact.js";
 
 test("redactStringBody covers JSON, urlencoded form, and plain text", () => {
   const json = '{"email":"user@example.com","phone":"13800138000"}';
@@ -44,4 +44,19 @@ test("redactForEvidence applies header and body rules on nested actual", () => {
   }) as Record<string, unknown>;
   assert.doesNotMatch(JSON.stringify(out), /13800138000/);
   assert.doesNotMatch(JSON.stringify(out), /u@example\.com/);
+});
+
+test("redactStrings preserves keys while redacting expect values", () => {
+  const out = redactStrings({
+    requestBodyContains: "13800138000",
+    responseJsonSchema: {
+      type: "object",
+      properties: { email: { type: "string" } },
+    },
+  }) as Record<string, unknown>;
+  assert.equal(out.requestBodyContains, "***");
+  const schema = out.responseJsonSchema as {
+    properties: { email: { type: string } };
+  };
+  assert.equal(schema.properties.email.type, "string");
 });

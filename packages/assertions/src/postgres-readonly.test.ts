@@ -47,9 +47,45 @@ test("assertSafeReadonlySql rejects comma-separated forbidden table (negative)",
   );
 });
 
-test("assertSafeReadonlySql allows schema-qualified allowed table (positive)", () => {
+test("assertSafeReadonlySql rejects subqueries and quoted forbidden tables (negative)", () => {
+  assert.throws(() =>
+    assertSafeReadonlySql("SELECT * FROM work_order, (SELECT * FROM pg_shadow) x", ["work_order"]),
+  );
+  assert.throws(() =>
+    assertSafeReadonlySql(
+      "SELECT * FROM work_order CROSS JOIN (SELECT * FROM pg_shadow) x",
+      ["work_order"],
+    ),
+  );
+  assert.throws(() =>
+    assertSafeReadonlySql('SELECT * FROM work_order, "pg_shadow"', ["work_order"]),
+  );
+  assert.throws(() =>
+    assertSafeReadonlySql(
+      "SELECT * FROM work_order WHERE id IN (SELECT id FROM pg_shadow)",
+      ["work_order"],
+    ),
+  );
+});
+
+test("assertSafeReadonlySql allows schema-qualified and CTE reads", () => {
   assert.doesNotThrow(() =>
-    assertSafeReadonlySql("SELECT id FROM public.work_order WHERE ref = :runId", ["work_order"]),
+    assertSafeReadonlySql("SELECT id FROM public.work_order WHERE ref = $1", ["work_order"]),
+  );
+  assert.doesNotThrow(() =>
+    assertSafeReadonlySql(
+      "WITH x AS (SELECT id FROM work_order) SELECT * FROM x",
+      ["work_order"],
+    ),
+  );
+});
+
+test("assertSafeReadonlySql allows EXTRACT without treating its FROM as a table", () => {
+  assert.doesNotThrow(() =>
+    assertSafeReadonlySql(
+      "SELECT EXTRACT(YEAR FROM created_at) FROM work_order",
+      ["work_order"],
+    ),
   );
 });
 
@@ -61,7 +97,7 @@ test("assertSafeReadonlySql rejects multi-statement (negative)", () => {
 
 test("assertSafeReadonlySql allows simple SELECT on allowed table", () => {
   assert.doesNotThrow(() =>
-    assertSafeReadonlySql("SELECT id FROM work_order WHERE ref = :runId", ["work_order"]),
+    assertSafeReadonlySql("SELECT id FROM work_order WHERE ref = $1", ["work_order"]),
   );
 });
 

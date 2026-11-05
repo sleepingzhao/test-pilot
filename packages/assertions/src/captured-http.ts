@@ -1,5 +1,5 @@
 import type { TestAssertion, ValidationIssue } from "@testpilot/test-ir";
-import { redactForEvidence } from "@testpilot/evidence";
+import { redactForEvidence, redactStringBody, redactStrings } from "@testpilot/evidence";
 import type { AssertionContext, AssertionOutcome, CapturedNetworkEntry, RequestRefSpec } from "./types.js";
 import { partialJsonMatch } from "./api-match.js";
 import {
@@ -38,10 +38,14 @@ function parseJsonBody(raw: string | undefined): unknown {
   }
 }
 
-/** Evidence-safe actual; matching still uses raw `ctx.network`. */
-function withRedactedActual(outcome: AssertionOutcome): AssertionOutcome {
-  if (outcome.actual === undefined) return outcome;
-  return { ...outcome, actual: redactForEvidence(outcome.actual) };
+/** Evidence-safe outcome; matching still uses raw `ctx.network`. */
+function withRedactedOutcome(outcome: AssertionOutcome): AssertionOutcome {
+  return {
+    ...outcome,
+    actual: outcome.actual === undefined ? outcome.actual : redactForEvidence(outcome.actual),
+    expected: outcome.expected === undefined ? outcome.expected : redactStrings(outcome.expected),
+    message: outcome.message === undefined ? outcome.message : redactStringBody(outcome.message),
+  };
 }
 
 export function validateCapturedHttpAssertion(assertion: TestAssertion): ValidationIssue[] {
@@ -128,7 +132,7 @@ export async function runCapturedHttpAssertion(
         ? matched.filter((n) => n.status === expect.statusCode)
         : matched;
     if (pool.length > 0) {
-      return withRedactedActual({
+      return withRedactedOutcome({
         assertionId: id,
         passed: false,
         expected: { requestRef: ref, ...expect },
@@ -137,7 +141,7 @@ export async function runCapturedHttpAssertion(
         message: `expected no matching request for ${ref}`,
       });
     }
-    return withRedactedActual({
+    return withRedactedOutcome({
       assertionId: id,
       passed: true,
       expected: { requestRef: ref, ...expect },
@@ -146,7 +150,7 @@ export async function runCapturedHttpAssertion(
   }
 
   if (matched.length === 0) {
-    return withRedactedActual({
+    return withRedactedOutcome({
       assertionId: id,
       passed: false,
       expected: spec,
@@ -162,7 +166,7 @@ export async function runCapturedHttpAssertion(
       : matched;
 
   if (typeof expect.statusCode === "number" && pickForStatus.length === 0) {
-    return withRedactedActual({
+    return withRedactedOutcome({
       assertionId: id,
       passed: false,
       expected: { requestRef: ref, statusCode: expect.statusCode },
@@ -178,7 +182,7 @@ export async function runCapturedHttpAssertion(
   if (expect.userCountDelta === 0) {
     const created = matched.filter((n) => n.status === 201);
     const passed = created.length === 0;
-    return withRedactedActual({
+    return withRedactedOutcome({
       assertionId: id,
       passed,
       expected: { userCountDelta: 0 },
@@ -255,7 +259,7 @@ export async function runCapturedHttpAssertion(
   }
 
   if (failures.length) {
-    return withRedactedActual({
+    return withRedactedOutcome({
       assertionId: id,
       passed: false,
       expected: { requestRef: ref, ...expect },
@@ -268,7 +272,7 @@ export async function runCapturedHttpAssertion(
   const hasExplicitExpect = hasSupportedCapturedHttpExpect(expect);
 
   if (hasExplicitExpect) {
-    return withRedactedActual({
+    return withRedactedOutcome({
       assertionId: id,
       passed: true,
       expected: { requestRef: ref, ...expect },
@@ -280,7 +284,7 @@ export async function runCapturedHttpAssertion(
     });
   }
 
-  return withRedactedActual({
+  return withRedactedOutcome({
     assertionId: id,
     passed: false,
     errorKind: "ASSERTION_ORACLE",

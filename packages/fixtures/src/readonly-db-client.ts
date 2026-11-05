@@ -1,3 +1,4 @@
+import { parse } from "pgsql-ast-parser";
 import type { DbConfigBundle } from "./db-config.js";
 import { resolveConfigEnvRef } from "./db-config.js";
 
@@ -14,7 +15,7 @@ export type ReadonlyDbClient = {
   ) => Promise<DbQueryResult>;
 };
 
-const SELECT_ONLY = /^\s*select\b/i;
+const SELECT_OR_CTE = /^\s*(select|with)\b/i;
 const FORBIDDEN_FUNCS = [
   "pg_read_file",
   "pg_sleep",
@@ -31,42 +32,77 @@ function stripSqlComments(sql: string): string {
   return out;
 }
 
-function parseTableIdentifier(fragment: string): string | undefined {
-  const trimmed = fragment.trim();
-  if (!trimmed || trimmed.startsWith("(")) return undefined;
-  const token = trimmed.split(/\s+/)[0]!;
-  if (!/^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(token)) return undefined;
-  const base = token.includes(".") ? token.split(".").pop()! : token;
-  return base.toLowerCase();
+type AstNode = Record<string, unknown>;
+
+function collectTableRefs(
+  node: unknown,
+  tables: string[],
+  cteNames: Set<string>,
+  inFrom = false,
+): void {
+  if (node === null || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    for (const item of node) collectTableRefs(item, tables, cteNames, inFrom);
+    return;
+  }
+
+  const obj = node as AstNode;
+  const type = typeof obj.type === "string" ? obj.type : undefined;
+
+  if (type?.startsWith("with")) {
+    const aliases = new Set(cteNames);
+    const bind = obj.bind;
+    if (Array.isArray(bind)) {
+      for (const item of bind) {
+        const alias = (item as { alias?: { name?: unknown } }).alias?.name;
+        if (typeof alias === "string") aliases.add(alias);
+      }
+      for (const item of bind) {
+        collectTableRefs((item as { statement?: unknown }).statement, tables, aliases);
+      }
+    }
+    collectTableRefs(obj.in, tables, aliases);
+    return;
+  }
+
+  if (type === "table") {
+    const name = (obj.name as { name?: unknown } | undefined)?.name;
+    if (typeof name === "string" && !cteNames.has(name)) tables.push(name.toLowerCase());
+  }
+
+  if (type === "call" && inFrom) {
+    throw new Error("table functions in FROM are not allowed");
+  }
+
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === "type" || key === "name" || key === "alias") continue;
+    if (key === "from" && Array.isArray(value)) {
+      for (const item of value) collectTableRefs(item, tables, cteNames, true);
+    } else {
+      collectTableRefs(value, tables, cteNames, false);
+    }
+  }
 }
 
 function extractReferencedTables(sql: string): string[] {
+  let statements: ReturnType<typeof parse>;
+  try {
+    statements = parse(sql);
+  } catch (err) {
+    throw new Error(`invalid SQL: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (statements.length !== 1) {
+    throw new Error("multiple SQL statements are not allowed");
+  }
   const tables: string[] = [];
-  const joinRe =
-    /\b(?:inner|left|right|full|cross)?\s*join\s+([a-zA-Z_][a-zA-Z0-9_.]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)/gi;
-  let m: RegExpExecArray | null;
-  while ((m = joinRe.exec(sql)) !== null) {
-    const ref = parseTableIdentifier(m[1]!);
-    if (ref) tables.push(ref);
-  }
-
-  const fromRe =
-    /\bfrom\b([\s\S]+?)(?=\bwhere\b|\bgroup\s+by\b|\border\s+by\b|\blimit\b|\bhaving\b|\bunion\b|\bexcept\b|\bintersect\b|$)/gi;
-  while ((m = fromRe.exec(sql)) !== null) {
-    let clause = m[1]!;
-    clause = clause.replace(/\b(?:inner|left|right|full|cross)?\s*join\b[\s\S]*/gi, "");
-    for (const part of clause.split(",")) {
-      const ref = parseTableIdentifier(part);
-      if (ref) tables.push(ref);
-    }
-  }
+  for (const statement of statements) collectTableRefs(statement, tables, new Set());
   return tables;
 }
 
 /** Second-line guard only — DB account must still be read-only with least privilege. */
 export function assertSafeReadonlySql(sql: string, allowedTables: string[]): void {
   const normalized = stripSqlComments(sql).trim();
-  if (!SELECT_ONLY.test(normalized)) {
+  if (!SELECT_OR_CTE.test(normalized)) {
     throw new Error("only SELECT queries are allowed");
   }
   if (/;\s*\S/.test(normalized)) {
@@ -137,12 +173,12 @@ export function createReadonlyDbClient(opts: DbClientFactoryOptions): ReadonlyDb
       if (!bundle) throw new Error(`unknown db configRef: ${configRef}`);
       const sql = bundle.queries[queryRef];
       if (!sql) throw new Error(`unknown queryRef: ${queryRef}`);
-      assertSafeReadonlySql(sql, bundle.allowedTables);
+      const { text, values } = bindNamedParams(sql, params);
+      assertSafeReadonlySql(text, bundle.allowedTables);
       const connectionString = resolveConfigEnvRef(bundle.connectionRef);
       if (!connectionString) {
         throw new Error(`db connection not configured for ${configRef}`);
       }
-      const { text, values } = bindNamedParams(sql, params);
       try {
         const pg = await import("pg");
         const pool = new pg.default.Pool({ connectionString, max: 1, ssl: undefined });

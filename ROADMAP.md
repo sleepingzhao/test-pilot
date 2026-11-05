@@ -174,8 +174,8 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - [x] FIX-5 负向探针门禁 — 仅 `PRODUCT_DEFECT` 算成功；报告 `errorKind`；metrics 测试用临时 artifacts；`negative-probes.mjs` / `ticket-p1.test.ts` 轮询就绪；`pnpm verify` 全绿
 - [x] FIX-6 P-1 负向与试点 — `absent`/`requestCount:0` HTTP 断言；`demo-ticket-no-attachment` 无 201；`pilot-ticket-no-region.json` 草稿；`env.ticketPhone`；`pnpm verify` 全绿
 - [x] FIX-7 清理 — Provider 重复注册抛错；URL 路径级匹配；`url-path-match.test.ts` / `providers.test.ts`；`pnpm verify` 全绿
-- [x] R-1 HTTP 断言 actual 脱敏 — `captured-http.ts` 经 `redactForEvidence` 输出 actual；`run.ts` 二次防护；`redact.ts` 强化 requestBodies/responseJson；`captured-http.test.ts` 正负（PII 匹配仍通过、actual/失败消息无明文）；smoke `artifacts/smoke-last.json` 中 `requestBodies`/`requestJson` 为 `***`；`pnpm verify` 全绿（2026-11-06）
-- [x] R-2 DB guard 逗号 join + schema — `readonly-db-client.ts` `extractReferencedTables` 解析逗号表列表与 `public.work_order`；`postgres-readonly.test.ts` 正负；`pnpm verify` 全绿（2026-11-06）
+- [x] R-1 HTTP 断言 actual 脱敏 — `captured-http.ts` 经 `redactForEvidence` 输出 actual；`run.ts` 二次防护；`redact.ts` 强化 requestBodies/responseJson；expected/message 也经 `redactStrings`/`redactStringBody`；`captured-http.test.ts` 正负（PII 匹配仍通过、actual/expected/失败消息无明文）；smoke `artifacts/smoke-last.json` 中 `requestBodies`/`requestJson` 为 `***`；`pnpm verify` 全绿（2026-11-06）
+- [x] R-2 DB guard 逗号 join + schema — `readonly-db-client.ts` 改用 `pgsql-ast-parser` 提取所有表引用，覆盖逗号列表、子查询、CROSS JOIN 子查询、引号表名、WHERE 子查询与 schema 前缀；`postgres-readonly.test.ts` 正负；`pnpm verify` 全绿（2026-11-06）
 - [x] R-3 Pilot 负向用例 seed — `seed-pilot-catalog.json` + `pilot-ticket-no-region.json` wait alert；`seed.test.ts`；`pnpm verify` 全绿（2026-11-06）
 - [x] R-4 配置 hash 与缓存 — `config-hash` 注册失效；db/agent loader 按 `computeAssertionConfigHash` 刷新；`config-hash.test.ts` + `approval.test.ts` 409；`pnpm verify` 全绿（2026-11-06）
 - [x] R-5 absent/requestCount — `captured-http.test.ts` provider 级正负 + 审批 shape 拒绝 `absent:false`/`requestCount:1`；`pnpm verify` 全绿（2026-11-06）

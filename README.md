@@ -24,7 +24,9 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 
 > 安全默认值：API 只监听 `127.0.0.1`，CORS 只放行本机控制台，写请求校验 `Origin`。若必须设 `HOST` 为非回环地址，同时设置 `TESTPILOT_API_TOKEN`，否则 API 会拒绝启动；自定义控制台域名需加入 `TESTPILOT_ALLOWED_ORIGINS`，额外测试环境需加入 `TESTPILOT_ALLOWED_TARGETS`。
 
-在控制台里：**运行全部用例**、**Flake 检查 ×3**、**运行详情**（步骤/断言/证据）、**三批基线**看板、**录制新用例**、**审阅**（步骤编辑/试跑、UI·HTTP·Provider 断言、保存并批准）、**审批审计**、下载 Trace。
+在控制台里：**需求→测试**（粘贴 PRD/需求 → 选环境 → 自动试跑报告 → 通过后一键入回归，**试跑不等于批准**）、**运行全部用例**、**Flake 检查 ×3**、**运行详情**、**三批基线**、**录制/审阅**、**审批审计**、下载 Trace。
+
+**V0.5-lite 路径：** 侧栏「需求→测试」→ 选练习/试点/白名单 URL → 生成并试跑 → 审阅不确定项 → 试跑通过时点「一键加入回归」（会二次确认 + `irHash` 审批，不会自动批准）。
 
 证据目录可用 `pnpm clean:artifacts`（默认 dry-run，见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)）。批量并行度由 `TESTPILOT_MAX_PARALLEL` 控制（默认 2）。
 

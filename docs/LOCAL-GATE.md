@@ -35,6 +35,13 @@ pnpm clean:artifacts --execute    # 实际删除
 - 默认保留最近 **12** 个显式批次内的 run（`--keep-batches K`），并剔除超过 **14** 天的其余证据（`--days N`）。
 - 可选 `--max-mb` 限制 `artifacts/runs` 总体积。
 
+## 需求→测试（V0.5-lite）
+
+入口：控制台 **需求→测试** 或 `POST /api/requirement-flow`（`pnpm dev` 时 demo 须可达）。
+
+- 自动试跑记入 `trial`，**不计入**回归指标；批准加入回归仍走 `/api/tests/:id/approve` 与 hash 校验。
+- LLM 不可用时降级为规则草案，界面展示原因。
+
 ## 并行批跑（V0.4）
 
 批量回归并行度：`TESTPILOT_MAX_PARALLEL`（默认 2，上限 4），见 `.env.example`。

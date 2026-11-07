@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -92,7 +92,8 @@ test("listBatches skips a corrupt batch file instead of failing", async () => {
       mode: "full",
       repeatCount: 1,
     });
-    await writeFile(join(root, "batches", "batch_broken.json"), "{not-json");
+    await mkdir(join(root, "sessions", "session_batch_broken"), { recursive: true });
+    await writeFile(join(root, "sessions", "session_batch_broken", "session.json"), "{not-json");
     const list = await store.listBatches();
     assert.deepEqual(list.map((b) => b.batchId), ["batch_ok"]);
   } finally {

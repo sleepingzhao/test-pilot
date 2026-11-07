@@ -59,6 +59,7 @@ import {
 import { metricsFromBatchRecord } from "./batch-metrics.js";
 import { autoPruneArtifacts, measureBatchArtifactBytes } from "./artifact-cleanup.js";
 import { createMutex, mapWithConcurrency, maxParallelFromEnv } from "./batch-parallel.js";
+import { sessionArtifactsRunsDir, sessionIdForBatch, sessionIdForRun } from "./session-layout.js";
 import {
   computeRegressionBaseline,
   writeRegressionBaselineReport,
@@ -319,6 +320,8 @@ async function runSingleTest(
   const runId = `run_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
   const startedAt = new Date().toISOString();
   const startedMs = Date.now();
+  const sessionId = batch ? sessionIdForBatch(batch.batchId) : sessionIdForRun(runId);
+  const artifactsDir = sessionArtifactsRunsDir(artifactsRoot, sessionId);
   try {
     const v = validateTestIR(test.ir);
     if (!v.ok) throw new Error(`IR 校验失败: ${v.issues.map((i) => i.message).join("; ")}`);
@@ -327,7 +330,7 @@ async function runSingleTest(
       runTestIR(v.value, {
         runId,
         headless: true,
-        artifactsDir: join(artifactsRoot, "runs"),
+        artifactsDir,
         env: runEnv,
       }),
       runTimeoutMs(),
@@ -357,7 +360,7 @@ async function runSingleTest(
       completedAt,
       steps: [{ stepId: "run", status: "failed", durationMs: Date.now() - startedMs, message }],
       assertions: [],
-      artifacts: { runId, dir: join(artifactsRoot, "runs", runId), artifacts: [] },
+      artifacts: { runId, dir: join(artifactsDir, runId), artifacts: [] },
       metrics: {
         durationMs: Date.now() - startedMs,
         llmTokensUsed: 0,
@@ -464,10 +467,12 @@ async function executeSingleIrRun(
   if (!v.ok) {
     throw new Error(`IR 校验失败: ${v.issues.map((i) => i.message).join("; ")}`);
   }
+  const runId = `run_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
   const runEnv = buildRunEnvironment(baseUrl);
   const result = await runTestIR(v.value, {
+    runId,
     headless: true,
-    artifactsDir: join(artifactsRoot, "runs"),
+    artifactsDir: sessionArtifactsRunsDir(artifactsRoot, sessionIdForRun(runId)),
     env: runEnv,
   });
   const artifacts = await ensureNetworkArtifact(result.artifacts);
@@ -483,6 +488,7 @@ async function executeSingleIrRun(
   );
   await store.saveRun(stored);
   await appendRunMetrics(dataRoot, stored, { trial: true });
+  void autoPruneArtifacts({ artifactsRoot, dataRoot }).catch(() => undefined);
   return stored;
 }
 
@@ -1200,8 +1206,11 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const baselineMin = baseline?.manualRegressionMinutes ?? null;
     const llmUsage = llmUsageSnapshot();
     const flake = computeFlakeStats(runs);
-    const storedBatches = (await store.listBatches(8)).filter((b) => b.status !== "running");
-    const recentBatches = storedBatches.map(metricsFromBatchRecord);
+    const storedBatches = (await store.listBatches(10)).filter((b) => b.status !== "running");
+    const batchRunIds = new Set(storedBatches.flatMap((b) => b.runIds));
+    const batchRunCount = runs.filter((r) => batchRunIds.has(r.runId)).length;
+    const standaloneRunCount = runs.length - batchRunCount;
+    const recentBatches = storedBatches.slice(0, 8).map(metricsFromBatchRecord);
     const fullBatch = storedBatches.find((b) => b.mode === "full" && (b.repeatCount ?? 1) === 1);
     const lastBatchMs = fullBatch ? metricsFromBatchRecord(fullBatch).durationMs : null;
     const batchMinutes = lastBatchMs != null ? lastBatchMs / 60_000 : null;
@@ -1209,6 +1218,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       batchMinutes != null && baselineMin != null ? Math.max(0, Math.round((baselineMin - batchMinutes) * 10) / 10) : null;
     return {
       runCount: runs.length,
+      batchRunCount,
+      standaloneRunCount,
       passRate: runs.length ? passed / runs.length : 0,
       avgDurationMs: runs.length ? Math.round(totalMs / runs.length) : 0,
       llmTokensTotal: llmUsage.tokensTotal,
@@ -1333,6 +1344,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
     if (list.length === 1) {
       const results = await executeRuns(store, list, baseUrl, project.id, artifactsRoot, dataRoot);
+      void autoPruneArtifacts({ artifactsRoot, dataRoot }).catch(() => undefined);
       return { runs: results, async: false, repeatCount };
     }
 

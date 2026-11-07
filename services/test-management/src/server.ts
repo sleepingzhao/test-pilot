@@ -14,6 +14,7 @@ import { assertSafeBindHost, corsOrigin, registerSecurity } from "./security.js"
 import { FileStore } from "./store.js";
 import { initLlmUsage } from "./llm-usage.js";
 import { autoPruneArtifacts } from "./artifact-cleanup.js";
+import { migrateArtifactLayout } from "./session-layout.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const dataRoot = join(repoRoot, "data");
@@ -56,6 +57,8 @@ registerSecurity(app);
 
 const store = new FileStore(dataRoot);
 await store.init();
+const movedArtifacts = await migrateArtifactLayout(artifactsRoot, dataRoot).catch(() => 0);
+if (movedArtifacts > 0) app.log.info(`Moved ${movedArtifacts} artifact folder(s) into sessions`);
 const recovered = await store.recoverInterruptedBatches();
 if (recovered > 0) app.log.warn(`Recovered ${recovered} interrupted batch(es)`);
 void autoPruneArtifacts({ artifactsRoot, dataRoot }).catch(() => undefined);

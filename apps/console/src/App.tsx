@@ -111,6 +111,8 @@ export function App() {
     passRate: number;
     avgDurationMs: number;
     runCount: number;
+    batchRunCount?: number;
+    standaloneRunCount?: number;
     lastBatchDurationMs?: number | null;
     pilotBaselineMinutes?: number | null;
     minutesSavedVsBaseline?: number | null;
@@ -1243,7 +1245,12 @@ export function App() {
               <div className="stat-card">
                 <span className="stat-label">通过率</span>
                 <strong>{summary && summary.runCount > 0 ? `${Math.round(summary.passRate * 100)}%` : "—"}</strong>
-                <span className="stat-sub">最近 {summary?.runCount ?? 0} 次回归运行（不含试跑）</span>
+                <span className="stat-sub">
+                  最近 {summary?.runCount ?? 0} 次运行
+                  {summary?.batchRunCount != null
+                    ? `（批内 ${summary.batchRunCount} · 单跑 ${summary.standaloneRunCount ?? 0}，不含试跑）`
+                    : "（不含试跑）"}
+                </span>
               </div>
               <div className="stat-card">
                 <span className="stat-label">平均耗时</span>
@@ -1304,7 +1311,7 @@ export function App() {
               <div className="batch-trend flake-panel">
                 <h3 className="batch-trend-title">Flake 统计</h3>
                 <p className="flake-lede">
-                  统计范围：最近 {flakeMetrics.batchCount ?? "?"} 个回归批次（共 {flakeMetrics.runCount} 次运行，不含试跑）。
+                  统计范围：最近 {flakeMetrics.batchCount ?? "?"} 个回归批次（批内 {flakeMetrics.runCount} 次运行，不含试跑）。
                   当前 flake <strong>{(flakeMetrics.flakeRate * 100).toFixed(1)}%</strong>（目标 &lt;{" "}
                   {Math.round((baseline?.targets.flakeRateMax ?? 0.05) * 100)}%，
                   {flakeMetrics.flakeRate < (baseline?.targets.flakeRateMax ?? 0.05) ? "达标" : "未达标"}）。
@@ -1345,10 +1352,13 @@ export function App() {
             {summary && summary.recentBatches?.length ? (
               <div className="batch-trend">
                 <h3 className="batch-trend-title">最近回归批次</h3>
-                <ul className="batch-trend-list">
+                <ul className="batch-trend-list recent-batches">
                   {summary.recentBatches.map(
                     (b) => (
                       <li key={b.batchId}>
+                        <span className="batch-id" title={b.batchId}>
+                          {b.batchId}
+                        </span>
                         <button type="button" className="link-button" onClick={() => openBatch(b.batchId)}>
                           {new Date(b.startedAt).toLocaleString()}
                         </button>

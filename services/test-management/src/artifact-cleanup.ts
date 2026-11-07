@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { StoredBatch, StoredRun } from "./store.js";
 import { isSafeRunId, isWithin } from "./security.js";
+import { findRunFile, listRunFiles, listSessionBatchMetas, pruneSessions } from "./session-layout.js";
 
 export type CleanupCandidate = { runId: string; dir: string; reason: string; bytes: number };
 
@@ -50,30 +51,20 @@ export async function dirSizeBytes(dir: string): Promise<number> {
 }
 
 async function loadBatches(dataRoot: string): Promise<StoredBatch[]> {
-  const dir = join(dataRoot, "batches");
-  let files: string[];
-  try {
-    files = (await readdir(dir)).filter((f) => f.endsWith(".json"));
-  } catch {
-    return [];
-  }
   const out: StoredBatch[] = [];
-  for (const f of files) {
-    try {
-      const raw = await readFile(join(dir, f), "utf8");
-      out.push(JSON.parse(raw) as StoredBatch);
-    } catch {
-      /* skip */
-    }
+  for (const meta of await listSessionBatchMetas(dataRoot)) {
+    const { id: _id, kind: _kind, ...batch } = meta;
+    out.push(batch as StoredBatch);
   }
   return out.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
 async function loadRun(dataRoot: string, runId: string): Promise<StoredRun | undefined> {
   if (!isSafeRunId(runId)) return undefined;
+  const ref = await findRunFile(dataRoot, runId);
+  if (!ref) return undefined;
   try {
-    const raw = await readFile(join(dataRoot, "runs", `${runId}.json`), "utf8");
-    return JSON.parse(raw) as StoredRun;
+    return JSON.parse(await readFile(ref.path, "utf8")) as StoredRun;
   } catch {
     return undefined;
   }
@@ -81,18 +72,14 @@ async function loadRun(dataRoot: string, runId: string): Promise<StoredRun | und
 
 async function loadRecentRunIds(dataRoot: string, limit: number): Promise<string[]> {
   if (limit <= 0) return [];
-  let files: string[];
-  try {
-    files = (await readdir(join(dataRoot, "runs"))).filter((f) => f.endsWith(".json"));
-  } catch {
-    return [];
-  }
   const rows: Array<{ runId: string; startedAt: string }> = [];
-  for (const file of files) {
-    const runId = file.replace(/\.json$/, "");
-    if (!isSafeRunId(runId)) continue;
-    const run = await loadRun(dataRoot, runId);
-    if (run) rows.push({ runId, startedAt: run.startedAt ?? "" });
+  for (const ref of await listRunFiles(dataRoot)) {
+    try {
+      const run = JSON.parse(await readFile(ref.path, "utf8")) as StoredRun;
+      rows.push({ runId: ref.runId, startedAt: run.startedAt ?? "" });
+    } catch {
+      /* skip unreadable run */
+    }
   }
   return rows
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
@@ -100,9 +87,81 @@ async function loadRecentRunIds(dataRoot: string, limit: number): Promise<string
     .map((r) => r.runId);
 }
 
-export function keepRunsFromEnv(): number {
-  const n = Number(process.env.TESTPILOT_ARTIFACT_KEEP_RUNS ?? 10);
-  return Number.isInteger(n) && n >= 1 ? Math.min(n, 200) : 10;
+export function keepProbesFromEnv(): number {
+  const n = Number(process.env.TESTPILOT_ARTIFACT_KEEP_PROBES ?? 20);
+  return Number.isInteger(n) && n >= 1 ? Math.min(n, 200) : 20;
+}
+
+export function keepSessionsFromEnv(): number {
+  const n = Number(process.env.TESTPILOT_KEEP_SESSIONS ?? 20);
+  return Number.isInteger(n) && n >= 1 ? Math.min(n, 500) : 20;
+}
+
+/** Negative-probe folders are gate evidence, not business runs; keep the newest N. */
+export async function pruneProbeArtifacts(artifactsRoot: string, keepProbes?: number): Promise<number> {
+  const keep = keepProbes ?? keepProbesFromEnv();
+  const probesRoot = join(artifactsRoot, "probes");
+  let names: string[];
+  try {
+    names = (await readdir(probesRoot, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return 0;
+  }
+  if (names.length <= keep) return 0;
+  const stamped = await Promise.all(
+    names.map(async (name) => ({
+      name,
+      mtime: (await stat(join(probesRoot, name))).mtimeMs,
+    })),
+  );
+  stamped.sort((a, b) => b.mtime - a.mtime);
+  let removed = 0;
+  for (const item of stamped.slice(keep)) {
+    await rm(join(probesRoot, item.name), { recursive: true, force: true });
+    removed += 1;
+  }
+  return removed;
+}
+
+async function scanArtifactRunDirs(
+  artifactsRoot: string,
+): Promise<Array<{ runId: string; dir: string }>> {
+  const out: Array<{ runId: string; dir: string }> = [];
+  const sessionsDir = join(artifactsRoot, "sessions");
+  let sessionIds: string[] = [];
+  try {
+    sessionIds = (await readdir(sessionsDir, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    sessionIds = [];
+  }
+  for (const sessionId of sessionIds) {
+    const runsDir = join(sessionsDir, sessionId, "runs");
+    try {
+      for (const entry of await readdir(runsDir, { withFileTypes: true })) {
+        if (entry.isDirectory() && isSafeRunId(entry.name)) {
+          out.push({ runId: entry.name, dir: join(runsDir, entry.name) });
+        }
+      }
+    } catch {
+      /* session without run folders */
+    }
+  }
+  // Legacy layout stays visible to cleanup until migration has moved everything.
+  const legacyRuns = join(artifactsRoot, "runs");
+  try {
+    for (const entry of await readdir(legacyRuns, { withFileTypes: true })) {
+      if (entry.isDirectory() && isSafeRunId(entry.name)) {
+        out.push({ runId: entry.name, dir: join(legacyRuns, entry.name) });
+      }
+    }
+  } catch {
+    /* no legacy runs */
+  }
+  return out;
 }
 
 export async function planArtifactCleanup(opts: {
@@ -115,7 +174,6 @@ export async function planArtifactCleanup(opts: {
   /** Keep artifacts for this many most recent runs even outside kept batches (trials). */
   keepStandaloneRuns?: number;
 }): Promise<ArtifactCleanupPlan> {
-  const runsRoot = join(opts.artifactsRoot, "runs");
   const batches = await loadBatches(opts.dataRoot);
   const protectedRunIds = new Set<string>();
   for (const batch of batches.slice(0, opts.keepBatches)) {
@@ -130,20 +188,11 @@ export async function planArtifactCleanup(opts: {
   // keepBatches alone means "retain the latest N batches, prune the rest".
   const pruneUnprotected = opts.days == null && opts.maxTotalBytes == null;
 
-  let runDirs: string[] = [];
-  try {
-    runDirs = (await readdir(runsRoot, { withFileTypes: true }))
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
-  } catch {
-    runDirs = [];
-  }
+  const runDirs = await scanArtifactRunDirs(opts.artifactsRoot);
 
   const entries: Array<{ runId: string; dir: string; bytes: number; mtimeMs: number; protected: boolean }> =
     [];
-  for (const runId of runDirs) {
-    if (!isSafeRunId(runId)) continue;
-    const dir = join(runsRoot, runId);
+  for (const { runId, dir } of runDirs) {
     const bytes = await dirSizeBytes(dir);
     const st = await stat(dir);
     entries.push({
@@ -228,38 +277,40 @@ export async function executeArtifactCleanup(
   return removed;
 }
 
-/** Session-like retention: keep artifact folders for the latest N runs only. */
+/**
+ * Session retention: keep the newest N sessions (batch or standalone run) and
+ * delete the rest from both data and artifacts, then trim probe folders.
+ */
 export async function autoPruneArtifacts(opts: {
   artifactsRoot: string;
   dataRoot: string;
-  keepRuns?: number;
+  keepSessions?: number;
+  keepProbes?: number;
 }): Promise<number> {
-  const keepRuns = opts.keepRuns ?? keepRunsFromEnv();
-  const plan = await planArtifactCleanup({
-    artifactsRoot: opts.artifactsRoot,
+  const kept = await pruneSessions({
     dataRoot: opts.dataRoot,
-    keepBatches: 0,
-    days: null,
-    maxTotalBytes: null,
-    dryRun: false,
-    keepStandaloneRuns: keepRuns,
+    artifactsRoot: opts.artifactsRoot,
+    keepSessions: opts.keepSessions ?? keepSessionsFromEnv(),
   });
-  return executeArtifactCleanup(plan, join(opts.artifactsRoot, "runs"));
+  const removedProbes = await pruneProbeArtifacts(opts.artifactsRoot, opts.keepProbes);
+  return kept.removed + removedProbes;
 }
 
 export async function measureBatchArtifactBytes(
   artifactsRoot: string,
   runIds: string[],
 ): Promise<number> {
+  const byRun = new Map((await scanArtifactRunDirs(artifactsRoot)).map((item) => [item.runId, item.dir]));
   let total = 0;
   for (const runId of runIds) {
     if (!isSafeRunId(runId)) continue;
-    total += await dirSizeBytes(join(artifactsRoot, "runs", runId));
+    const dir = byRun.get(runId);
+    if (dir) total += await dirSizeBytes(dir);
   }
   return total;
 }
 
-/** Never touches data/tests or data/runs — artifacts/runs/* only. */
+/** Never touches data/tests or data/sessions — artifact run folders only. */
 export async function runArtifactCleanupCli(opts: {
   repoRoot: string;
   keepBatches: number;
@@ -278,6 +329,6 @@ export async function runArtifactCleanupCli(opts: {
     maxTotalBytes: opts.maxTotalBytes,
     dryRun: opts.dryRun,
   });
-  await executeArtifactCleanup(plan, join(artifactsRoot, "runs"));
+  await executeArtifactCleanup(plan, artifactsRoot);
   return plan;
 }

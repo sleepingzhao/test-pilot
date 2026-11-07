@@ -1,8 +1,21 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { TestIR } from "@testpilot/test-ir";
 import type { RunResult } from "@testpilot/runner-web";
 import { isSafeRunId, isSafeTestId } from "./security.js";
+import {
+  findRunFile,
+  listRunFiles,
+  listSessionMetas,
+  migrateLegacyDataLayout,
+  readSessionMeta,
+  sessionIdForBatch,
+  sessionIdForRun,
+  sessionMetaPath,
+  sessionRunFilePath,
+  sessionsRoot,
+  type SessionMeta,
+} from "./session-layout.js";
 
 export type Project = {
   id: string;
@@ -70,8 +83,8 @@ export class FileStore {
 
   async init() {
     await mkdir(join(this.root, "tests"), { recursive: true });
-    await mkdir(join(this.root, "runs"), { recursive: true });
-    await mkdir(join(this.root, "batches"), { recursive: true });
+    await mkdir(sessionsRoot(this.root), { recursive: true });
+    await migrateLegacyDataLayout(this.root);
   }
 
   project(): Project {
@@ -126,32 +139,42 @@ export class FileStore {
 
   async saveRun(run: StoredRun): Promise<void> {
     if (!isSafeRunId(run.runId)) throw new Error(`invalid run id: ${run.runId}`);
-    await writeFile(join(this.root, "runs", `${run.runId}.json`), JSON.stringify(run, null, 2));
+    const sessionId = run.batchId ? sessionIdForBatch(run.batchId) : sessionIdForRun(run.runId);
+    const path = sessionRunFilePath(this.root, sessionId, run.runId);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, JSON.stringify(run, null, 2));
+    if (!run.batchId) {
+      // Standalone trials own their session; keep its summary in sync.
+      const existing = await readSessionMeta(this.root, sessionId);
+      const runIds = [...new Set([...(existing?.runIds ?? []), run.runId])];
+      const meta: SessionMeta = {
+        id: sessionId,
+        kind: "trial",
+        startedAt: existing?.startedAt || run.startedAt,
+        completedAt: run.completedAt,
+        status: run.status,
+        runIds,
+      };
+      await writeFile(sessionMetaPath(this.root, sessionId), JSON.stringify(meta, null, 2));
+    }
   }
 
   async getRun(runId: string): Promise<StoredRun | undefined> {
     if (!isSafeRunId(runId)) return undefined;
+    const ref = await findRunFile(this.root, runId);
+    if (!ref) return undefined;
     try {
-      const raw = await readFile(join(this.root, "runs", `${runId}.json`), "utf8");
-      return JSON.parse(raw) as StoredRun;
+      return JSON.parse(await readFile(ref.path, "utf8")) as StoredRun;
     } catch {
       return undefined;
     }
   }
 
   async listRuns(limit = 30): Promise<StoredRun[]> {
-    const dir = join(this.root, "runs");
-    let files: string[];
-    try {
-      files = (await readdir(dir)).filter((f) => f.endsWith(".json")).sort();
-    } catch {
-      return [];
-    }
     const runs: StoredRun[] = [];
-    for (const f of files.slice(-limit * 2)) {
+    for (const ref of await listRunFiles(this.root)) {
       try {
-        const raw = await readFile(join(dir, f), "utf8");
-        runs.push(JSON.parse(raw) as StoredRun);
+        runs.push(JSON.parse(await readFile(ref.path, "utf8")) as StoredRun);
       } catch {
         /* skip corrupt / vanished run */
       }
@@ -161,35 +184,27 @@ export class FileStore {
 
   async saveBatch(batch: StoredBatch): Promise<void> {
     if (!isSafeRunId(batch.batchId)) throw new Error(`invalid batch id: ${batch.batchId}`);
-    await writeFile(join(this.root, "batches", `${batch.batchId}.json`), JSON.stringify(batch, null, 2));
+    const sessionId = sessionIdForBatch(batch.batchId);
+    const meta: SessionMeta = { ...batch, id: sessionId, kind: "batch", batchId: batch.batchId };
+    const path = sessionMetaPath(this.root, sessionId);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, JSON.stringify(meta, null, 2));
   }
 
   async getBatch(batchId: string): Promise<StoredBatch | undefined> {
     if (!isSafeRunId(batchId)) return undefined;
-    try {
-      const raw = await readFile(join(this.root, "batches", `${batchId}.json`), "utf8");
-      return JSON.parse(raw) as StoredBatch;
-    } catch {
-      return undefined;
-    }
+    const meta = await readSessionMeta(this.root, sessionIdForBatch(batchId));
+    if (!meta || meta.kind !== "batch") return undefined;
+    const { id: _id, kind: _kind, ...batch } = meta;
+    return batch as StoredBatch;
   }
 
   async listBatches(limit = 20): Promise<StoredBatch[]> {
-    const dir = join(this.root, "batches");
-    let files: string[];
-    try {
-      files = (await readdir(dir)).filter((f) => f.endsWith(".json")).sort();
-    } catch {
-      return [];
-    }
     const batches: StoredBatch[] = [];
-    for (const f of files) {
-      try {
-        const raw = await readFile(join(dir, f), "utf8");
-        batches.push(JSON.parse(raw) as StoredBatch);
-      } catch {
-        /* skip corrupt batch */
-      }
+    for (const meta of await listSessionMetas(this.root)) {
+      if (meta.kind !== "batch") continue;
+      const { id: _id, kind: _kind, ...batch } = meta;
+      batches.push(batch as StoredBatch);
     }
     return batches.sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, limit);
   }

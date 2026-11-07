@@ -30,7 +30,7 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 
 **审批以 IR 内容为准：** 批准时保存当时的 IR 快照；构建产物升级导致哈希算法变化时，只要 IR 内容没变，不会要求重新审阅；IR 真正变更才会退回草稿。
 
-证据目录默认只保留最近 10 个 run 的文件夹（`TESTPILOT_ARTIFACT_KEEP_RUNS`，批次结束与服务启动时清理，与 session 类似）；也可用 `pnpm clean:artifacts` 手动预览/清理（默认 dry-run，见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)）。批量并行度由 `TESTPILOT_MAX_PARALLEL` 控制（默认 2），试点用例共享账号会串行执行以避免登录竞态。
+默认只保留最近 **20 个 session**（一次批次或一次单独试跑都算一个 session，`TESTPILOT_KEEP_SESSIONS`）：`data/sessions` 与 `artifacts/sessions` 一起清理，更早的记录和证据都会删除；也可用 `pnpm clean:artifacts` 手动预览/清理（默认 dry-run，见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)）。批量并行度由 `TESTPILOT_MAX_PARALLEL` 控制（默认 2），试点用例共享账号会串行执行以避免登录竞态。
 
 本地发布前门禁（无 GitHub CI）：[`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md) · 命令 `pnpm verify`（需 demo `:4173` 可达，见文档）。
 
@@ -93,6 +93,23 @@ pnpm verify
 
 `artifacts/`、`data/`、Playwright 报告等已被 Git 忽略，不会进入提交；需要限制磁盘增长时：
 
+```
+data/
+  tests/<testId>.json              # 用例定义
+  sessions/<sessionId>/            # batch 和 trial 都包在 session_* 目录下
+    session.json                   # 本次会话汇总（kind: batch | trial）
+    runs/<runId>.json              # 该会话内的运行记录
+  reports/ · audit.jsonl · metrics.jsonl · llm-usage.json
+
+artifacts/
+  sessions/<sessionId>/runs/<runId>/   # 每次运行的 trace、network、截图、manifest
+  probes/<probeId>/                    # 负向探针证据，只保留最近 20 个
+  smoke/smoke-last.json · smoke/runs/  # demo smoke
+  negative-probes-last.json
+```
+
+同一个 `<sessionId>` 同时出现在 `data/sessions/` 和 `artifacts/sessions/` 下：页面里的「详情与证据」只会读取该会话内对应 `<runId>` 的产物。
+
 ```bash
 pnpm clean:junk                         # 删除 .DS_Store、*.log、*.tsbuildinfo 等
 pnpm clean:artifacts                    # 默认 dry-run，只预览
@@ -100,4 +117,4 @@ pnpm clean:artifacts -- --execute       # 实际删除
 pnpm clean:artifacts -- --keep-batches 20 --days 30 --max-mb 512
 ```
 
-默认保留最近 10 个 run 的证据目录（自动清理，`TESTPILOT_ARTIFACT_KEEP_RUNS`）；手动清理默认只保留最近 10 个显式批次，并删除 14 天前的其余证据；只动 `artifacts/runs`。
+默认保留最近 **20 个 session**（`TESTPILOT_KEEP_SESSIONS`，data 与 artifacts 同步清理）；手动清理默认只保留最近 10 个显式批次，并删除 14 天前的其余证据；只动 `artifacts/sessions` 下的 run 目录。

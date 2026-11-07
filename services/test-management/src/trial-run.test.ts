@@ -95,9 +95,16 @@ test("trial runs are excluded from regression metrics", async () => {
   try {
     const res = await app.inject({ method: "GET", url: "/api/metrics/summary" });
     assert.equal(res.statusCode, 200);
-    const summary = res.json() as { runCount: number; passRate: number };
+    const summary = res.json() as {
+      runCount: number;
+      passRate: number;
+      batchRunCount: number;
+      standaloneRunCount: number;
+    };
     assert.equal(summary.runCount, 1);
     assert.equal(summary.passRate, 1);
+    assert.equal(summary.batchRunCount, 0);
+    assert.equal(summary.standaloneRunCount, 1);
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });

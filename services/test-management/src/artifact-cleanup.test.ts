@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { autoPruneArtifacts, executeArtifactCleanup, planArtifactCleanup } from "./artifact-cleanup.js";
+import {
+  autoPruneArtifacts,
+  executeArtifactCleanup,
+  planArtifactCleanup,
+  pruneProbeArtifacts,
+} from "./artifact-cleanup.js";
 import type { StoredBatch } from "./store.js";
 import type { ArtifactCleanupPlan } from "./artifact-cleanup.js";
 
@@ -17,7 +22,7 @@ async function fixtureTree(): Promise<{ root: string; artifacts: string; data: s
   await writeFile(join(runsRoot, "run_old", "trace.zip"), "old");
   await writeFile(join(runsRoot, "run_keep", "trace.zip"), "keep");
   await writeFile(join(artifacts, "negative-probes-last.json"), "{}");
-  await mkdir(join(data, "batches"), { recursive: true });
+  await mkdir(join(data, "sessions", "session_batch_1"), { recursive: true });
   await mkdir(join(data, "runs"), { recursive: true });
   await mkdir(join(data, "tests"), { recursive: true });
   await writeFile(join(data, "tests", "t1.json"), "{}");
@@ -29,7 +34,10 @@ async function fixtureTree(): Promise<{ root: string; artifacts: string; data: s
     status: "completed",
     runIds: ["run_keep"],
   };
-  await writeFile(join(data, "batches", "batch_1.json"), JSON.stringify(batch));
+  await writeFile(
+    join(data, "sessions", "session_batch_1", "session.json"),
+    JSON.stringify({ ...batch, id: "session_batch_1", kind: "batch" }),
+  );
   const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
   await writeFile(
     join(data, "runs", "run_old.json"),
@@ -79,7 +87,7 @@ test("execute removes only unprotected stale runs and leaves data untouched (pos
     await assert.rejects(stat(join(runsRoot, "run_old")));
     await stat(join(runsRoot, "run_keep", "trace.zip"));
     assert.equal(await readFile(join(data, "tests", "t1.json"), "utf8"), "{}");
-    await stat(join(data, "batches", "batch_1.json"));
+    await stat(join(data, "sessions", "session_batch_1", "session.json"));
     await stat(join(artifacts, "negative-probes-last.json"));
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -131,29 +139,60 @@ test("keepBatches alone prunes runs outside the kept batches", async () => {
   }
 });
 
-test("recent standalone runs stay protected during automatic pruning", async () => {
-  const { root, artifacts, data, runsRoot } = await fixtureTree();
-  await mkdir(join(runsRoot, "run_recent"), { recursive: true });
-  await writeFile(join(runsRoot, "run_recent", "trace.zip"), "new");
-  await writeFile(
-    join(data, "runs", "run_recent.json"),
-    JSON.stringify({
-      runId: "run_recent",
-      startedAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
-      testId: "t",
-      status: "passed",
-    }),
-  );
+test("automatic pruning keeps only the newest sessions in data and artifacts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tp-sessions-retention-"));
+  const data = join(root, "data");
+  const artifacts = join(root, "artifacts");
+  const now = Date.now();
+  const sessions = [
+    ["session_batch_old", new Date(now - 3 * 60_000).toISOString()],
+    ["session_run_mid", new Date(now - 2 * 60_000).toISOString()],
+    ["session_run_new", new Date(now - 60_000).toISOString()],
+  ] as const;
   try {
+    for (const [id, startedAt] of sessions) {
+      await mkdir(join(data, "sessions", id, "runs"), { recursive: true });
+      await writeFile(
+        join(data, "sessions", id, "session.json"),
+        JSON.stringify({ id, kind: id.includes("_batch_") ? "batch" : "trial", startedAt, status: "completed", runIds: [] }),
+      );
+      await mkdir(join(artifacts, "sessions", id, "runs", `run_${id}`), { recursive: true });
+      await writeFile(join(artifacts, "sessions", id, "runs", `run_${id}`, "trace.zip"), "trace");
+    }
     const removed = await autoPruneArtifacts({
       artifactsRoot: artifacts,
       dataRoot: data,
-      keepRuns: 1,
+      keepSessions: 2,
+      keepProbes: 20,
     });
-    assert.equal(removed, 2);
-    await stat(join(runsRoot, "run_recent", "trace.zip"));
-    await assert.rejects(stat(join(runsRoot, "run_old")));
+    assert.equal(removed, 1);
+    await assert.rejects(stat(join(data, "sessions", "session_batch_old")));
+    await assert.rejects(stat(join(artifacts, "sessions", "session_batch_old")));
+    await stat(join(data, "sessions", "session_run_mid", "session.json"));
+    await stat(join(data, "sessions", "session_run_new", "session.json"));
+    await stat(join(artifacts, "sessions", "session_run_new", "runs", "run_session_run_new", "trace.zip"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("keeps only the newest negative-probe folders", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tp-probes-"));
+  const probes = join(root, "probes");
+  const now = Date.now();
+  const names = ["probe_old", "probe_mid", "probe_new"];
+  try {
+    for (const [i, name] of names.entries()) {
+      await mkdir(join(probes, name), { recursive: true });
+      await writeFile(join(probes, name, "manifest.json"), "{}");
+      const when = new Date(now - (names.length - i) * 60_000);
+      await utimes(join(probes, name), when, when);
+    }
+    const removed = await pruneProbeArtifacts(root, 2);
+    assert.equal(removed, 1);
+    await assert.rejects(stat(join(probes, "probe_old")));
+    await stat(join(probes, "probe_mid"));
+    await stat(join(probes, "probe_new"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

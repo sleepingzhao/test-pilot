@@ -1250,14 +1250,24 @@ export function App() {
                 </span>
               </div>
               <div className="stat-card">
-                <span className="stat-label">弱断言</span>
-                <strong className={(summary?.weakApprovedCount ?? 0) > 0 ? "stat-bad" : "stat-ok"}>
-                  {summary?.weakApprovedCount ?? 0}
+                <span className="stat-label">Flake</span>
+                <strong
+                  className={
+                    flakeMetrics && flakeMetrics.runCount > 0
+                      ? flakeMetrics.flakeRate < (baseline?.targets.flakeRateMax ?? 0.05)
+                        ? "stat-ok"
+                        : "stat-bad"
+                      : undefined
+                  }
+                >
+                  {flakeMetrics && flakeMetrics.runCount > 0
+                    ? `${(flakeMetrics.flakeRate * 100).toFixed(1)}%`
+                    : "—"}
                 </strong>
                 <span className="stat-sub">
-                  {summary?.multiAttemptRuns
-                    ? `重试 ${summary.multiAttemptRuns} · flake 恢复 ${Math.round((summary.flakeRecoveryRate ?? 0) * 100)}%`
-                    : "无重试记录"}
+                  {flakeMetrics && flakeMetrics.runCount > 0
+                    ? `目标 <${Math.round((baseline?.targets.flakeRateMax ?? 0.05) * 100)}% · 重试 ${flakeMetrics.multiAttemptRuns} · 恢复 ${flakeMetrics.flakeRecoveryCount}`
+                    : "暂无回归数据"}
                 </span>
               </div>
             </div>

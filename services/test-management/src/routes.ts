@@ -23,7 +23,7 @@ import {
 import { readNegativeProbeReport } from "./negative-probes.js";
 import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-identity.js";
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
-import { computeFlakeStats } from "./flake-metrics.js";
+import { buildFlakeMetricsReport, computeFlakeStats, normalizeRepeatCount } from "./flake-metrics.js";
 import {
   assertionConfigCatalog,
   assertionProviderCatalog,
@@ -722,6 +722,11 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     return { entries };
   });
 
+  app.get("/api/metrics/flake", async () => {
+    const runs = (await store.listRuns(300)).filter((r) => !r.trial);
+    return buildFlakeMetricsReport(runs);
+  });
+
   app.get("/api/metrics/summary", async () => {
     const allRuns = await store.listRuns(100);
     const runs = allRuns.filter((r) => !r.trial);
@@ -804,7 +809,13 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   app.post("/api/projects/:projectId/runs", async (req, reply) => {
     const { projectId } = req.params as { projectId: string };
-    const body = (req.body ?? {}) as { testId?: string; baseUrl?: string; includeDraft?: boolean };
+    const body = (req.body ?? {}) as {
+      testId?: string;
+      baseUrl?: string;
+      includeDraft?: boolean;
+      repeatCount?: number;
+    };
+    const repeatCount = normalizeRepeatCount(body.repeatCount);
     const project = store.project();
     const baseUrl = body.baseUrl ?? project.defaultBaseUrl;
     if (body.testId && !isSafeTestId(body.testId)) {
@@ -823,10 +834,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (!body.testId && !body.includeDraft) {
       tests = (tests as StoredTest[]).filter((t) => t.approvalStatus === "approved");
     }
-    const list = tests as StoredTest[];
-    if (list.length === 0) {
+    const baseList = tests as StoredTest[];
+    if (baseList.length === 0) {
       return reply.code(400).send({ error: "没有可运行的用例（需已批准）" });
     }
+    const list =
+      repeatCount > 1 ? baseList.flatMap((t) => Array.from({ length: repeatCount }, () => t)) : baseList;
 
     const runEnv = buildRunEnvironment(baseUrl);
     let targets: string[];
@@ -859,7 +872,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
     if (list.length === 1) {
       const results = await executeRuns(store, list, baseUrl, project.id, artifactsRoot, dataRoot);
-      return { runs: results, async: false };
+      return { runs: results, async: false, repeatCount };
     }
 
     const jobId = `batch_${Date.now()}`;
@@ -916,6 +929,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       batchId: jobId,
       async: true,
       total: list.length,
+      repeatCount,
       batch: batchRecord,
       maxParallel: maxParallelFromEnv(),
     };

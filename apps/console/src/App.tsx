@@ -89,6 +89,22 @@ export function App() {
     flakeRecoveryRate?: number;
     multiAttemptRuns?: number;
   } | null>(null);
+  const [flakeMetrics, setFlakeMetrics] = useState<{
+    runCount: number;
+    flakeRecoveryCount: number;
+    flakeRecoveryRate: number;
+    multiAttemptRuns: number;
+    excludedAssertionFailures: number;
+    byTest: Array<{
+      testId: string;
+      testTitle: string;
+      runCount: number;
+      flakeRate: number;
+      flakeRecoveryCount: number;
+      multiAttemptRuns: number;
+    }>;
+    failureKinds: Array<{ kind: string; count: number }>;
+  } | null>(null);
   const [demoOk, setDemoOk] = useState<boolean | null>(null);
   const [demoUrl, setDemoUrl] = useState("http://127.0.0.1:4173/");
   const [pilotOk, setPilotOk] = useState<boolean | null>(null);
@@ -201,6 +217,27 @@ export function App() {
       setSummary(m);
     } catch {
       setSummary(null);
+    }
+    try {
+      const flake = await api<{
+        runCount: number;
+        flakeRecoveryCount: number;
+        flakeRecoveryRate: number;
+        multiAttemptRuns: number;
+        excludedAssertionFailures: number;
+        byTest: Array<{
+          testId: string;
+          testTitle: string;
+          runCount: number;
+          flakeRate: number;
+          flakeRecoveryCount: number;
+          multiAttemptRuns: number;
+        }>;
+        failureKinds: Array<{ kind: string; count: number }>;
+      }>("/api/metrics/flake");
+      setFlakeMetrics(flake);
+    } catch {
+      setFlakeMetrics(null);
     }
     try {
       const env = await api<{
@@ -386,12 +423,12 @@ export function App() {
     }
   };
 
-  const runAll = async () => {
+  const runBatch = async (repeatCount = 1) => {
     setLoading(true);
     try {
       const res = await api<{ async?: boolean; jobId?: string; total?: number; runs?: StoredRun[] }>(
         "/api/projects/default/runs",
-        { method: "POST", body: JSON.stringify({}) },
+        { method: "POST", body: JSON.stringify(repeatCount > 1 ? { repeatCount } : {}) },
       );
       if (res.async && res.jobId) {
         setBatchProgress({ completed: 0, total: res.total ?? 0 });
@@ -409,6 +446,9 @@ export function App() {
       setBatchProgress(null);
     }
   };
+
+  const runAll = () => runBatch(1);
+  const runFlakeCheck = () => runBatch(3);
 
   const runOne = async (id: string) => {
     setLoading(true);
@@ -961,6 +1001,15 @@ export function App() {
                   {loading ? "运行中…" : "运行全部回归"}
                 </button>
               )}
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={loading || (demoOk === false && pilotOk === false)}
+                onClick={runFlakeCheck}
+                title="每条已批准用例连续运行 3 次，用于观察不稳定通过率"
+              >
+                {loading ? "运行中…" : "Flake 检查 ×3"}
+              </button>
               <button type="button" className="btn btn-secondary" onClick={() => setView("create")}>
                 创建用例
               </button>
@@ -1025,6 +1074,42 @@ export function App() {
               <p className="stat-note">
                 人工基线约 {summary.pilotBaselineMinutes} 分钟 · 本批节省约 {summary.minutesSavedVsBaseline} 分钟
               </p>
+            ) : null}
+            {flakeMetrics && flakeMetrics.runCount > 0 ? (
+              <div className="batch-trend flake-panel">
+                <h3 className="batch-trend-title">Flake 统计</h3>
+                <p className="flake-lede">
+                  计分运行 {flakeMetrics.runCount} · 重试 {flakeMetrics.multiAttemptRuns} · 恢复{" "}
+                  {flakeMetrics.flakeRecoveryCount}（{Math.round(flakeMetrics.flakeRecoveryRate * 100)}%）
+                  {flakeMetrics.excludedAssertionFailures > 0
+                    ? ` · 断言失败 ${flakeMetrics.excludedAssertionFailures} 次不计入 flake`
+                    : ""}
+                </p>
+                {flakeMetrics.failureKinds.length ? (
+                  <p className="flake-kinds">
+                    failureKind：
+                    {flakeMetrics.failureKinds
+                      .slice(0, 6)
+                      .map((k) => `${k.kind} ${k.count}`)
+                      .join(" · ")}
+                  </p>
+                ) : null}
+                {flakeMetrics.byTest.length ? (
+                  <ul className="batch-trend-list flake-by-test">
+                    {flakeMetrics.byTest.slice(0, 8).map((row) => (
+                      <li key={row.testId}>
+                        <span>{row.testTitle}</span>
+                        <span className={row.flakeRate > 0 ? "batch-warn" : "batch-ok"}>
+                          flake {Math.round(row.flakeRate * 100)}%
+                        </span>
+                        <span className="batch-dur">
+                          {row.runCount} 次 · 恢复 {row.flakeRecoveryCount}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
             ) : null}
             {summary && summary.recentBatches?.length ? (
               <div className="batch-trend">

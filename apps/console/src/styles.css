@@ -373,6 +373,17 @@ button.status-chip {
   font-weight: 600;
 }
 
+.flake-panel .flake-lede,
+.flake-panel .flake-kinds {
+  font-size: 13px;
+  color: var(--muted-strong);
+  margin: 0 0 10px;
+}
+
+.flake-by-test li {
+  grid-template-columns: 1fr auto 1.4fr;
+}
+
 .batch-dur {
   font-variant-numeric: tabular-nums;
   color: var(--muted);

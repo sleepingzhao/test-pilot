@@ -25,7 +25,7 @@ export function parseCleanupDays(raw: unknown): number | null {
 }
 
 export function parseKeepBatches(raw: unknown): number {
-  const n = raw === undefined ? 12 : Number(raw);
+  const n = raw === undefined ? 10 : Number(raw);
   if (!Number.isInteger(n) || n < 1) throw new Error("--keep-batches must be a positive integer");
   return n;
 }
@@ -79,6 +79,37 @@ async function loadRun(dataRoot: string, runId: string): Promise<StoredRun | und
   }
 }
 
+async function loadRecentRunIds(dataRoot: string, limit: number): Promise<string[]> {
+  if (limit <= 0) return [];
+  let files: string[];
+  try {
+    files = (await readdir(join(dataRoot, "runs"))).filter((f) => f.endsWith(".json"));
+  } catch {
+    return [];
+  }
+  const rows: Array<{ runId: string; startedAt: string }> = [];
+  for (const file of files) {
+    const runId = file.replace(/\.json$/, "");
+    if (!isSafeRunId(runId)) continue;
+    const run = await loadRun(dataRoot, runId);
+    if (run) rows.push({ runId, startedAt: run.startedAt ?? "" });
+  }
+  return rows
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+    .slice(0, limit)
+    .map((r) => r.runId);
+}
+
+export function keepBatchesFromEnv(): number {
+  const n = Number(process.env.TESTPILOT_ARTIFACT_KEEP_BATCHES ?? 10);
+  return Number.isInteger(n) && n >= 1 ? Math.min(n, 100) : 10;
+}
+
+export function keepStandaloneRunsFromEnv(): number {
+  const n = Number(process.env.TESTPILOT_ARTIFACT_KEEP_RUNS ?? 10);
+  return Number.isInteger(n) && n >= 0 ? Math.min(n, 100) : 10;
+}
+
 export async function planArtifactCleanup(opts: {
   artifactsRoot: string;
   dataRoot: string;
@@ -86,6 +117,8 @@ export async function planArtifactCleanup(opts: {
   days: number | null;
   maxTotalBytes: number | null;
   dryRun: boolean;
+  /** Keep artifacts for this many most recent runs even outside kept batches (trials). */
+  keepStandaloneRuns?: number;
 }): Promise<ArtifactCleanupPlan> {
   const runsRoot = join(opts.artifactsRoot, "runs");
   const batches = await loadBatches(opts.dataRoot);
@@ -93,9 +126,14 @@ export async function planArtifactCleanup(opts: {
   for (const batch of batches.slice(0, opts.keepBatches)) {
     for (const id of batch.runIds) protectedRunIds.add(id);
   }
+  for (const id of await loadRecentRunIds(opts.dataRoot, opts.keepStandaloneRuns ?? 0)) {
+    protectedRunIds.add(id);
+  }
 
   const cutoffMs =
     opts.days == null ? Number.NEGATIVE_INFINITY : Date.now() - opts.days * 86_400_000;
+  // keepBatches alone means "retain the latest N batches, prune the rest".
+  const pruneUnprotected = opts.days == null && opts.maxTotalBytes == null;
 
   let runDirs: string[] = [];
   try {
@@ -132,6 +170,10 @@ export async function planArtifactCleanup(opts: {
     }
     const run = await loadRun(opts.dataRoot, e.runId);
     const endedAt = run?.completedAt ? Date.parse(run.completedAt) : e.mtimeMs;
+    if (pruneUnprotected) {
+      toRemove.push({ runId: e.runId, dir: e.dir, reason: "outside-keep-batches", bytes: e.bytes });
+      continue;
+    }
     if (endedAt < cutoffMs) {
       toRemove.push({ runId: e.runId, dir: e.dir, reason: "older-than-days", bytes: e.bytes });
       continue;
@@ -189,6 +231,27 @@ export async function executeArtifactCleanup(
     removed += 1;
   }
   return removed;
+}
+
+/** Bounded evidence retention: keep the latest N batches plus recent standalone runs. */
+export async function autoPruneArtifacts(opts: {
+  artifactsRoot: string;
+  dataRoot: string;
+  keepBatches?: number;
+  keepRuns?: number;
+}): Promise<number> {
+  const keepBatches = opts.keepBatches ?? keepBatchesFromEnv();
+  const keepRuns = opts.keepRuns ?? keepStandaloneRunsFromEnv();
+  const plan = await planArtifactCleanup({
+    artifactsRoot: opts.artifactsRoot,
+    dataRoot: opts.dataRoot,
+    keepBatches,
+    days: null,
+    maxTotalBytes: null,
+    dryRun: false,
+    keepStandaloneRuns: keepRuns,
+  });
+  return executeArtifactCleanup(plan, join(opts.artifactsRoot, "runs"));
 }
 
 export async function measureBatchArtifactBytes(

@@ -27,3 +27,23 @@ export async function mapWithConcurrency<T, R>(
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
   return results;
 }
+
+/** Serializes work sharing one remote session (the pilot logs in with one account). */
+export function createMutex() {
+  let tail: Promise<void> = Promise.resolve();
+  return {
+    async run<T>(fn: () => Promise<T>): Promise<T> {
+      const previous = tail;
+      let release!: () => void;
+      tail = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      try {
+        return await fn();
+      } finally {
+        release();
+      }
+    },
+  };
+}

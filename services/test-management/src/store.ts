@@ -20,6 +20,8 @@ export type StoredTest = {
   irHashVersion?: number;
   approvedAt?: string;
   approvedBy?: string;
+  /** IR snapshot at approval; lets a hash-algorithm rebuild keep the approval. */
+  approvedIr?: TestIR;
   /** Hash of docs assertion-db/agent config at approval time. */
   assertionConfigHash?: string;
   intentSummary?: string;

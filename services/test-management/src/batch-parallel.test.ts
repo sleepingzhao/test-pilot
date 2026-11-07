@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mapWithConcurrency, maxParallelFromEnv } from "./batch-parallel.js";
+import { createMutex, mapWithConcurrency, maxParallelFromEnv } from "./batch-parallel.js";
 
 test("maxParallelFromEnv defaults to 2 and clamps to 4", () => {
   const prev = process.env.TESTPILOT_MAX_PARALLEL;
@@ -32,4 +32,24 @@ test("mapWithConcurrency limits in-flight work", async () => {
 
   assert.ok(maxInFlight <= 2);
   assert.deepEqual(results, [0, 10, 20, 30, 40]);
+});
+
+test("createMutex serializes work that shares one remote session", async () => {
+  const mutex = createMutex();
+  let active = 0;
+  let maxActive = 0;
+  const order: number[] = [];
+  await Promise.all(
+    [1, 2, 3].map((n) =>
+      mutex.run(async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        order.push(n);
+        await new Promise((r) => setTimeout(r, 5));
+        active -= 1;
+      }),
+    ),
+  );
+  assert.equal(maxActive, 1);
+  assert.deepEqual(order, [1, 2, 3]);
 });

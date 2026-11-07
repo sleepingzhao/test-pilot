@@ -98,3 +98,28 @@ test("pilot catalog sync loads pilot-ticket-no-region as draft", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("rebuilt hash keeps approval when the approved IR content is unchanged", async () => {
+  const saved = await syncWithPrevious(
+    previousTest({
+      irHash: "hash-from-old-algorithm",
+      irHashVersion: IR_HASH_VERSION,
+      approvedIr: fixtureIR,
+    }),
+  );
+  assert.equal(saved?.approvalStatus, "approved");
+  assert.equal(saved?.approvedAt, "2026-01-01T00:00:00.000Z");
+  assert.equal(saved?.irHash, computeIRHash(fixtureIR));
+});
+
+test("changed IR content still drops the pilot approval", async () => {
+  const changed = { ...fixtureIR, steps: [...fixtureIR.steps, { id: "extra", action: "wait" as const }] };
+  const saved = await syncWithPrevious(
+    previousTest({
+      irHash: "hash-from-old-algorithm",
+      irHashVersion: IR_HASH_VERSION,
+      approvedIr: changed,
+    }),
+  );
+  assert.equal(saved?.approvalStatus, "draft");
+});

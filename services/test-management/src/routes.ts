@@ -57,8 +57,8 @@ import {
   DEMO_BASE_URL,
 } from "./run-env.js";
 import { metricsFromBatchRecord } from "./batch-metrics.js";
-import { measureBatchArtifactBytes } from "./artifact-cleanup.js";
-import { mapWithConcurrency, maxParallelFromEnv } from "./batch-parallel.js";
+import { autoPruneArtifacts, measureBatchArtifactBytes } from "./artifact-cleanup.js";
+import { createMutex, mapWithConcurrency, maxParallelFromEnv } from "./batch-parallel.js";
 import {
   computeRegressionBaseline,
   writeRegressionBaselineReport,
@@ -386,15 +386,20 @@ async function executeRuns(
   const parallel = tests.length > 1 ? maxParallelFromEnv() : 1;
   const batchCtx =
     job != null ? { batchId: job.batchId, batchStartedAt: job.startedAt } : undefined;
+  // One pilot account: concurrent logins race with each other and stall page loads.
+  const pilotLock = createMutex();
 
   const outcomes = await mapWithConcurrency(tests, parallel, async (test) => {
-    if (job) job.currentTitle = test.title;
-    const stored = await runSingleTest(store, test, baseUrl, projectId, artifactsRoot, dataRoot, batchCtx);
-    if (job) {
-      job.completed += 1;
-      if (stored) job.runs = [...job.runs, stored];
-    }
-    return stored;
+    const execute = async () => {
+      if (job) job.currentTitle = test.title;
+      const stored = await runSingleTest(store, test, baseUrl, projectId, artifactsRoot, dataRoot, batchCtx);
+      if (job) {
+        job.completed += 1;
+        if (stored) job.runs = [...job.runs, stored];
+      }
+      return stored;
+    };
+    return isPilotTest(test) ? pilotLock.run(execute) : execute();
   });
 
   return outcomes.filter((r): r is StoredRun => r != null);
@@ -618,6 +623,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const approved = {
       ...stampTestMeta(test, { approving: true, assertionConfigHash: currentConfigHash }),
       approvedBy: actorResult.actor,
+      approvedIr: test.ir,
     };
     await store.saveTest(approved);
     try {
@@ -1229,6 +1235,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
           artifactBytesTotal,
         });
         await refreshRegressionBaselineReport(store, dataRoot);
+        void autoPruneArtifacts({ artifactsRoot, dataRoot }).catch(() => undefined);
       })
       .catch(async (err) => {
         job.status = "failed";

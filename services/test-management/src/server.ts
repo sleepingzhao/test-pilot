@@ -13,6 +13,7 @@ import { isPilotTest } from "./run-env.js";
 import { assertSafeBindHost, corsOrigin, registerSecurity } from "./security.js";
 import { FileStore } from "./store.js";
 import { initLlmUsage } from "./llm-usage.js";
+import { autoPruneArtifacts } from "./artifact-cleanup.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const dataRoot = join(repoRoot, "data");
@@ -57,6 +58,7 @@ const store = new FileStore(dataRoot);
 await store.init();
 const recovered = await store.recoverInterruptedBatches();
 if (recovered > 0) app.log.warn(`Recovered ${recovered} interrupted batch(es)`);
+void autoPruneArtifacts({ artifactsRoot, dataRoot }).catch(() => undefined);
 const seeded = await seedIfEmpty(store);
 if (seeded > 0) app.log.info(`Seeded ${seeded} demo tests`);
 

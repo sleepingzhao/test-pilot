@@ -47,12 +47,17 @@ export async function syncCatalogFromFile(
 
       const nextHash = computeIRHash(ir);
       // Old hashes predate IR_HASH_VERSION; migrate them without resetting approval.
+      // A rebuilt hash algorithm also changes the hash for identical IR: compare the
+      // approved IR snapshot instead of resetting a review the human already did.
+      const approvedContentUnchanged =
+        Boolean(prev?.approvedIr) && computeIRHash(prev!.approvedIr!) === nextHash;
       const changedApprovedPilot =
         isPilot &&
         prev?.approvalStatus === "approved" &&
         prev.irHashVersion === IR_HASH_VERSION &&
         Boolean(prev.irHash) &&
-        prev.irHash !== nextHash;
+        prev.irHash !== nextHash &&
+        !approvedContentUnchanged;
       if (changedApprovedPilot) {
         approvalStatus = "draft";
         approvedAt = undefined;
@@ -73,6 +78,7 @@ export async function syncCatalogFromFile(
         approvalStatus,
         approvedAt,
         approvedBy,
+        approvedIr: approvalStatus === "approved" ? ir : undefined,
         intentSummary: prev?.intentSummary,
         sourceChannel: prev?.sourceChannel,
         plannerNotes: prev?.plannerNotes,

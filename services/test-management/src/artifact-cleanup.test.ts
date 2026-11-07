@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { executeArtifactCleanup, planArtifactCleanup } from "./artifact-cleanup.js";
+import { autoPruneArtifacts, executeArtifactCleanup, planArtifactCleanup } from "./artifact-cleanup.js";
 import type { StoredBatch } from "./store.js";
 import type { ArtifactCleanupPlan } from "./artifact-cleanup.js";
 
@@ -106,6 +106,55 @@ test("executor refuses a path outside artifacts/runs", async () => {
 
     assert.equal(await executeArtifactCleanup(plan, runsRoot), 0);
     await stat(join(outside, "precious.txt"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("keepBatches alone prunes runs outside the kept batches", async () => {
+  const { root, artifacts, data, runsRoot } = await fixtureTree();
+  try {
+    const plan = await planArtifactCleanup({
+      artifactsRoot: artifacts,
+      dataRoot: data,
+      keepBatches: 1,
+      days: null,
+      maxTotalBytes: null,
+      dryRun: false,
+    });
+    assert.deepEqual(plan.toRemove.map((r) => r.runId), ["run_old"]);
+    assert.equal(await executeArtifactCleanup(plan, runsRoot), 1);
+    await assert.rejects(stat(join(runsRoot, "run_old")));
+    await stat(join(runsRoot, "run_keep", "trace.zip"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recent standalone runs stay protected during automatic pruning", async () => {
+  const { root, artifacts, data, runsRoot } = await fixtureTree();
+  await mkdir(join(runsRoot, "run_recent"), { recursive: true });
+  await writeFile(join(runsRoot, "run_recent", "trace.zip"), "new");
+  await writeFile(
+    join(data, "runs", "run_recent.json"),
+    JSON.stringify({
+      runId: "run_recent",
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      testId: "t",
+      status: "passed",
+    }),
+  );
+  try {
+    const removed = await autoPruneArtifacts({
+      artifactsRoot: artifacts,
+      dataRoot: data,
+      keepBatches: 1,
+      keepRuns: 1,
+    });
+    assert.equal(removed, 1);
+    await stat(join(runsRoot, "run_recent", "trace.zip"));
+    await assert.rejects(stat(join(runsRoot, "run_old")));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

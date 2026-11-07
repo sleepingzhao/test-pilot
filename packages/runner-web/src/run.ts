@@ -107,6 +107,12 @@ async function resolveStepLocator(page: Page, target: TargetLocator, timeoutMs =
   return candidates[0]!.first();
 }
 
+/** Remote pilot pages can take >30s under load; 45s default, bounded by env. */
+export function navTimeoutMs(): number {
+  const raw = Number(process.env.TESTPILOT_NAV_TIMEOUT_MS ?? 45_000);
+  return Number.isFinite(raw) && raw >= 5_000 ? Math.min(raw, 120_000) : 45_000;
+}
+
 async function executeStep(
   page: Page,
   step: TestStep,
@@ -123,7 +129,7 @@ async function executeStep(
         if (!path.startsWith("http") && !baseUrl) {
           throw new Error("navigate requires baseUrl or absolute path");
         }
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: navTimeoutMs() });
         await page
           .waitForFunction("document.body && document.body.innerText.trim().length > 0", { timeout: 20_000 })
           .catch(() => undefined);

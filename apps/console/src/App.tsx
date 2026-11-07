@@ -10,6 +10,7 @@ import {
 } from "./AssertionProviderPanel";
 import type { TestStep } from "@testpilot/test-ir/step-edit";
 import { StepEditorPanel } from "./StepEditorPanel";
+import { RequirementFlowView } from "./RequirementFlowView";
 import { RunDetailView } from "./RunDetailView";
 import { failureKindLabel, failureScreenshotPath, summarizeAssertion } from "./stepSummary";
 
@@ -25,7 +26,7 @@ type IrAssertion = {
   oracle?: string;
 };
 
-type View = "home" | "tests" | "create" | "history" | "audit" | "run" | "batch";
+type View = "home" | "requirement" | "tests" | "create" | "history" | "audit" | "run" | "batch";
 type CreateChannel = "intent" | "prd" | "record";
 type TestFilter = "all" | "draft" | "weak" | "pilot" | "demo";
 
@@ -1022,6 +1023,13 @@ export function App() {
           <button type="button" className={view === "home" ? "active" : ""} onClick={() => setView("home")}>
             开始
           </button>
+          <button
+            type="button"
+            className={view === "requirement" ? "active" : ""}
+            onClick={() => setView("requirement")}
+          >
+            需求→测试
+          </button>
           <button type="button" className={view === "tests" ? "active" : ""} onClick={() => setView("tests")}>
             用例
             {draftCount > 0 ? <span className="nav-badge">{draftCount}</span> : null}
@@ -1056,6 +1064,20 @@ export function App() {
       )}
 
       <main>
+        {view === "requirement" && (
+          <RequirementFlowView
+            demoUrl={demoUrl}
+            demoReachable={demoOk}
+            pilotReachable={pilotOk}
+            pilotIntakeUrl={pilotIntakeUrl}
+            onRefresh={refresh}
+            onOpenRun={(runId) => {
+              setSelectedRunId(runId);
+              setView("run");
+            }}
+          />
+        )}
+
         {view === "home" && (
           <section className="hero">
             <p className="hero-eyebrow">TestPilot · 可信回归</p>

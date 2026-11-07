@@ -21,6 +21,7 @@ import {
   llmPlannerPublicInfo,
   suggestDiagnoseWithLlm,
 } from "./llm-planner.js";
+import { resolveRequirementTargetUrl, type RequirementTarget } from "./requirement-target.js";
 import { readNegativeProbeReport } from "./negative-probes.js";
 import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-identity.js";
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
@@ -781,6 +782,134 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     });
     await store.saveTest(test);
     return { test: withWeakAssertions(test), draft: { uncertainties: draft.uncertainties, sources: draft.sources }, llmUsed, llmTokensUsed };
+  });
+
+  app.post("/api/requirement-flow", async (req, reply) => {
+    const body = req.body as {
+      title?: string;
+      text?: string;
+      channel?: "intent" | "prd";
+      target?: RequirementTarget;
+      customUrl?: string;
+      autoTrial?: boolean;
+    };
+    const title = body.title?.trim() || "需求草案";
+    const channel = body.channel === "prd" ? "prd" : "intent";
+    const text = body.text?.trim();
+    if (!text) return reply.code(400).send({ error: "请粘贴需求描述或 PRD 片段" });
+    const target: RequirementTarget = body.target === "pilot" || body.target === "custom" ? body.target : "demo";
+    const project = store.project();
+    const pilotUrl = pilotBaseUrl();
+    const pilotIntakeUrl = pilotUrl ? await pilotIntakeDefaultUrl() : "";
+    const resolved = resolveRequirementTargetUrl({
+      target,
+      customUrl: body.customUrl,
+      demoUrl: project.defaultBaseUrl,
+      pilotUrl: pilotUrl ?? undefined,
+      pilotIntakeUrl: pilotIntakeUrl || undefined,
+    });
+    if (!resolved.ok) return reply.code(400).send({ error: resolved.error });
+    const url = resolved.url;
+    if (!isAllowedTargetUrl(url)) {
+      return reply.code(400).send({ error: "目标 URL 不在允许列表" });
+    }
+    if (!(await checkTargetReachable(url))) {
+      return reply.code(503).send({ error: `目标环境不可达: ${url}` });
+    }
+
+    const constraintsDoc = await loadPilotConstraints();
+    const constraintLine = constraintsDoc?.scopeNotes?.[0];
+    const goalText = [text, constraintLine].filter(Boolean).join("\n");
+
+    let context;
+    const onPilot = pilotUrl ? isPilotIntakeUrl(url, pilotUrl) : false;
+    try {
+      await assertPlaywrightReady();
+      if (onPilot) {
+        if (!pilotSecretsConfigured()) {
+          return reply.code(400).send({
+            error: "试点需先配置 TESTPILOT_ENV_ADMIN_PHONE / TESTPILOT_ENV_ADMIN_PASSWORD",
+          });
+        }
+        context = await capturePilotIntakeContext(pilotUrl, url, {
+          intentText: goalText,
+          loginPath: (await loadPilotBaseline())?.loginPath,
+        });
+      } else {
+        context = await snapshotAtUrl(url);
+        if (looksLikeLoginPageContext(context)) {
+          return reply.code(422).send({ error: "页面像登录页；试点请选择试点环境并配置凭据" });
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "无法打开页面";
+      return reply.code(503).send({ error: message });
+    }
+
+    const ruleDraft = planFromIntake({
+      title,
+      channel,
+      text: goalText,
+      context,
+      constraints: constraintsDoc?.scopeNotes,
+    });
+    const { draft, llmTokensUsed, llmUsed } = await applyOptionalLlmDraft({
+      goal: goalText,
+      context,
+      ruleDraft,
+    });
+    const testId = makeIntakeTestId(title);
+    const partial = draftToPartialIR(testId, draft);
+    const ir = applyBaseUrlTarget({ ...partial, policy: { screenshots: "on-failure" as const } }, url);
+    const validated = validateTestIR(ir);
+    if (!validated.ok) return reply.code(400).send({ issues: validated.issues });
+
+    const stored = stampTestMeta({
+      id: testId,
+      projectId: project.id,
+      title,
+      ir: validated.value,
+      approvalStatus: "draft",
+      intentSummary: text,
+      sourceChannel: channel,
+      plannerNotes: draft.uncertainties,
+      updatedAt: new Date().toISOString(),
+    });
+    await store.saveTest(stored);
+
+    const autoTrial = body.autoTrial !== false;
+    let trialRun: StoredRun | undefined;
+    let trialError: string | undefined;
+    if (autoTrial) {
+      try {
+        trialRun = await executeSingleIrRun(
+          store,
+          stored,
+          validated.value,
+          url,
+          project.id,
+          artifactsRoot,
+          dataRoot,
+        );
+      } catch (err) {
+        trialError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    return {
+      environment: { target, label: resolved.label, url },
+      test: withWeakAssertions(stored),
+      generation: {
+        uncertainties: draft.uncertainties,
+        sources: draft.sources,
+        llmUsed,
+        llmTokensUsed,
+        stepCount: draft.steps.length,
+      },
+      trial: trialRun ? { run: trialRun, trial: true } : undefined,
+      trialError,
+      autoTrial,
+    };
   });
 
   app.get("/api/environment", async () => {

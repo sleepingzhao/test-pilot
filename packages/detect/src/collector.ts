@@ -1,0 +1,623 @@
+import type { Page } from "playwright";
+import { snapshotPageContext } from "@testpilot/context-web";
+import { evaluateCapabilities } from "./rules.js";
+import {
+  classifySignals,
+  normalizeNetworkUrl,
+  type DomObservation,
+  type NetworkObservation,
+} from "./signals.js";
+import type { DetectionReport, Signal, SignalId, SurfaceSnapshot } from "./types.js";
+
+/** Passive profile. Same shape as the v1 detection report; the collector does not extend it. */
+export type SystemProfile = DetectionReport;
+
+export type CollectSystemProfileOptions = {
+  /** Route budget, including the starting page. Default 12. */
+  maxRoutes?: number;
+  /** Quiet period after navigation, reload, or a view switch. Default 1200. */
+  settleMs?: number;
+  /** Timeout for goto and reload. Default 20000. */
+  routeTimeoutMs?: number;
+};
+
+type Timing = {
+  settleMs: number;
+  routeTimeoutMs: number;
+  discover: boolean;
+  reload: boolean;
+  gotoUrl?: string;
+};
+
+type SpaTarget = {
+  name: string;
+  testId?: string;
+};
+
+type Sample = {
+  surface: SurfaceSnapshot;
+  signals: Signal[];
+  routes: string[];
+  spa: SpaTarget[];
+};
+
+const OPEN_FORM =
+  /^(?:添加|新增|创建|新建|提交工单|打开表单|add(?:\b|\s|$)|create(?:\b|\s|$)|new(?:\b|\s|$))/i;
+const BLOCKED_NAME = /^(?:保存|提交|确认|确定|删除|移除|save|submit|confirm|delete|remove)$/i;
+const NAV_SELECTOR = [
+  "nav a[href]",
+  "[role='navigation'] a[href]",
+  "aside a[href]",
+  "[role='complementary'] a[href]",
+  "[class*='sidebar'] a[href]",
+  "[class*='sider'] a[href]",
+].join(", ");
+
+/**
+ * Read-only capability probe. The caller logs in and passes that page.
+ * This function does not launch a browser, type credentials, or submit forms.
+ */
+export async function collectSystemProfile(
+  page: Page,
+  options?: CollectSystemProfileOptions,
+): Promise<SystemProfile> {
+  const maxRoutes = Math.max(1, options?.maxRoutes ?? 12);
+  const timing = {
+    settleMs: Math.max(0, options?.settleMs ?? 1200),
+    routeTimeoutMs: Math.max(1000, options?.routeTimeoutMs ?? 20_000),
+  };
+  const entryUrl = page.url();
+  const surfaces: SurfaceSnapshot[] = [];
+  const found: Signal[] = [];
+  const onDialog = (dialog: { dismiss: () => Promise<void> }) => {
+    void dialog.dismiss().catch(() => undefined);
+  };
+  page.on("dialog", onDialog);
+
+  try {
+    if (!isHttpUrl(entryUrl)) {
+      const sampled = await samplePage(page, { ...timing, discover: false, reload: false });
+      if (sampled) {
+        surfaces.push(sampled.surface);
+        found.push(...sampled.signals);
+      }
+    } else {
+      const queue = [entryUrl];
+      const seen = new Set<string>([pathOf(entryUrl)]);
+      const spaSeen = new Set<string>();
+      let spaClicks = 0;
+      let first = true;
+      while (queue.length > 0 && surfaces.length < maxRoutes) {
+        const target = queue.shift();
+        if (!target) break;
+        let sampled: Sample | undefined;
+        try {
+          sampled = await samplePage(page, {
+            ...timing,
+            discover: true,
+            reload: first,
+            gotoUrl: first ? undefined : target,
+          });
+        } catch {
+          sampled = undefined;
+        }
+        first = false;
+        if (!sampled) continue;
+        surfaces.push(sampled.surface);
+        found.push(...sampled.signals);
+        seen.add(pathOf(page.url()));
+        for (const href of sampled.routes) {
+          const path = pathOf(href);
+          if (seen.has(path) || seen.size >= maxRoutes) continue;
+          seen.add(path);
+          queue.push(href);
+        }
+        for (const item of sampled.spa) {
+          if (spaClicks >= maxRoutes) break;
+          const key = item.testId ? `id:${item.testId}` : `name:${item.name}`;
+          if (spaSeen.has(key)) continue;
+          spaSeen.add(key);
+          spaClicks += 1;
+          try {
+            const extra = await collectSpaView(page, item, timing);
+            if (extra) found.push(...extra);
+          } catch {
+            // One view switch must not abort the rest of the crawl.
+          }
+        }
+      }
+    }
+  } finally {
+    page.off("dialog", onDialog);
+  }
+
+  const signals = mergeSignals(found);
+  const evaluated = evaluateCapabilities({ signals, surfaces });
+  return {
+    version: 1,
+    target: { url: entryUrl, mode: "passive" },
+    surfaces,
+    signals,
+    capabilities: evaluated.capabilities,
+    questions: evaluated.questions,
+  };
+}
+
+async function samplePage(page: Page, timing: Timing): Promise<Sample | undefined> {
+  const watch = attachNetwork(page);
+  try {
+    if (timing.gotoUrl) {
+      await page.goto(timing.gotoUrl, { waitUntil: "domcontentloaded", timeout: timing.routeTimeoutMs });
+    } else if (timing.reload) {
+      try {
+        await page.reload({ waitUntil: "domcontentloaded", timeout: timing.routeTimeoutMs });
+      } catch {
+        // Keep the DOM the caller already authenticated into.
+      }
+    }
+    await page.waitForTimeout(timing.settleMs);
+    const discovered = timing.discover ? await discoverLinks(page) : { routes: [], spa: [] };
+    const baseDom = await observeDom(page);
+    const opened = await readOpenedForm(page, baseDom, timing);
+    const surface = await readSurface(page);
+    await closeOpenedForm(page, opened.beforeUrl, timing.routeTimeoutMs);
+    return {
+      surface,
+      signals: classifySignals({ route: surface.route, dom: opened.dom, network: watch.records.slice() }),
+      routes: discovered.routes,
+      spa: discovered.spa,
+    };
+  } finally {
+    watch.detach();
+  }
+}
+
+async function collectSpaView(page: Page, item: SpaTarget, timing: Omit<Timing, "discover" | "reload" | "gotoUrl">): Promise<Signal[] | undefined> {
+  if (isForbiddenName(item.name)) return undefined;
+  const before = page.url();
+  const watch = attachNetwork(page);
+  try {
+    const clicked = await clickSpa(page, item);
+    if (!clicked) return undefined;
+    await page.waitForTimeout(timing.settleMs);
+    if (!sameOrigin(before, page.url()) || isLogout(page.url(), item.name)) {
+      await restore(page, before, timing.routeTimeoutMs);
+      return undefined;
+    }
+    const baseDom = await observeDom(page);
+    const opened = await readOpenedForm(page, baseDom, timing);
+    const route = pathOf(page.url());
+    const signals = classifySignals({ route, dom: opened.dom, network: watch.records.slice() });
+    await closeOpenedForm(page, opened.beforeUrl, timing.routeTimeoutMs);
+    if (!samePlace(before, page.url())) await restore(page, before, timing.routeTimeoutMs);
+    return signals;
+  } catch {
+    await restore(page, before, timing.routeTimeoutMs);
+    return undefined;
+  } finally {
+    watch.detach();
+  }
+}
+
+function attachNetwork(page: Page): { records: NetworkObservation[]; detach: () => void } {
+  const records: NetworkObservation[] = [];
+  const seen = new Set<string>();
+  const keep = new Set(["xhr", "fetch", "document", "websocket", "eventsource"]);
+  const push = (item: NetworkObservation) => {
+    if (records.length >= 100) return;
+    const key = [item.method, item.url, item.status ?? "", item.resourceType, item.contentType ?? "", item.websocket ? "1" : "0"].join(" ");
+    if (seen.has(key)) return;
+    seen.add(key);
+    records.push(item);
+  };
+  const onResponse = (response: { url: () => string; status: () => number; headers: () => Record<string, string>; request: () => { method: () => string; resourceType: () => string } }) => {
+    try {
+      const request = response.request();
+      const resourceType = request.resourceType();
+      if (!keep.has(resourceType)) return;
+      const rawUrl = response.url();
+      if (!/^(https?:|wss?:)/i.test(rawUrl)) return;
+      const contentType = response.headers()["content-type"]?.split(";")[0]?.trim().toLowerCase();
+      push({
+        url: normalizeNetworkUrl(rawUrl),
+        method: request.method(),
+        status: response.status(),
+        resourceType,
+        contentType,
+        websocket: resourceType === "websocket",
+      });
+    } catch {
+      // A single unreadable response is not a failed probe.
+    }
+  };
+  const onSocket = (socket: { url: () => string }) => {
+    try {
+      const rawUrl = socket.url();
+      if (!/^(https?:|wss?:)/i.test(rawUrl)) return;
+      push({
+        url: normalizeNetworkUrl(rawUrl),
+        method: "GET",
+        resourceType: "websocket",
+        websocket: true,
+      });
+    } catch {
+      // Ignore sockets without a usable URL.
+    }
+  };
+  page.on("response", onResponse);
+  page.on("websocket", onSocket);
+  return {
+    records,
+    detach: () => {
+      page.off("response", onResponse);
+      page.off("websocket", onSocket);
+    },
+  };
+}
+
+async function readSurface(page: Page): Promise<SurfaceSnapshot> {
+  const snapshot = await snapshotPageContext(page);
+  const title = await page.title();
+  return {
+    route: pathOf(page.url()),
+    title: title || undefined,
+    elements: snapshot.elements,
+  };
+}
+
+async function readOpenedForm(
+  page: Page,
+  before: DomObservation[],
+  timing: { settleMs: number; routeTimeoutMs: number },
+): Promise<{ dom: DomObservation[]; beforeUrl: string }> {
+  const beforeUrl = page.url();
+  const candidate = before.find(isOpenTarget);
+  if (!candidate) return { dom: before, beforeUrl };
+  const clicked = await clickNamed(page, candidate);
+  if (!clicked) return { dom: before, beforeUrl };
+  await page.waitForTimeout(timing.settleMs);
+  if (!sameOrigin(beforeUrl, page.url())) {
+    await restore(page, beforeUrl, timing.routeTimeoutMs);
+    return { dom: before, beforeUrl };
+  }
+  const after = await observeDom(page);
+  const dom = samePlace(beforeUrl, page.url()) ? withOpenedForm(before, after) : dedupeDom([...before, ...after]);
+  return { dom, beforeUrl };
+}
+
+async function closeOpenedForm(page: Page, beforeUrl: string, timeout: number): Promise<void> {
+  if (!samePlace(page.url(), beforeUrl)) {
+    await restore(page, beforeUrl, timeout);
+    return;
+  }
+  await page.keyboard.press("Escape").catch(() => undefined);
+  const cancel = page.getByRole("button", { name: /^(取消|cancel)$/i }).filter({ visible: true }).first();
+  if (await cancel.isVisible().catch(() => false)) {
+    await cancel.click({ timeout: 1500 }).catch(() => undefined);
+  }
+}
+
+async function clickNamed(page: Page, el: DomObservation): Promise<boolean> {
+  const name = (el.name ?? "").trim();
+  if (!isOpenTarget({ ...el, name })) return false;
+  const role = el.tag === "a" || el.role === "link" ? "link" : "button";
+  const locator = (el.testId
+    ? page.getByTestId(el.testId)
+    : page.getByRole(role, { name, exact: true })
+  ).filter({ visible: true }).first();
+  try {
+    if (!(await locator.isVisible().catch(() => false))) return false;
+    const type = (await locator.getAttribute("type"))?.toLowerCase();
+    if (type === "submit") return false;
+    const live = ((await locator.getAttribute("aria-label")) || (await locator.innerText()) || "").replace(/\s+/g, " ").trim();
+    if (!isOpenTarget({ ...el, name: live })) return false;
+    await locator.click({ timeout: 1500 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function clickSpa(page: Page, item: SpaTarget): Promise<boolean> {
+  if (isForbiddenName(item.name)) return false;
+  try {
+    const located = item.testId
+      ? page.getByTestId(item.testId).filter({ visible: true }).first()
+      : page.getByRole("link", { name: item.name, exact: true }).filter({ visible: true }).first();
+    const button = page.getByRole("button", { name: item.name, exact: true }).filter({ visible: true }).first();
+    const locator = item.testId || (await located.isVisible().catch(() => false)) ? located : button;
+    if (!(await locator.isVisible().catch(() => false))) return false;
+    const href = (await locator.getAttribute("href")) ?? "";
+    const live = ((await locator.getAttribute("aria-label")) || (await locator.innerText()) || item.name).replace(/\s+/g, " ").trim();
+    if (isForbiddenName(live) || isLogout(href, live)) return false;
+    await locator.click({ timeout: 1500 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isOpenTarget(el: DomObservation): boolean {
+  if (!el.visible) return false;
+  const name = (el.name ?? "").trim();
+  if (!name || isForbiddenName(name) || !OPEN_FORM.test(name)) return false;
+  if (el.tag === "button" || el.role === "button" || el.tag === "a" || el.role === "link") return true;
+  return el.tag === "input" && (el.inputType ?? "").toLowerCase() === "button";
+}
+
+function isForbiddenName(name: string): boolean {
+  const trimmed = name.trim();
+  return trimmed === "确认提交" || trimmed.includes("确认提交") || BLOCKED_NAME.test(trimmed);
+}
+
+function withOpenedForm(before: DomObservation[], after: DomObservation[]): DomObservation[] {
+  const merged = dedupeDom([...before, ...after]);
+  const previous = new Set(before.map(domKey));
+  const freshFields = after.filter((el) => isField(el) && !previous.has(domKey(el)));
+  const structured = merged.some(
+    (el) => el.visible && (el.tag === "form" || el.role === "form" || el.role === "dialog" || el.tag === "dialog"),
+  );
+  if (freshFields.length > 0 && !structured) {
+    merged.push({ tag: "form", role: "form", name: "表单", visible: true });
+  }
+  return merged.slice(0, 300);
+}
+
+function isField(el: DomObservation): boolean {
+  if (!el.visible) return false;
+  if (el.contentEditable || el.tag === "textarea" || el.tag === "select") return true;
+  if (el.tag !== "input") return false;
+  const inputType = (el.inputType ?? "text").toLowerCase();
+  return !["hidden", "button", "submit", "reset", "image"].includes(inputType);
+}
+
+function dedupeDom(items: DomObservation[]): DomObservation[] {
+  const seen = new Set<string>();
+  const out: DomObservation[] = [];
+  for (const item of items) {
+    const key = domKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+function domKey(el: DomObservation): string {
+  return [el.tag, el.role ?? "", el.name ?? "", el.testId ?? "", el.inputType ?? "", el.ariaLabel ?? "", String(el.contentEditable === true)].join("|");
+}
+
+async function discoverLinks(page: Page): Promise<{ routes: string[]; spa: SpaTarget[] }> {
+  const base = page.url();
+  const raw = (await page.evaluate(DISCOVER_LINKS)) as Array<{ href: string; name: string; testId?: string; download: boolean }>;
+  const routes: string[] = [];
+  const spa: SpaTarget[] = [];
+  const routePaths = new Set<string>();
+  const spaKeys = new Set<string>();
+  for (const link of raw) {
+    if (isLogout(link.href, link.name) || link.download) continue;
+    const kind = linkKind(base, link.href);
+    if (kind === "skip") continue;
+    if (kind === "spa") {
+      if (isForbiddenName(link.name)) continue;
+      if (!link.name && !link.testId) continue;
+      const key = link.testId ? `id:${link.testId}` : `name:${link.name}`;
+      if (spaKeys.has(key)) continue;
+      spaKeys.add(key);
+      spa.push({ name: link.name, testId: link.testId });
+      continue;
+    }
+    let absolute: string;
+    try {
+      absolute = canonicalUrl(new URL(link.href, base).toString());
+    } catch {
+      continue;
+    }
+    if (!sameOrigin(base, absolute) || isDownloadPath(absolute)) continue;
+    const path = pathOf(absolute);
+    if (path === pathOf(base) || routePaths.has(path)) continue;
+    routePaths.add(path);
+    routes.push(absolute);
+  }
+  return { routes, spa };
+}
+
+function linkKind(base: string, href: string): "spa" | "route" | "skip" {
+  const trimmed = href.trim();
+  if (!trimmed) return "skip";
+  if (trimmed === "#" || trimmed.startsWith("#") || /^javascript:/i.test(trimmed)) return "spa";
+  try {
+    const url = new URL(trimmed, base);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "skip";
+    if (new URL(base).origin !== url.origin) return "skip";
+    return "route";
+  } catch {
+    return "skip";
+  }
+}
+
+async function restore(page: Page, url: string, timeout: number): Promise<void> {
+  if (samePlace(page.url(), url)) return;
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout }).catch(() => undefined);
+}
+
+function mergeSignals(signals: Signal[]): Signal[] {
+  const map = new Map<SignalId, Signal>();
+  for (const signal of signals) {
+    const existing = map.get(signal.id);
+    if (!existing) {
+      map.set(signal.id, { ...signal, evidence: signal.evidence.map((item) => ({ ...item })) });
+      continue;
+    }
+    map.set(signal.id, {
+      id: signal.id,
+      strength: Math.max(existing.strength, signal.strength),
+      evidence: [...existing.evidence, ...signal.evidence],
+      detail: existing.detail ?? signal.detail,
+    });
+  }
+  return [...map.values()].map((signal) => ({
+    ...signal,
+    evidence: signal.evidence.map((item, index) => ({
+      ...item,
+      id: `route:${item.route ?? ""}#${signal.id}:${index}`,
+    })),
+  }));
+}
+
+function isHttpUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
+function pathOf(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "/";
+    if (parsed.pathname.length > 1 && parsed.pathname.endsWith("/")) return parsed.pathname.slice(0, -1);
+    return parsed.pathname || "/";
+  } catch {
+    return "/";
+  }
+}
+
+function canonicalUrl(url: string): string {
+  const parsed = new URL(url);
+  parsed.search = "";
+  parsed.hash = "";
+  if (parsed.pathname.length > 1 && parsed.pathname.endsWith("/")) parsed.pathname = parsed.pathname.slice(0, -1);
+  return parsed.toString();
+}
+
+function sameOrigin(left: string, right: string): boolean {
+  try {
+    return new URL(left).origin === new URL(right).origin;
+  } catch {
+    return false;
+  }
+}
+
+function samePlace(left: string, right: string): boolean {
+  return sameOrigin(left, right) && pathOf(left) === pathOf(right);
+}
+
+function isLogout(href: string, name: string): boolean {
+  return /logout|signout|sign-out|log-out/i.test(`${href} ${name}`);
+}
+
+function isDownloadPath(url: string): boolean {
+  try {
+    return /\.(?:zip|rar|7z|pdf|csv|xlsx?|docx?|pptx?|png|jpe?g|gif|webp|svg|mp4|mp3|gz|tgz|dmg|pkg)$/i.test(new URL(url).pathname);
+  } catch {
+    return false;
+  }
+}
+
+async function observeDom(page: Page): Promise<DomObservation[]> {
+  const observed = (await page.evaluate(OBSERVE_DOM)) as DomObservation[];
+  return observed.slice(0, 300);
+}
+
+const OBSERVE_DOM = `(() => {
+  if (!document.body) return [];
+  const selectors = [
+    "table", "[role='grid']", "[role='table']", "[role='dialog']", "dialog", "form", "[role='form']",
+    "nav", "[role='navigation']", "aside", "button", "a", "input", "select", "textarea",
+    "[contenteditable='true']", "[contenteditable='']", "[role='button']", "[role='link']",
+    "[role='menuitem']", "[role='menu']", "[role='log']", "[role='list']", "[role='feed']",
+    "[role='status']", "[aria-live='polite']", "th", "[role='columnheader']", "[role='search']",
+    "[type='search']", "[aria-label*='消息']", "[aria-label*='聊天']"
+  ];
+  const seen = new Set();
+  const picked = [];
+  for (let s = 0; s < selectors.length; s++) {
+    const nodes = document.querySelectorAll(selectors[s]);
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      if (seen.has(el)) continue;
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      const shown = style.display !== "none" && style.visibility !== "hidden" && style.visibility !== "collapse" && Number(style.opacity) !== 0 && el.getAttribute("aria-hidden") !== "true" && rect.width > 0 && rect.height > 0;
+      if (!shown) continue;
+      seen.add(el);
+      picked.push(el);
+      if (picked.length >= 300) break;
+    }
+    if (picked.length >= 300) break;
+  }
+  if (picked.length < 300) {
+    const extras = document.body.querySelectorAll("div, p, pre, span, li, section, article, h1, h2, h3, h4");
+    const keyword = /工具调用|tool call|调用工具|function call|引用|来源|参考资料|citation|分页|上一页|下一页|页码/;
+    for (let i = 0; i < extras.length && picked.length < 300; i++) {
+      const el = extras[i];
+      if (seen.has(el)) continue;
+      const own = (el.innerText || "").trim();
+      if (!own || own.length > 80 || !keyword.test(own)) continue;
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      const shown = style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0 && el.getAttribute("aria-hidden") !== "true" && rect.width > 0 && rect.height > 0;
+      if (!shown) continue;
+      seen.add(el);
+      picked.push(el);
+    }
+  }
+  const out = [];
+  for (let i = 0; i < picked.length && out.length < 300; i++) {
+    const el = picked[i];
+    const tag = el.tagName.toLowerCase();
+    if (tag === "script" || tag === "style" || tag === "svg" || tag === "path") continue;
+    const roleAttr = el.getAttribute("role");
+    const ariaLive = el.getAttribute("aria-live");
+    const ariaLabel = el.getAttribute("aria-label") || undefined;
+    const placeholder = el.getAttribute("placeholder") || undefined;
+    const testId = el.getAttribute("data-testid") || undefined;
+    const inputType = tag === "input" ? (el.getAttribute("type") || "text") : undefined;
+    const editableAttr = el.getAttribute("contenteditable");
+    const contentEditable = editableAttr === "" || editableAttr === "true" ? true : undefined;
+    const role = roleAttr || (ariaLive === "polite" ? "polite" : undefined);
+    let name = ariaLabel || placeholder;
+    if (!name && el.labels && el.labels.length > 0 && el.labels[0].textContent) name = el.labels[0].textContent.trim();
+    if (!name && tag === "input") {
+      const value = el.getAttribute("value");
+      if (value && (inputType === "button" || inputType === "submit")) name = value.trim();
+    }
+    if (!name && tag !== "table" && tag !== "tbody" && tag !== "thead" && tag !== "nav") {
+      const text = (el.innerText || el.textContent || "").replace(/\\s+/g, " ").trim();
+      if (text) name = text.slice(0, 80);
+    }
+    if (name) name = name.replace(/\\s+/g, " ").trim().slice(0, 80);
+    const item = { tag: tag, visible: true };
+    if (role) item.role = role;
+    if (name) item.name = name;
+    if (testId) item.testId = testId;
+    if (inputType) item.inputType = inputType;
+    if (ariaLabel) item.ariaLabel = ariaLabel;
+    if (placeholder) item.placeholder = placeholder;
+    if (contentEditable) item.contentEditable = true;
+    out.push(item);
+  }
+  return out;
+})()`;
+
+const DISCOVER_LINKS = `(() => {
+  const nodes = document.querySelectorAll(${JSON.stringify(NAV_SELECTOR)});
+  const seen = new Set();
+  const out = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const el = nodes[i];
+    if (seen.has(el)) continue;
+    seen.add(el);
+    const style = window.getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    const shown = style.display !== "none" && style.visibility !== "hidden" && style.pointerEvents !== "none" && Number(style.opacity) !== 0 && el.getAttribute("aria-hidden") !== "true" && el.getAttribute("aria-disabled") !== "true" && rect.width > 0 && rect.height > 0;
+    if (!shown) continue;
+    const href = el.getAttribute("href") || "";
+    const aria = el.getAttribute("aria-label");
+    const text = (el.innerText || "").replace(/\\s+/g, " ").trim();
+    const name = (aria || text).slice(0, 80);
+    const testId = el.getAttribute("data-testid") || undefined;
+    const item = { href: href, name: name, download: el.hasAttribute("download") };
+    if (testId) item.testId = testId;
+    out.push(item);
+  }
+  return out;
+})()`;

@@ -1,17 +1,21 @@
 #!/usr/bin/env node
 /**
- * Keep artifact run directories bounded.
- * Usage: node scripts/clean-artifacts.mjs [--keep 50] [--days 7] [--dry-run]
- * Files such as negative-probes-last.json are never removed.
+ * Artifact retention — only deletes under artifacts/runs/*.
+ * Default: dry-run. Pass --execute to delete.
+ *
+ * Usage: pnpm clean:artifacts [--keep-batches 12] [--days 14] [--max-mb 512] [--execute]
  */
-import { readdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  parseCleanupDays,
+  parseKeepBatches,
+  runArtifactCleanupCli,
+} from "../services/test-management/src/artifact-cleanup.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const artifactsRoot = join(root, "artifacts");
 const args = process.argv.slice(2);
-const dryRun = args.includes("--dry-run");
+const dryRun = !args.includes("--execute");
 
 function option(name) {
   const index = args.indexOf(name);
@@ -19,51 +23,36 @@ function option(name) {
   return args[index + 1];
 }
 
-const keep = Number(option("--keep") ?? 50);
-const days = option("--days");
-
-if (!Number.isInteger(keep) || keep < 1) {
-  console.error("--keep must be a positive integer");
-  process.exit(2);
-}
-if (days !== undefined && (!Number.isFinite(Number(days)) || Number(days) <= 0)) {
-  console.error("--days must be a positive number");
-  process.exit(2);
-}
-
-let entries;
 try {
-  entries = await readdir(artifactsRoot, { withFileTypes: true });
-} catch (err) {
-  if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
-    console.log("artifacts/ does not exist; nothing to clean.");
-    process.exit(0);
+  const keepBatches = parseKeepBatches(option("--keep-batches") ?? option("--keep"));
+  const days = parseCleanupDays(option("--days") ?? "14");
+  const maxMb = option("--max-mb");
+  const maxTotalBytes = maxMb == null ? null : Number(maxMb) * 1024 * 1024;
+  if (maxTotalBytes != null && (!Number.isFinite(maxTotalBytes) || maxTotalBytes <= 0)) {
+    console.error("--max-mb must be a positive number");
+    process.exit(2);
   }
-  throw err;
-}
 
-const dirs = [];
-for (const entry of entries) {
-  if (!entry.isDirectory()) continue;
-  const path = join(artifactsRoot, entry.name);
-  const info = await stat(path);
-  dirs.push({ name: entry.name, path, mtimeMs: info.mtimeMs });
-}
-dirs.sort((a, b) => b.mtimeMs - a.mtimeMs || a.name.localeCompare(b.name));
+  const plan = await runArtifactCleanupCli({
+    repoRoot: root,
+    keepBatches,
+    days,
+    maxTotalBytes,
+    dryRun,
+  });
 
-const cutoff = days === undefined ? Number.NEGATIVE_INFINITY : Date.now() - Number(days) * 86_400_000;
-const toRemove = dirs.filter((dir, index) => index >= keep || dir.mtimeMs < cutoff);
-
-for (const dir of toRemove) {
+  for (const item of plan.toRemove) {
+    console.log(`${dryRun ? "[dry-run]" : "remove"} artifacts/runs/${item.runId} (${item.reason}, ${item.bytes} B)`);
+  }
+  console.log(
+    `${dryRun ? "Would remove" : "Removed"} ${plan.toRemove.length} run dirs; ` +
+      `keep ${plan.toKeep.length}; protected batch runs ${plan.protectedRunIds.length}; ` +
+      `bytes ${plan.totalBytesBefore} → ${plan.totalBytesAfter}`,
+  );
   if (dryRun) {
-    console.log(`[dry-run] remove artifacts/${dir.name}`);
-    continue;
+    console.log("Dry-run only. Re-run with --execute to delete.");
   }
-  await rm(dir.path, { recursive: true, force: true });
-  console.log(`removed artifacts/${dir.name}`);
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(2);
 }
-
-console.log(
-  `${dryRun ? "Would remove" : "Removed"} ${toRemove.length}/${dirs.length} artifact directories; ` +
-    `kept ${dirs.length - toRemove.length}.`,
-);

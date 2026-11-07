@@ -47,6 +47,8 @@ export type StoredBatch = {
   status: "running" | "completed" | "failed";
   runIds: string[];
   error?: string;
+  /** Sum of artifact bytes for runs in this batch (best-effort at completion). */
+  artifactBytesTotal?: number;
 };
 
 export type RecordJob = {

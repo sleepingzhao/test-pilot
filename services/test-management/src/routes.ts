@@ -43,7 +43,13 @@ import {
   DEMO_BASE_URL,
 } from "./run-env.js";
 import { estimateLastBatchDurationMs, groupExplicitBatches } from "./batch-metrics.js";
+import { measureBatchArtifactBytes } from "./artifact-cleanup.js";
 import { mapWithConcurrency, maxParallelFromEnv } from "./batch-parallel.js";
+import {
+  computeRegressionBaseline,
+  readRegressionBaselineReport,
+  writeRegressionBaselineReport,
+} from "./regression-baseline.js";
 import {
   isAllowedTargetUrl,
   isSafeArtifactName,
@@ -219,6 +225,14 @@ async function checkTargetReachable(baseUrl: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function refreshRegressionBaselineReport(store: FileStore, dataRoot: string) {
+  const batches = await store.listBatches(50);
+  const runs = await store.listRuns(500);
+  const byId = new Map(runs.map((r) => [r.runId, r]));
+  const report = computeRegressionBaseline(batches, byId);
+  await writeRegressionBaselineReport(dataRoot, report);
 }
 
 async function appendRunMetrics(dataRoot: string, stored: StoredRun, extra?: Record<string, unknown>) {
@@ -727,6 +741,11 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     return buildFlakeMetricsReport(runs);
   });
 
+  app.get("/api/metrics/baseline", async () => {
+    const report = await readRegressionBaselineReport(dataRoot);
+    return { report, targets: { passRateMin: 0.95, flakeRateMax: 0.05 } };
+  });
+
   app.get("/api/metrics/summary", async () => {
     const allRuns = await store.listRuns(100);
     const runs = allRuns.filter((r) => !r.trial);
@@ -902,26 +921,34 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         job.status = "completed";
         job.runs = runs;
         job.completedAt = new Date().toISOString();
+        const runIds = runs.map((r) => r.runId);
+        const artifactBytesTotal = await measureBatchArtifactBytes(artifactsRoot, runIds);
         await store.saveBatch({
           ...batchRecord,
           completedAt: job.completedAt,
           passed: runs.filter((r) => r.status === "passed").length,
           status: "completed",
-          runIds: runs.map((r) => r.runId),
+          runIds,
+          artifactBytesTotal,
         });
+        await refreshRegressionBaselineReport(store, dataRoot);
       })
       .catch(async (err) => {
         job.status = "failed";
         job.error = err instanceof Error ? err.message : String(err);
         job.completedAt = new Date().toISOString();
+        const runIds = job.runs.map((r) => r.runId);
+        const artifactBytesTotal = await measureBatchArtifactBytes(artifactsRoot, runIds);
         await store.saveBatch({
           ...batchRecord,
           completedAt: job.completedAt,
           passed: job.runs.filter((r) => r.status === "passed").length,
           status: "failed",
-          runIds: job.runs.map((r) => r.runId),
+          runIds,
           error: job.error,
+          artifactBytesTotal,
         });
+        await refreshRegressionBaselineReport(store, dataRoot);
       });
 
     return {

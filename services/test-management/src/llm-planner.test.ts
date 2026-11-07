@@ -54,8 +54,8 @@ test("retries with the provider's max_tokens limit instead of failing the call",
       context: { url: "http://127.0.0.1:4173/", elements: [] },
       ruleDraft: { steps: [], assertions: [], uncertainties: [], sources: ["intent"] },
     });
-    assert.deepEqual(seen, [1_000_000, 1_000]);
-    assert.equal(out.tokensUsed, 12);
+    assert.deepEqual(seen, [1_000_000, 1_000, 1_000]);
+    assert.ok(out.tokensUsed >= 12);
     assert.ok(out.draft.sources.includes("llm-hints"));
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

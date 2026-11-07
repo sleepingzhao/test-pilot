@@ -1,5 +1,5 @@
 import type { PageContext, PlannerDraft } from "@testpilot/planner";
-import { mergeLlmHints, type LlmPlannerHints } from "@testpilot/planner";
+import { mergeLlmHints, validateLlmStepsAgainstContext, type LlmPlannerHints } from "@testpilot/planner";
 import { planFromIntake } from "@testpilot/planner";
 import { llmPlannerConfigFromEnv, type LlmPlannerConfig } from "./llm-config.js";
 import { recordLlmFailure, recordLlmUsage } from "./llm-usage.js";
@@ -151,8 +151,73 @@ Existing uncertainties: ${input.ruleDraft.uncertainties.join(" | ")}`;
     }
   }
 
-  const draft = mergeLlmHints(input.ruleDraft, hints);
+  let draft = mergeLlmHints(input.ruleDraft, hints);
+  tokensUsed += await tryAttachLlmSteps(config, input.goal, input.context, draft, (next) => {
+    draft = next;
+  });
   return { draft, tokensUsed };
+}
+
+async function tryAttachLlmSteps(
+  config: LlmPlannerConfig,
+  goal: string,
+  context: PageContext,
+  draft: PlannerDraft,
+  apply: (next: PlannerDraft) => void,
+): Promise<number> {
+  const elementLines = context.elements
+    .slice(0, 60)
+    .map((el) =>
+      [el.testId ? `testId=${el.testId}` : null, el.role, el.name].filter(Boolean).join(" · "),
+    )
+    .join("\n");
+
+  const system = `You are a QA automation planner. Reply JSON only:
+{"steps":[{"id":string,"action":"navigate"|"click"|"fill"|"wait"|"select"|"selectCascader","path"?:string,"target"?:{"testId"?:string,"role"?:string,"name"?:string,"label"?:string},"value"?:string,"valueRef"?:string,"cascaderPath"?:string[]}],"uncertainties"?:string[]}
+Rules: never invent testId or URLs; navigate.path must be relative (/...); selectors must match the element list; use valueRef env.* for secrets never literal passwords.`;
+
+  const user = `Requirement:\n${goal}\nPage: ${context.url}\nElements:\n${elementLines || "(none)"}\nRule steps for reference: ${draft.steps.map((s) => s.id).join(", ")}`;
+
+  try {
+    const out = await chatCompletionsJson<{ steps?: unknown; uncertainties?: string[] }>(config, {
+      system,
+      user,
+    });
+    const validated = validateLlmStepsAgainstContext(
+      out.parsed.steps as Parameters<typeof validateLlmStepsAgainstContext>[0],
+      context,
+    );
+    if (validated.ok) {
+      apply({
+        ...draft,
+        steps: validated.steps,
+        uncertainties: [
+          ...draft.uncertainties,
+          ...(out.parsed.uncertainties ?? []),
+          "步骤由 LLM 根据快照生成，试跑后请核对。",
+        ],
+        sources: [...draft.sources, "llm-steps"],
+      });
+      return out.tokensUsed;
+    }
+    apply({
+      ...draft,
+      uncertainties: [
+        ...draft.uncertainties,
+        ...validated.issues,
+        "LLM 步骤未通过快照校验，已回退规则草案——需人工补步骤。",
+      ],
+    });
+    return out.tokensUsed;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    recordLlmFailure(message);
+    apply({
+      ...draft,
+      uncertainties: [...draft.uncertainties, `LLM 步骤生成失败，已保留规则草案：${message}`],
+    });
+    return 0;
+  }
 }
 
 export async function suggestDiagnoseWithLlm(

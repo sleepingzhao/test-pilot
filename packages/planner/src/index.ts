@@ -13,6 +13,7 @@ export function planDraft(input: PlannerInput) {
 }
 
 export { planFromIntake, suggestAssertionHints, filterForbiddenSuggestionTokens, type IntakeChannel, type IntakeInput } from "./intake.js";
+export { validateLlmStepsAgainstContext, type LlmStepDraft } from "./llm-steps.js";
 export { mergeLlmHints, type LlmPlannerHints } from "./llm-merge.js";
 
 export function suggestAssertionsForTest(

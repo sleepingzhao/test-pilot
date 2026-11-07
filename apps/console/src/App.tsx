@@ -553,12 +553,12 @@ export function App() {
     }
   };
 
-  const runBatch = async (repeatCount = 1) => {
+  const runBatch = async () => {
     setLoading(true);
     try {
       const res = await api<{ async?: boolean; jobId?: string; total?: number; runs?: StoredRun[] }>(
         "/api/projects/default/runs",
-        { method: "POST", body: JSON.stringify(repeatCount > 1 ? { repeatCount } : {}) },
+        { method: "POST", body: JSON.stringify({}) },
       );
       if (res.async && res.jobId) {
         setBatchProgress({ completed: 0, total: res.total ?? 0 });
@@ -576,9 +576,6 @@ export function App() {
       setBatchProgress(null);
     }
   };
-
-  const runAll = () => runBatch(1);
-  const runFlakeCheck = () => runBatch(3);
 
   const runOne = async (id: string) => {
     setLoading(true);
@@ -1181,7 +1178,7 @@ export function App() {
                   type="button"
                   className="btn btn-primary"
                   disabled={loading || (demoOk === false && pilotOk === false)}
-                  onClick={runAll}
+                  onClick={() => void runBatch()}
                 >
                   {loading ? "运行中…" : "运行全部回归"}
                 </button>
@@ -1191,20 +1188,11 @@ export function App() {
                   type="button"
                   className="btn btn-secondary"
                   disabled={loading || (demoOk === false && pilotOk === false)}
-                  onClick={runAll}
+                  onClick={() => void runBatch()}
                 >
                   {loading ? "运行中…" : "运行全部回归"}
                 </button>
               )}
-              <button
-                type="button"
-                className="btn btn-secondary"
-                disabled={loading || (demoOk === false && pilotOk === false)}
-                onClick={runFlakeCheck}
-                title="每条已批准用例连续运行 3 次，用于观察不稳定通过率"
-              >
-                {loading ? "运行中…" : "Flake 检查 ×3"}
-              </button>
               <button type="button" className="btn btn-secondary" onClick={() => setView("create")}>
                 创建用例
               </button>

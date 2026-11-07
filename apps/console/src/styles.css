@@ -582,6 +582,46 @@ button.status-chip {
   font-size: 13px;
 }
 
+.flow-progress {
+  margin-top: 14px;
+}
+
+.flow-progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.flow-progress-track span {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--blue);
+  animation: flow-slide 1.2s ease-in-out infinite;
+}
+
+.flow-progress-stage {
+  margin: 8px 0 2px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.flow-progress-stage span {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+@keyframes flow-slide {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
+
 .assert-pre {
   font-size: 12px;
   background: var(--bg);
@@ -1650,4 +1690,45 @@ button.status-chip {
   .stat-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.batch-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.batch-group {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.batch-group-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+  flex-wrap: wrap;
+}
+
+.batch-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.batch-group-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.batch-group-time {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.batch-group .list {
+  padding: 0 14px 10px;
 }

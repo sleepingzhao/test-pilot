@@ -26,7 +26,7 @@ type IrAssertion = {
   oracle?: string;
 };
 
-type View = "home" | "tests" | "create" | "history" | "audit" | "run" | "batch";
+type View = "home" | "tests" | "create" | "history" | "run" | "batch";
 type TestFilter = "all" | "draft" | "weak" | "pilot" | "demo";
 
 function isPilotTest(t: StoredTest): boolean {
@@ -181,9 +181,6 @@ export function App() {
       return "";
     }
   });
-  const [auditEntries, setAuditEntries] = useState<
-    Array<{ at: string; testId: string; title: string; actor: string; irHash: string }>
-  >([]);
 
   const persistApprovalActor = (value: string) => {
     setApprovalActor(value);
@@ -361,14 +358,6 @@ export function App() {
       });
     } catch {
       setDemoOk(null);
-    }
-    try {
-      const audit = await api<{
-        entries: Array<{ at: string; testId: string; title: string; actor: string; irHash: string }>;
-      }>("/api/audit?limit=12");
-      setAuditEntries(audit.entries);
-    } catch {
-      setAuditEntries([]);
     }
     try {
       const c = await api<{ scopeNotes?: string[] }>("/api/pilot-constraints");
@@ -995,6 +984,67 @@ export function App() {
     statusItems.push({ key: "llm-error", text: `最近 LLM 调用失败：${llmInfo.lastError}`, tone: "warn" });
   }
 
+  const renderHistoryRow = (r: StoredRun) => (
+    <div className="row row-history" key={r.runId}>
+      <div className="row-main">
+        <h3>
+          {r.testTitle}
+          {r.trial ? <span className="badge trial">试跑</span> : null}
+        </h3>
+        <p>
+          {new Date(r.completedAt).toLocaleString()} · {r.metrics?.durationMs ?? "—"} ms
+          {(r.metrics?.attemptCount ?? 1) > 1
+            ? ` · ${r.metrics?.attemptCount} 次尝试${r.metrics?.flakeRecovery ? "（flake 恢复）" : ""}`
+            : ""}
+          {failureKindLabel(r.metrics?.failureKind)
+            ? ` · ${failureKindLabel(r.metrics?.failureKind)}`
+            : ""}
+        </p>
+      </div>
+      <div className="row-actions row-actions-history">
+        <span className={`status-pill ${r.status === "passed" ? "pass" : "fail"}`}>
+          {r.status === "passed" ? "通过" : "失败"}
+        </span>
+        <button type="button" className="btn-small" onClick={() => openRunDetail(r)}>
+          详情与证据
+        </button>
+        {r.status !== "passed" && (
+          <button type="button" className="btn-small primary" onClick={() => void openDiagnose(r)}>
+            诊断
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  const historyGroups = (() => {
+    const byBatch = new Map<string, StoredRun[]>();
+    const singles: StoredRun[] = [];
+    for (const r of runs) {
+      if (r.batchId) {
+        const list = byBatch.get(r.batchId) ?? [];
+        list.push(r);
+        byBatch.set(r.batchId, list);
+      } else {
+        singles.push(r);
+      }
+    }
+    const groups = [...byBatch.entries()]
+      .map(([batchId, batchRuns]) => {
+        const sorted = [...batchRuns].sort((a, b) => String(a.startedAt).localeCompare(String(b.startedAt)));
+        return {
+          batchId,
+          runs: sorted,
+          latest: Math.max(...sorted.map((r) => Date.parse(r.completedAt || r.startedAt) || 0)),
+          passed: sorted.filter((r) => r.status === "passed").length,
+          total: sorted.length,
+        };
+      })
+      .sort((a, b) => b.latest - a.latest);
+    singles.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+    return { groups, singles };
+  })();
+
   const pendingIr = editTest ? buildReviewIr() : null;
   const pendingAssertions = (pendingIr?.assertions ?? editTest?.ir.assertions ?? []) as IrAssertion[];
 
@@ -1015,9 +1065,6 @@ export function App() {
           </button>
           <button type="button" className={view === "history" ? "active" : ""} onClick={() => setView("history")}>
             结果
-          </button>
-          <button type="button" className={view === "audit" ? "active" : ""} onClick={() => setView("audit")}>
-            审计
           </button>
         </nav>
       </aside>
@@ -1130,7 +1177,7 @@ export function App() {
               <div className="stat-card">
                 <span className="stat-label">通过率</span>
                 <strong>{summary && summary.runCount > 0 ? `${Math.round(summary.passRate * 100)}%` : "—"}</strong>
-                <span className="stat-sub">最近 {summary?.runCount ?? 0} 次运行</span>
+                <span className="stat-sub">最近 {summary?.runCount ?? 0} 次回归运行（不含试跑）</span>
               </div>
               <div className="stat-card">
                 <span className="stat-label">平均耗时</span>
@@ -1191,13 +1238,16 @@ export function App() {
               <div className="batch-trend flake-panel">
                 <h3 className="batch-trend-title">Flake 统计</h3>
                 <p className="flake-lede">
-                  最近 {flakeMetrics.batchCount ?? "?"} 个显式批次 · 计分运行 {flakeMetrics.runCount} · flake{" "}
-                  {(flakeMetrics.flakeRate * 100).toFixed(1)}%（目标 &lt;
+                  统计范围：最近 {flakeMetrics.batchCount ?? "?"} 个回归批次（共 {flakeMetrics.runCount} 次运行，不含试跑）。
+                  当前 flake <strong>{(flakeMetrics.flakeRate * 100).toFixed(1)}%</strong>（目标 &lt;{" "}
                   {Math.round((baseline?.targets.flakeRateMax ?? 0.05) * 100)}%，
-                  {flakeMetrics.flakeRate < (baseline?.targets.flakeRateMax ?? 0.05) ? "达标" : "未达标"}） · 重试{" "}
-                  {flakeMetrics.multiAttemptRuns} · 恢复 {flakeMetrics.flakeRecoveryCount}
+                  {flakeMetrics.flakeRate < (baseline?.targets.flakeRateMax ?? 0.05) ? "达标" : "未达标"}）。
+                </p>
+                <p className="stat-note">
+                  flake = 时好时坏、或重试后才通过的运行占比；断言写错的失败不计入。本范围内需要重试{" "}
+                  {flakeMetrics.multiAttemptRuns} 次，其中恢复 {flakeMetrics.flakeRecoveryCount} 次。
                   {flakeMetrics.excludedAssertionFailures > 0
-                    ? ` · 断言失败 ${flakeMetrics.excludedAssertionFailures} 次不计入 flake`
+                    ? `另已排除断言失败 ${flakeMetrics.excludedAssertionFailures} 次。`
                     : ""}
                 </p>
                 {flakeMetrics.failureKinds.length ? (
@@ -1402,114 +1452,47 @@ export function App() {
         {view === "history" && (
           <section>
             <h2 className="section-title">结果</h2>
-            <p className="section-lede">Trace 与 network.json 每次运行都会生成（新运行的记录可下载）。</p>
-            <div className="list">
-              {runs.map((r) => {
-                return (
-                <div className="row row-history" key={r.runId}>
-                  <div className="row-main">
-                    <h3>
-                      {r.testTitle}
-                      {r.trial ? <span className="badge trial">试跑</span> : null}
-                    </h3>
-                    <p>
-                      {new Date(r.completedAt).toLocaleString()} · {r.metrics?.durationMs ?? "—"} ms
-                      {(r.metrics?.attemptCount ?? 1) > 1
-                        ? ` · ${r.metrics?.attemptCount} 次尝试${r.metrics?.flakeRecovery ? "（flake 恢复）" : ""}`
-                        : ""}
-                      {failureKindLabel(r.metrics?.failureKind)
-                        ? ` · ${failureKindLabel(r.metrics?.failureKind)}`
-                        : ""}
-                    </p>
-                  </div>
-                  <div className="row-actions row-actions-history">
-                    <span className={`status-pill ${r.status === "passed" ? "pass" : "fail"}`}>
-                      {r.status === "passed" ? "通过" : "失败"}
-                    </span>
-                    <button type="button" className="btn-small" onClick={() => openRunDetail(r)}>
-                      详情与证据
-                    </button>
-                    {r.status !== "passed" && (
-                      <button type="button" className="btn-small primary" onClick={() => void openDiagnose(r)}>
-                        诊断
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-              })}
-              {runs.length === 0 && <p className="section-lede">尚无执行记录</p>}
-            </div>
-          </section>
-        )}
-        {view === "audit" && (
-          <section>
-            <h2 className="section-title">审批与审计</h2>
             <p className="section-lede">
-              批准请求会携带审批人标识{approvalInfo?.approvalTokenRequired ? "与审批令牌" : ""}；服务端写入{" "}
-              <code>data/audit.jsonl</code>。
+              按批次号分组，批次号与 artifacts 目录一致；证据只保留最近 10 次运行。
             </p>
-            <div className="card-panel">
-              <h3>审批身份</h3>
-              <div className="audit-identity-fields">
-                <div className="field">
-                  <label>审批人（x-testpilot-actor）</label>
-                  {approvalInfo?.approvalActors?.length ? (
-                    <select value={approvalActor} onChange={(e) => persistApprovalActor(e.target.value)}>
-                      <option value="">请选择…</option>
-                      {approvalInfo.approvalActors.map((a) => (
-                        <option key={a} value={a}>
-                          {a}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      value={approvalActor}
-                      onChange={(e) => persistApprovalActor(e.target.value)}
-                      placeholder="例如 qa-lead"
-                    />
-                  )}
-                </div>
-                {approvalInfo?.approvalTokenRequired ? (
-                  <div className="field">
-                    <label>审批令牌（仅保存在本机浏览器）</label>
-                    <input
-                      type="password"
-                      value={approvalTokenInput}
-                      onChange={(e) => persistApprovalToken(e.target.value)}
-                      placeholder="与 .env 中 TESTPILOT_APPROVAL_TOKEN 一致"
-                      autoComplete="off"
-                    />
-                    <p className="hint-inline">
-                      {approvalTokenInput.trim() ? "已保存到本机浏览器。" : "未填写时无法批准。"}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="hint-inline">服务端未启用审批令牌；本机默认以审批人标识记录。</p>
-                )}
-              </div>
-            </div>
-            <div className="card-panel">
-              <h3>最近批准</h3>
-              {auditEntries.length > 0 ? (
-                <ul className="audit-log-list">
-                  {auditEntries.map((e) => (
-                    <li key={`${e.at}-${e.testId}-${e.actor}`}>
-                      <span>{new Date(e.at).toLocaleString()}</span>
-                      <span className="audit-log-actor">{e.actor}</span>
-                      <span>{e.title}</span>
-                      <span className="audit-log-hash">{e.irHash.slice(0, 8)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="hint-inline">尚无审批审计记录。</p>
-              )}
+            {historyGroups.groups.length === 0 && historyGroups.singles.length === 0 ? (
+              <p className="section-lede">尚无执行记录</p>
+            ) : null}
+            <div className="batch-groups">
+              {historyGroups.groups.map((g, index) => (
+                <details className="batch-group" key={g.batchId} open={index === 0}>
+                  <summary className="batch-group-summary">
+                    <span className="batch-group-id">{g.batchId}</span>
+                    <span className={`status-pill ${g.passed === g.total ? "pass" : "fail"}`}>
+                      {g.passed}/{g.total} 通过
+                    </span>
+                    <span className="batch-group-time">{new Date(g.latest).toLocaleString()}</span>
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openBatch(g.batchId);
+                      }}
+                    >
+                      批次详情
+                    </button>
+                  </summary>
+                  <div className="list">{g.runs.map(renderHistoryRow)}</div>
+                </details>
+              ))}
+              {historyGroups.singles.length > 0 ? (
+                <details className="batch-group" open>
+                  <summary className="batch-group-summary">
+                    <span className="batch-group-id">试跑与单独运行</span>
+                    <span className="batch-group-time">{historyGroups.singles.length} 条</span>
+                  </summary>
+                  <div className="list">{historyGroups.singles.map(renderHistoryRow)}</div>
+                </details>
+              ) : null}
             </div>
           </section>
         )}
-
       </main>
       </div>
 

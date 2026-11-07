@@ -802,19 +802,32 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     return { test: withWeakAssertions(test), draft: { uncertainties: draft.uncertainties, sources: draft.sources }, llmUsed, llmTokensUsed };
   });
 
-  app.post("/api/requirement-flow", async (req, reply) => {
-    const body = req.body as {
+  async function executeRequirementFlow(
+    body: {
       title?: string;
       text?: string;
       channel?: "intent" | "prd";
       target?: RequirementTarget;
       customUrl?: string;
       autoTrial?: boolean;
+    },
+    onStage: (stage: string) => void,
+  ): Promise<{ code: number; payload: unknown }> {
+    const out = { code: 200, payload: undefined as unknown };
+    const reply = {
+      code: (n: number) => ({
+        send: (p: unknown) => {
+          out.code = n;
+          out.payload = p;
+          return out;
+        },
+      }),
     };
     const title = body.title?.trim() || "需求草案";
     const channel = body.channel === "prd" ? "prd" : "intent";
     const text = body.text?.trim();
     if (!text) return reply.code(400).send({ error: "请粘贴需求描述或 PRD 片段" });
+    onStage("校验目标环境");
     const target: RequirementTarget = body.target === "pilot" || body.target === "custom" ? body.target : "demo";
     const project = store.project();
     const pilotUrl = pilotBaseUrl();
@@ -839,6 +852,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
     let context;
     const onPilot = pilotUrl ? isPilotIntakeUrl(url, pilotUrl) : false;
+    onStage(onPilot ? "登录试点并采集页面" : "打开目标页面并采集");
     try {
       await assertPlaywrightReady();
       if (onPilot) {
@@ -864,6 +878,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
     // Constraints are hints, not part of the requirement text: appending them
     // used to make unrelated requirements match the ticket template.
+    onStage("生成测试步骤与断言");
     const ruleDraft = planFromIntake({
       title,
       channel,
@@ -909,6 +924,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       plannerNotes: draft.uncertainties,
       updatedAt: new Date().toISOString(),
     });
+    onStage("保存草稿");
     await store.saveTest(stored);
     let storedTest = stored;
     const observedNotes: string[] = [];
@@ -917,6 +933,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     let trialRun: StoredRun | undefined;
     let trialError: string | undefined;
     if (autoTrial) {
+      onStage("自动试跑中");
       try {
         trialRun = await executeSingleIrRun(
           store,
@@ -937,6 +954,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (trialRun && trialRun.status !== "passed") {
       const signal = pickObservedSuccessSignal(trialRun);
       if (signal) {
+        onStage("按页面真实成功文案重试");
         const passedIds = new Set(
           trialRun.assertions.filter((a) => a.passed).map((a) => a.assertionId),
         );
@@ -978,7 +996,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       }
     }
 
-    return {
+    onStage("完成");
+    out.payload = {
       environment: { target, label: resolved.label, url },
       test: withWeakAssertions(storedTest),
       generation: {
@@ -992,6 +1011,70 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       trialError,
       autoTrial,
     };
+    return out;
+  }
+
+  type RequirementJob = {
+    id: string;
+    status: "running" | "completed" | "failed";
+    stage: string;
+    startedAt: string;
+    completedAt?: string;
+    result?: unknown;
+    error?: string;
+  };
+  const requirementJobs = new Map<string, RequirementJob>();
+
+  app.post("/api/requirement-flow", async (req, reply) => {
+    const out = await executeRequirementFlow(
+      (req.body ?? {}) as Parameters<typeof executeRequirementFlow>[0],
+      () => undefined,
+    );
+    return reply.code(out.code).send(out.payload);
+  });
+
+  app.post("/api/requirement-flow/jobs", async (req, reply) => {
+    const body = (req.body ?? {}) as Parameters<typeof executeRequirementFlow>[0];
+    const id = `req_${Date.now().toString(36)}_${randomUUID().slice(0, 6)}`;
+    const job: RequirementJob = {
+      id,
+      status: "running",
+      stage: "排队中",
+      startedAt: new Date().toISOString(),
+    };
+    requirementJobs.set(id, job);
+    if (requirementJobs.size > 50) {
+      const oldest = requirementJobs.keys().next().value;
+      if (oldest) requirementJobs.delete(oldest);
+    }
+    void executeRequirementFlow(body, (stage) => {
+      job.stage = stage;
+    })
+      .then((out) => {
+        job.completedAt = new Date().toISOString();
+        if (out.code >= 400) {
+          job.status = "failed";
+          const payload = out.payload as { error?: string; issues?: unknown };
+          job.error = payload?.error ?? `HTTP ${out.code}`;
+        } else {
+          job.status = "completed";
+          job.stage = "完成";
+          job.result = out.payload;
+        }
+      })
+      .catch((err) => {
+        job.status = "failed";
+        job.error = err instanceof Error ? err.message : String(err);
+        job.completedAt = new Date().toISOString();
+      });
+    return reply.code(202).send({ jobId: id });
+  });
+
+  app.get("/api/requirement-flow/jobs/:jobId", async (req, reply) => {
+    const { jobId } = req.params as { jobId: string };
+    const job = requirementJobs.get(jobId);
+    if (!job) return reply.notFound("job not found");
+    return job;
   });
 
   app.get("/api/environment", async () => {
@@ -1022,7 +1105,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
   });
 
   app.get("/api/metrics/flake", async () => {
-    const batches = (await store.listBatches(12)).filter((b) => b.status === "completed");
+    const batches = (await store.listBatches(10)).filter((b) => b.status === "completed");
     const runsById = new Map((await store.listRuns(1000)).map((r) => [r.runId, r]));
     const scoped: StoredRun[] = [];
     for (const batch of batches) {

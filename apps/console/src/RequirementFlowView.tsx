@@ -44,6 +44,8 @@ export function RequirementFlowView({
   const [target, setTarget] = useState<Target>("demo");
   const [customUrl, setCustomUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [stage, setStage] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FlowResult | null>(null);
   const [approving, setApproving] = useState(false);
@@ -52,13 +54,16 @@ export function RequirementFlowView({
   const runFlow = async () => {
     setLoading(true);
     setError(null);
+    setStage("排队中");
+    setElapsed(0);
     if (result?.test && result.test.approvalStatus !== "approved") {
       await api(`/api/tests/${result.test.id}`, { method: "DELETE" }).catch(() => undefined);
     }
     setResult(null);
     setApprovedRun(null);
+    const startedAt = Date.now();
     try {
-      const res = await api<FlowResult>("/api/requirement-flow", {
+      const { jobId } = await api<{ jobId: string }>("/api/requirement-flow/jobs", {
         method: "POST",
         body: JSON.stringify({
           title: title.trim() || undefined,
@@ -69,12 +74,30 @@ export function RequirementFlowView({
           autoTrial: true,
         }),
       });
-      setResult(res);
-      await onRefresh();
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const job = await api<{
+          status: "running" | "completed" | "failed";
+          stage: string;
+          result?: FlowResult;
+          error?: string;
+        }>(`/api/requirement-flow/jobs/${jobId}`);
+        setStage(job.stage);
+        setElapsed(Math.round((Date.now() - startedAt) / 1000));
+        if (job.status === "completed" && job.result) {
+          setResult(job.result);
+          await onRefresh();
+          break;
+        }
+        if (job.status === "failed") {
+          throw new Error(job.error ?? "生成失败");
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
+      setStage(null);
     }
   };
 
@@ -184,8 +207,19 @@ export function RequirementFlowView({
           disabled={loading || !text.trim()}
           onClick={() => void runFlow()}
         >
-          {loading ? "生成并试跑…" : "生成草案并试跑"}
+          {loading ? "生成中…" : "生成草案并试跑"}
         </button>
+        {loading ? (
+          <div className="flow-progress" role="status" aria-live="polite">
+            <div className="flow-progress-track">
+              <span />
+            </div>
+            <p className="flow-progress-stage">
+              {stage ?? "处理中"}… <span>{elapsed}s</span>
+            </p>
+            <p className="stat-note">生成与自动试跑通常需要 20–90 秒；阶段会实时更新。</p>
+          </div>
+        ) : null}
         {error ? <p className="diagnose-msg">{error}</p> : null}
       </div>
 

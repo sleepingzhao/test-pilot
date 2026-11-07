@@ -37,14 +37,24 @@ test("computeFlakeStats counts recoveries after retry", () => {
   assert.equal(stats.flakeRecoveryRate, 1 / 3);
 });
 
-test("assertion-oracle failures are excluded from flake scoring (negative)", () => {
-  const assertionFail = run({
+test("assertion failures (oracle and product defect) are excluded from flake scoring (negative)", () => {
+  const oracleFail = run({
     status: "failed",
     metrics: { durationMs: 1, attemptCount: 3, failureKind: "ASSERTION_ORACLE" },
   });
-  assert.equal(isAssertionFailureRun(assertionFail), true);
-  assert.equal(isFlakeScoredRun(assertionFail), false);
-  const stats = computeFlakeStats([assertionFail]);
+  const productFail = run({
+    status: "failed",
+    metrics: { durationMs: 1, attemptCount: 2, failureKind: "PRODUCT_DEFECT" },
+  });
+  const failedAssertion = run({
+    status: "failed",
+    assertions: [{ assertionId: "a", passed: false, errorKind: "PRODUCT_DEFECT" }],
+  });
+  for (const item of [oracleFail, productFail, failedAssertion]) {
+    assert.equal(isAssertionFailureRun(item), true);
+    assert.equal(isFlakeScoredRun(item), false);
+  }
+  const stats = computeFlakeStats([oracleFail, productFail, failedAssertion]);
   assert.equal(stats.runCount, 0);
   assert.equal(stats.multiAttemptRuns, 0);
 });
@@ -53,7 +63,7 @@ test("deterministic environment failure stays in flake pool but is not a recover
   const stats = computeFlakeStats([
     run({
       status: "failed",
-      metrics: { durationMs: 1, attemptCount: 1, failureKind: "PRODUCT_DEFECT" },
+      metrics: { durationMs: 1, attemptCount: 1, failureKind: "ENVIRONMENT" },
     }),
   ]);
   assert.equal(stats.runCount, 1);
@@ -75,30 +85,33 @@ test("per-test flake rate reflects retry recovery (positive)", () => {
   assert.equal(report.byTest[0]!.flakeRate, 0.5);
 });
 
-test("repeat instability marks flake when pass and fail mix (positive)", () => {
+test("repeat instability marks flake when pass and error mix (positive)", () => {
   const report = buildFlakeMetricsReport([
     run({ testId: "demo-b", status: "passed", runId: "r1" }),
-    run({ testId: "demo-b", status: "failed", runId: "r2", metrics: { durationMs: 1, failureKind: "ENVIRONMENT" } }),
+    run({ testId: "demo-b", status: "error", runId: "r2", metrics: { durationMs: 1, failureKind: "ENVIRONMENT" } }),
     run({ testId: "demo-b", status: "passed", runId: "r3" }),
   ]);
   assert.equal(report.byTest[0]!.flakeRate, 1 / 3);
+  assert.equal(report.flakeRate, 1 / 3);
 });
 
-test("failureKinds includes passed bucket and excludes trial", () => {
+test("failureKinds counts failed runs only and excludes trial", () => {
   const report = buildFlakeMetricsReport([
     run({ status: "passed", trial: true }),
     run({ status: "failed", metrics: { durationMs: 1, failureKind: "ENVIRONMENT" } }),
     run({ status: "passed" }),
   ]);
   const kinds = Object.fromEntries(report.failureKinds.map((k) => [k.kind, k.count]));
-  assert.equal(kinds.PASSED, 1);
+  assert.equal(kinds.PASSED, undefined);
   assert.equal(kinds.ENVIRONMENT, 1);
   assert.equal(report.excludedAssertionFailures, 0);
 });
 
-test("normalizeRepeatCount clamps to 1..5", () => {
+test("normalizeRepeatCount clamps to 1..5 and accepts numeric strings", () => {
   assert.equal(normalizeRepeatCount(undefined), 1);
   assert.equal(normalizeRepeatCount(3), 3);
+  assert.equal(normalizeRepeatCount("3"), 3);
   assert.equal(normalizeRepeatCount(99), 5);
   assert.equal(normalizeRepeatCount(0), 1);
+  assert.equal(normalizeRepeatCount("abc"), 1);
 });

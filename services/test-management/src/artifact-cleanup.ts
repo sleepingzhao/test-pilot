@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { StoredBatch, StoredRun } from "./store.js";
-import { isSafeRunId } from "./security.js";
+import { isSafeRunId, isWithin } from "./security.js";
 
 export type CleanupCandidate = { runId: string; dir: string; reason: string; bytes: number };
 
@@ -172,11 +172,20 @@ export async function planArtifactCleanup(opts: {
   };
 }
 
-export async function executeArtifactCleanup(plan: ArtifactCleanupPlan): Promise<number> {
-  if (plan.dryRun) return 0;
+export async function executeArtifactCleanup(
+  plan: ArtifactCleanupPlan,
+  runsRoot: string,
+): Promise<number> {
+  // Destructive primitive: anything other than an explicit execute stays dry.
+  if (plan.dryRun !== false) return 0;
+  const root = resolve(runsRoot);
   let removed = 0;
   for (const item of plan.toRemove) {
-    await rm(item.dir, { recursive: true, force: true });
+    const target = resolve(item.dir);
+    if (target === root || !isWithin(root, target)) continue;
+    const info = await stat(target).catch(() => null);
+    if (!info?.isDirectory()) continue;
+    await rm(target, { recursive: true, force: true });
     removed += 1;
   }
   return removed;
@@ -213,6 +222,6 @@ export async function runArtifactCleanupCli(opts: {
     maxTotalBytes: opts.maxTotalBytes,
     dryRun: opts.dryRun,
   });
-  await executeArtifactCleanup(plan);
+  await executeArtifactCleanup(plan, join(artifactsRoot, "runs"));
   return plan;
 }

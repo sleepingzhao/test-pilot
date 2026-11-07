@@ -166,7 +166,12 @@ export function classifyFailure(input: FailureClassifierInput): string {
   if (stepError.includes("timeout") || input.httpStatus === 503) {
     return "ENVIRONMENT";
   }
-  if (stepError.includes("net::") || stepError.includes("err_")) {
+  if (
+    stepError.includes("net::") ||
+    stepError.includes("err_") ||
+    stepError.includes("browser has been closed") ||
+    stepError.includes("target page, context or browser")
+  ) {
     return "ENVIRONMENT";
   }
   if (stepError.includes("locator") || stepError.includes("strict mode")) {

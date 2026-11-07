@@ -8,8 +8,9 @@ export type FlakeStats = {
 };
 
 export function isAssertionFailureRun(run: StoredRun): boolean {
+  if (run.metrics?.failureKind === "PRODUCT_DEFECT") return true;
   if (run.metrics?.failureKind === "ASSERTION_ORACLE") return true;
-  return run.assertions?.some((a) => !a.passed && a.errorKind === "ASSERTION_ORACLE") ?? false;
+  return run.assertions?.some((a) => !a.passed) ?? false;
 }
 
 /** Runs that may participate in flake / retry statistics (excludes trial and assertion-oracle failures). */
@@ -47,7 +48,9 @@ export type FlakeByTestRow = {
   failedCount: number;
   multiAttemptRuns: number;
   flakeRecoveryCount: number;
-  /** Share of scored runs that passed after retry or show pass/fail instability across repeats. */
+  /** Runs counted as flaky: retry recoveries plus failed runs of an unstable test. */
+  flakyRunCount: number;
+  /** Share of scored runs that were flaky. */
   flakeRate: number;
 };
 
@@ -57,6 +60,8 @@ export type FailureKindRow = {
 };
 
 export type FlakeMetricsReport = FlakeStats & {
+  /** Scored-run weighted flake rate across all tests. */
+  flakeRate: number;
   excludedAssertionFailures: number;
   byTest: FlakeByTestRow[];
   failureKinds: FailureKindRow[];
@@ -64,7 +69,7 @@ export type FlakeMetricsReport = FlakeStats & {
 
 function instabilityAcrossRepeats(runs: StoredRun[]): boolean {
   const passed = runs.some((r) => r.status === "passed");
-  const failed = runs.some((r) => r.status === "failed");
+  const failed = runs.some((r) => r.status !== "passed");
   return passed && failed;
 }
 
@@ -95,8 +100,8 @@ export function buildFlakeMetricsReport(runs: StoredRun[]): FlakeMetricsReport {
         flakyRunCount += 1;
       }
     }
-    if (instabilityAcrossRepeats(testRuns)) {
-      flakyRunCount = Math.max(flakyRunCount, 1);
+    if (instabilityAcrossRepeats(testRuns) && failedCount > 0 && failedCount < testRuns.length) {
+      flakyRunCount += failedCount;
     }
     const title = testRuns[0]?.testTitle ?? testId;
     byTest.push({
@@ -107,6 +112,7 @@ export function buildFlakeMetricsReport(runs: StoredRun[]): FlakeMetricsReport {
       failedCount,
       multiAttemptRuns,
       flakeRecoveryCount,
+      flakyRunCount,
       flakeRate: testRuns.length ? flakyRunCount / testRuns.length : 0,
     });
   }
@@ -114,16 +120,20 @@ export function buildFlakeMetricsReport(runs: StoredRun[]): FlakeMetricsReport {
 
   const kindCounts = new Map<string, number>();
   for (const run of runs) {
-    if (run.trial) continue;
-    const kind = run.metrics?.failureKind ?? (run.status === "passed" ? "PASSED" : "UNKNOWN");
+    if (run.trial || run.status === "passed") continue;
+    const kind = run.metrics?.failureKind ?? "UNKNOWN";
     kindCounts.set(kind, (kindCounts.get(kind) ?? 0) + 1);
   }
   const failureKinds = [...kindCounts.entries()]
     .map(([kind, count]) => ({ kind, count }))
     .sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind));
 
+  const flakyRuns = byTest.reduce((s, row) => s + row.flakyRunCount, 0);
+  const scoredRuns = byTest.reduce((s, row) => s + row.runCount, 0);
+
   return {
     ...global,
+    flakeRate: scoredRuns ? flakyRuns / scoredRuns : 0,
     excludedAssertionFailures,
     byTest,
     failureKinds,
@@ -131,6 +141,7 @@ export function buildFlakeMetricsReport(runs: StoredRun[]): FlakeMetricsReport {
 }
 
 export function normalizeRepeatCount(raw: unknown): number {
-  const n = typeof raw === "number" && Number.isFinite(raw) ? Math.floor(raw) : 1;
-  return Math.min(5, Math.max(1, n));
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(5, Math.max(1, Math.floor(n)));
 }

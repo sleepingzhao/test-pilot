@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { assertPlaywrightReady, recordSession } from "@testpilot/recorder-web";
 import { runTestIR, type RunResult } from "@testpilot/runner-web";
 import { snapshotPageContext } from "@testpilot/context-web";
@@ -10,7 +11,7 @@ import { draftToPartialIR, planDraft, planFromIntake, suggestAssertionsForTest, 
 import { computeIRHash, IR_HASH_VERSION, validateSemantics, validateTestIR, weakAssertionIssues } from "@testpilot/test-ir";
 import { validateAssertionProviders } from "@testpilot/assertions";
 import { computeAssertionConfigHash } from "@testpilot/fixtures";
-import { classifyFailure } from "@testpilot/evidence";
+import { classifyFailure, redactForEvidence, redactStringBody } from "@testpilot/evidence";
 import { chromium } from "playwright";
 import type { FileStore, RecordJob, StoredBatch, StoredRun, StoredTest } from "./store.js";
 import { llmUsageSnapshot } from "./llm-usage.js";
@@ -42,12 +43,11 @@ import {
   absoluteStepUrls,
   DEMO_BASE_URL,
 } from "./run-env.js";
-import { estimateLastBatchDurationMs, groupExplicitBatches } from "./batch-metrics.js";
+import { metricsFromBatchRecord } from "./batch-metrics.js";
 import { measureBatchArtifactBytes } from "./artifact-cleanup.js";
 import { mapWithConcurrency, maxParallelFromEnv } from "./batch-parallel.js";
 import {
   computeRegressionBaseline,
-  readRegressionBaselineReport,
   writeRegressionBaselineReport,
 } from "./regression-baseline.js";
 import {
@@ -253,6 +253,47 @@ async function appendRunMetrics(dataRoot: string, stored: StoredRun, extra?: Rec
   );
 }
 
+/** Old runs may predate write-time redaction; redact again on API reads. */
+function redactRunForApi(run: StoredRun): StoredRun {
+  return redactForEvidence(run) as StoredRun;
+}
+
+function artifactPresence(run: StoredRun, artifactsRoot: string): Record<string, boolean> {
+  const root = resolve(artifactsRoot);
+  const rawRunDir = run.artifacts?.dir ?? join(root, "runs", run.runId);
+  const runDir = resolve(isAbsolute(rawRunDir) ? rawRunDir : resolve(root, "..", rawRunDir));
+  const present: Record<string, boolean> = {};
+  for (const artifact of run.artifacts?.artifacts ?? []) {
+    const filePath = resolve(isAbsolute(artifact.path) ? artifact.path : join(runDir, artifact.path));
+    if (isWithin(runDir, filePath)) present[artifact.kind] = existsSync(filePath);
+  }
+  if (present.network === undefined) present.network = existsSync(join(runDir, "network.json"));
+  if (present.trace === undefined) present.trace = existsSync(join(runDir, "trace.zip"));
+  return present;
+}
+
+function runTimeoutMs(): number {
+  const raw = Number(process.env.TESTPILOT_RUN_TIMEOUT_MS ?? 180_000);
+  if (!Number.isFinite(raw)) return 180_000;
+  return Math.min(600_000, Math.max(30_000, raw));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 async function runSingleTest(
   store: FileStore,
   test: StoredTest,
@@ -262,15 +303,23 @@ async function runSingleTest(
   dataRoot: string,
   batch?: { batchId: string; batchStartedAt: string },
 ): Promise<StoredRun | null> {
+  const runId = `run_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
   try {
     const v = validateTestIR(test.ir);
-    if (!v.ok) return null;
+    if (!v.ok) throw new Error(`IR 校验失败: ${v.issues.map((i) => i.message).join("; ")}`);
     const runEnv = buildRunEnvironment(baseUrl);
-    const result = await runTestIR(v.value, {
-      headless: true,
-      artifactsDir: join(artifactsRoot, "runs"),
-      env: runEnv,
-    });
+    const result = await withTimeout(
+      runTestIR(v.value, {
+        runId,
+        headless: true,
+        artifactsDir: join(artifactsRoot, "runs"),
+        env: runEnv,
+      }),
+      runTimeoutMs(),
+      `run ${test.id}`,
+    );
     const artifacts = await ensureNetworkArtifact(result.artifacts);
     const stored: StoredRun = {
       ...result,
@@ -282,8 +331,33 @@ async function runSingleTest(
     await store.saveRun(stored);
     await appendRunMetrics(dataRoot, stored);
     return stored;
-  } catch {
-    return null;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`run failed before completion: ${test.id}`, message);
+    const completedAt = new Date().toISOString();
+    const failed: StoredRun = {
+      runId,
+      testId: test.id,
+      testVersion: test.ir.version,
+      status: "error",
+      startedAt,
+      completedAt,
+      steps: [{ stepId: "run", status: "failed", durationMs: Date.now() - startedMs, message }],
+      assertions: [],
+      artifacts: { runId, dir: join(artifactsRoot, "runs", runId), artifacts: [] },
+      metrics: {
+        durationMs: Date.now() - startedMs,
+        llmTokensUsed: 0,
+        failureKind: classifyFailure({ stepError: message }),
+        attemptCount: 1,
+      },
+      projectId,
+      testTitle: test.title,
+      ...(batch ? { batchId: batch.batchId, batchStartedAt: batch.batchStartedAt } : {}),
+    };
+    await store.saveRun(failed);
+    await appendRunMetrics(dataRoot, failed);
+    return failed;
   }
 }
 
@@ -737,12 +811,23 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
   });
 
   app.get("/api/metrics/flake", async () => {
-    const runs = (await store.listRuns(300)).filter((r) => !r.trial);
-    return buildFlakeMetricsReport(runs);
+    const batches = (await store.listBatches(12)).filter((b) => b.status === "completed");
+    const runsById = new Map((await store.listRuns(1000)).map((r) => [r.runId, r]));
+    const scoped: StoredRun[] = [];
+    for (const batch of batches) {
+      for (const runId of batch.runIds) {
+        const run = runsById.get(runId);
+        if (run && !run.trial) scoped.push(run);
+      }
+    }
+    const report = buildFlakeMetricsReport(scoped);
+    return { report, batchCount: batches.length, targets: { passRateMin: 0.95, flakeRateMax: 0.05 } };
   });
 
   app.get("/api/metrics/baseline", async () => {
-    const report = await readRegressionBaselineReport(dataRoot);
+    const batches = await store.listBatches(50);
+    const runs = await store.listRuns(500);
+    const report = computeRegressionBaseline(batches, new Map(runs.map((r) => [r.runId, r])));
     return { report, targets: { passRateMin: 0.95, flakeRateMax: 0.05 } };
   });
 
@@ -760,13 +845,16 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       .map((t) => ({ id: t.id, title: t.title, count: weakAssertionIssues(t.ir).length }))
       .filter((t) => t.count > 0);
     const baseline = await loadPilotBaseline();
-    const lastBatchMs = estimateLastBatchDurationMs(runs);
-    const batchMinutes = lastBatchMs != null ? lastBatchMs / 60_000 : null;
     const baselineMin = baseline?.manualRegressionMinutes ?? null;
-    const minutesSavedVsBaseline =
-      batchMinutes != null && baselineMin != null ? Math.max(0, Math.round((baselineMin - batchMinutes) * 10) / 10) : null;
     const llmUsage = llmUsageSnapshot();
     const flake = computeFlakeStats(runs);
+    const storedBatches = (await store.listBatches(8)).filter((b) => b.status !== "running");
+    const recentBatches = storedBatches.map(metricsFromBatchRecord);
+    const fullBatch = storedBatches.find((b) => b.mode === "full" && (b.repeatCount ?? 1) === 1);
+    const lastBatchMs = fullBatch ? metricsFromBatchRecord(fullBatch).durationMs : null;
+    const batchMinutes = lastBatchMs != null ? lastBatchMs / 60_000 : null;
+    const minutesSavedVsBaseline =
+      batchMinutes != null && baselineMin != null ? Math.max(0, Math.round((baselineMin - batchMinutes) * 10) / 10) : null;
     return {
       runCount: runs.length,
       passRate: runs.length ? passed / runs.length : 0,
@@ -779,11 +867,11 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       weakApprovedCount: weakApproved.length,
       weakApprovedTests: weakApproved,
       lastBatchDurationMs: lastBatchMs,
-      lastBatchMinutes: batchMinutes != null ? Math.round(batchMinutes * 10) / 10 : null,
+      lastBatchMinutes: lastBatchMs != null ? Math.round((lastBatchMs / 60_000) * 10) / 10 : null,
       pilotBaselineMinutes: baselineMin,
       pilotBaselineNotes: baseline?.notes ?? null,
       minutesSavedVsBaseline,
-      recentBatches: groupExplicitBatches(runs.filter((r) => !r.trial)).slice(0, 8),
+      recentBatches,
       flakeRecoveryCount: flake.flakeRecoveryCount,
       flakeRecoveryRate: flake.flakeRecoveryRate,
       multiAttemptRuns: flake.multiAttemptRuns,
@@ -808,7 +896,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (!isSafeRunId(jobId)) return reply.notFound("batch job not found");
     const job = batchJobs.get(jobId);
     if (!job) return reply.notFound("batch job not found");
-    return job;
+    return { ...job, runs: job.runs.map(redactRunForApi) };
   });
 
   app.get("/api/batches", async () => ({ batches: await store.listBatches(24) }));
@@ -818,12 +906,14 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (!isSafeRunId(batchId)) return reply.notFound("batch not found");
     const batch = await store.getBatch(batchId);
     if (!batch) return reply.notFound("batch not found");
-    const runs: StoredRun[] = [];
+    const job = batchJobs.get(batchId);
+    const storedRuns: StoredRun[] = [];
     for (const runId of batch.runIds) {
       const run = await store.getRun(runId);
-      if (run) runs.push(run);
+      if (run) storedRuns.push(run);
     }
-    return { batch, runs };
+    const runs = job && storedRuns.length < job.runs.length ? job.runs : storedRuns;
+    return { batch, runs: runs.map(redactRunForApi) };
   });
 
   app.post("/api/projects/:projectId/runs", async (req, reply) => {
@@ -894,7 +984,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       return { runs: results, async: false, repeatCount };
     }
 
-    const jobId = `batch_${Date.now()}`;
+    const jobId = `batch_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
     const job: RunBatchJob = {
       id: jobId,
       batchId: jobId,
@@ -913,6 +1003,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       passed: 0,
       status: "running",
       runIds: [],
+      mode: body.testId ? "selected" : body.includeDraft ? "include-draft" : "full",
+      repeatCount,
     };
     await store.saveBatch(batchRecord);
 
@@ -962,14 +1054,14 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     };
   });
 
-  app.get("/api/runs", async () => store.listRuns(100));
+  app.get("/api/runs", async () => (await store.listRuns(100)).map(redactRunForApi));
 
   app.get("/api/runs/:runId", async (req, reply) => {
     const { runId } = req.params as { runId: string };
     if (!isSafeRunId(runId)) return reply.notFound("run not found");
     const run = await store.getRun(runId);
     if (!run) return reply.notFound("run not found");
-    return run;
+    return { ...redactRunForApi(run), artifactsPresent: artifactPresence(run, artifactsRoot) };
   });
 
   app.get("/api/runs/:runId/diagnose", async (req, reply) => {
@@ -980,11 +1072,13 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (run.status === "passed") {
       return { runId, status: run.status, failureKind: null, suggestions: [] as string[] };
     }
-    const stepMsg = run.steps.find((s) => s.message)?.message;
-    const assertionMsg = run.assertions.find((a) => !a.passed)?.message;
+    const rawStepMsg = run.steps.find((s) => s.message)?.message;
+    const rawAssertionMsg = run.assertions.find((a) => !a.passed)?.message;
+    const stepMsg = rawStepMsg ? redactStringBody(rawStepMsg) : undefined;
+    const assertionMsg = rawAssertionMsg ? redactStringBody(rawAssertionMsg) : undefined;
     const failureKind =
       run.metrics?.failureKind ??
-      classifyFailure({ stepError: stepMsg, assertionMessage: assertionMsg });
+      classifyFailure({ stepError: rawStepMsg, assertionMessage: rawAssertionMsg });
     const suggestions: string[] = [];
     if (failureKind === "LOCATOR_BREAKAGE") {
       suggestions.push("检查练习应用是否改版；优先为按钮添加 data-testid 并重新录制。");

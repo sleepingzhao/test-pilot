@@ -38,6 +38,22 @@ export type StoredRun = {
     actual?: unknown;
   }>;
   artifacts: { dir: string; artifacts: Array<{ kind: string; path: string }> };
+  /** Present files for this run, computed by the API (missing after cleanup). */
+  artifactsPresent?: Record<string, boolean>;
+};
+
+export type StoredBatch = {
+  batchId: string;
+  startedAt: string;
+  completedAt?: string;
+  total: number;
+  passed: number;
+  status: "running" | "completed" | "failed";
+  runIds: string[];
+  mode?: "full" | "selected" | "include-draft";
+  repeatCount?: number;
+  error?: string;
+  artifactBytesTotal?: number;
 };
 
 function approvalHeaders(): Record<string, string> {

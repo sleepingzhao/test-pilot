@@ -55,3 +55,25 @@ test("groupExplicitBatches counts pass rate per batch", () => {
   assert.equal(b.passed, 1);
   assert.equal(b.total, 2);
 });
+
+test("batch duration is wall clock, not the sum of per-run durations", () => {
+  const batches = groupExplicitBatches([
+    run({
+      runId: "r1",
+      startedAt: "2026-01-01T10:00:00.000Z",
+      completedAt: "2026-01-01T10:00:30.000Z",
+      batchId: "batch_w",
+      batchStartedAt: "2026-01-01T10:00:00.000Z",
+      metrics: { durationMs: 30_000, llmTokensUsed: 0, attemptCount: 1 },
+    }),
+    run({
+      runId: "r2",
+      startedAt: "2026-01-01T10:00:01.000Z",
+      completedAt: "2026-01-01T10:00:30.000Z",
+      batchId: "batch_w",
+      batchStartedAt: "2026-01-01T10:00:00.000Z",
+      metrics: { durationMs: 29_000, llmTokensUsed: 0, attemptCount: 1 },
+    }),
+  ]);
+  assert.equal(batches[0]!.durationMs, 30_000);
+});

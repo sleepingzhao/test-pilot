@@ -10,14 +10,14 @@
 ## HTTP
 
 - 提交一次工单，在 Trace/network 中确认 POST URL 片段。
-- 若不含默认 `/workorder`，在 `.env` 设置 `TESTPILOT_PILOT_TICKET_API_INCLUDES`。
+- 若不含默认 `/workorder/` 前缀（代码按路径前缀匹配），在 `.env` 设置 `TESTPILOT_PILOT_TICKET_API_INCLUDES`。
 - 断言 `ticket-submit-success-api` 要求 `statusCode: 200` 且请求体含 `TestPilot-`（与 `详细地址` 中的 `{{runId}}` 一致）。
 
 ## DB（可选）
 
-- 配置 `docs/assertion-db-config.json`（见 `assertion-db-config.example.json`）与 `PILOT_DB_URL` 只读账号。
-- 断言 `ticket-submit-success-db` 使用 `order-by-run-id` 查询；表/字段须与线上只读权限一致。
-- 未配置 DB 时，批准前可暂时移除该断言，或保留为草稿直至 DB 就绪。
+- 默认 IR 不含 DB 断言，避免未配置只读库时阻塞回归。
+- 配置 `docs/assertion-db-config.json`（见 `assertion-db-config.example.json`）与只读账号后，再添加使用 `order-by-run-id` 查询的 DB 断言行；表/字段须与线上只读权限一致。
+- 未配置 DB 时，UI + HTTP 断言仍可批准；DB 证明留到配置就绪后追加并重新批准。
 
 ## 负向
 

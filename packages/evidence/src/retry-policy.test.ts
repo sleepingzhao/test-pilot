@@ -86,6 +86,10 @@ test("Playwright-style Timeout errors classify as ENVIRONMENT", () => {
   );
   assert.equal(classifyFailure({ stepError: "net::ERR_CONNECTION_RESET" }), "ENVIRONMENT");
   assert.equal(
+    classifyFailure({ stepError: "tracing.stop: Target page, context or browser has been closed" }),
+    "ENVIRONMENT",
+  );
+  assert.equal(
     classifyFailure({ stepError: "locator.click: strict mode violation" }),
     "LOCATOR_BREAKAGE",
   );

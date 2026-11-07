@@ -238,12 +238,12 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 
 **执行看板**
 
-- [x] V4-1 显式批次与并行执行 — `batchId`/`batchStartedAt`、`data/batches/`、`GET /api/batches`；`TESTPILOT_MAX_PARALLEL`（默认 2、上限 4）并行批跑；单跑不写 batch、指标仅显式批次；`batch-parallel` / `explicit-batch` / `batch-metrics` 测试；`pnpm verify` 全绿
-- [x] V4-2 Flake 统计与看板 — `repeatCount`（1–5，flake 检查 ×3）；`GET /api/metrics/flake`（按用例 flake 率、failureKind 分布；断言失败不计 flake）；控制台首页 flake 面板 + 「Flake 检查 ×3」；`flake-metrics.test.ts`；`pnpm verify` 全绿
-- [x] V4-3 运行详情页 — 控制台 `run` 视图：步骤时间线、断言 expected/actual（脱敏）、attempt/failureKind、批次链接、证据「打开/未生成」；`run-detail-evidence.test.ts`；`pnpm verify` 全绿
-- [x] V4-4 证据保留与清理 — `artifact-cleanup.ts`；`pnpm clean:artifacts` 默认 dry-run（`--keep-batches` / `--days` / `--max-mb`）；仅清 `artifacts/runs`；批次 `artifactBytesTotal`；`artifact-cleanup.test.ts`；`pnpm verify` 全绿
-- [x] V4-5 试点成功用例业务化 — `pilot-ticket-submit-success` 增强 HTTP + 可选 DB 断言；`docs/pilot-ticket-v04-alignment.md`；`pilot-ticket-ir.test.ts`；仍为草稿、不自动批准；`pnpm verify` 全绿
-- [x] V4-6 连续 3 批基线 — `regression-baseline.ts` + `data/reports/regression-baseline.json` + `GET /api/metrics/baseline`；控制台「连续三批基线」；`regression-baseline.test.ts`；`pnpm verify` 全绿
+- [x] V4-1 显式批次与并行执行 — 每条 run 独立 `run_<ts>_<rand>`、批内并发（默认 2，上限 4）；启动失败/超时也落一条 error run，不再从批次消失；批次耗时按 wall clock；重启自动恢复 running 批次；`batch-parallel` / `explicit-batch` / `batch-metrics` 测试；`pnpm verify` 全绿
+- [x] V4-2 Flake 统计与看板 — flake 只统计显式批次；`repeatCount`（1–5，flake 检查 ×3，接受数值字符串）；PRODUCT_DEFECT/ASSERTION_ORACLE 均不计入 flake；按测试与全局 flake 率、failureKind 分布；`flake-metrics.test.ts`；`pnpm verify` 全绿
+- [x] V4-3 运行详情页 — 控制台 run/batch 视图：步骤时间线、断言 expected/actual（API 读取时再次脱敏）、attempt/failureKind、批次链接、证据「打开/未生成」（清理后不产生死链）；`run-detail-evidence.test.ts` / `run-api-redaction.test.ts`；`pnpm verify` 全绿
+- [x] V4-4 证据保留与清理 — `artifact-cleanup.ts`；`pnpm clean:artifacts` 默认 dry-run（`--keep-batches` / `--days` / `--max-mb`）；执行时再次校验路径必须位于 `artifacts/runs`；未知/缺值参数报错；`artifact-cleanup.test.ts`；`pnpm verify` 全绿
+- [x] V4-5 试点成功用例业务化 — HTTP 断言 `statusCode/requestBodyContains` + 可选 DB 对齐清单 `docs/pilot-ticket-v04-alignment.md`；`pilot-ticket-submit-success` 与 `pilot-ticket-no-region` 已由用户人工批准（2026-11-07）；负向探针证明 HTTP 断言可失败；DB 断言在配置只读库后再追加
+- [ ] V4-6 连续 3 批基线 — 2026-11-07 实跑 3 批全量（各 16 条）：46/48 通过（95.8%，达标）、flake **6.25%**（未达 <5% 目标）。flake 来自 2 条试点环境失败（登录页 30s 超时、客户中心 Playwright tracing 卡死）。机制已验证；需稳定试点或为这两条测试显式增加 ENVIRONMENT 重试后重新验收
 - [x] V4-7 文档与门禁 — README / `LOCAL-GATE` 并行度与清理策略；ROADMAP V0.4 看板更新；`pnpm verify` 全绿
 
 **目标：** 从「能跑一次」到「敢天天跑」——批次可追踪、失败可定位、flake 可见、证据不失控。

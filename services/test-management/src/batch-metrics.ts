@@ -1,4 +1,4 @@
-import type { StoredRun } from "./store.js";
+import type { StoredBatch, StoredRun } from "./store.js";
 
 export type BatchMetrics = {
   batchId: string;
@@ -6,8 +6,16 @@ export type BatchMetrics = {
   completedAt: string;
   total: number;
   passed: number;
+  /** Wall-clock duration of the batch (not the sum of per-run durations). */
   durationMs: number;
 };
+
+function wallClockMs(startedAt: string, completedAt: string): number {
+  const start = Date.parse(startedAt);
+  const end = Date.parse(completedAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
+  return Math.max(0, end - start);
+}
 
 function metricsFromRuns(batchId: string, items: StoredRun[]): BatchMetrics {
   const passed = items.filter((r) => r.status === "passed").length;
@@ -21,7 +29,19 @@ function metricsFromRuns(batchId: string, items: StoredRun[]): BatchMetrics {
     completedAt,
     total: items.length,
     passed,
-    durationMs: items.reduce((s, r) => s + (r.metrics?.durationMs ?? 0), 0),
+    durationMs: wallClockMs(startedAt, completedAt),
+  };
+}
+
+export function metricsFromBatchRecord(batch: StoredBatch): BatchMetrics {
+  const completedAt = batch.completedAt ?? new Date().toISOString();
+  return {
+    batchId: batch.batchId,
+    startedAt: batch.startedAt,
+    completedAt,
+    total: batch.total,
+    passed: batch.passed,
+    durationMs: wallClockMs(batch.startedAt, completedAt),
   };
 }
 

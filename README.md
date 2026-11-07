@@ -87,7 +87,9 @@ pnpm verify
 
 ```bash
 pnpm clean:junk                         # 删除 .DS_Store、*.log、*.tsbuildinfo 等
-pnpm clean:artifacts -- --dry-run       # 预览将清理的 artifacts
-pnpm clean:artifacts -- --keep 50       # 只保留最近 50 次运行，默认值
-pnpm clean:artifacts -- --days 7        # 额外删除 7 天前的运行目录
+pnpm clean:artifacts                    # 默认 dry-run，只预览
+pnpm clean:artifacts -- --execute       # 实际删除
+pnpm clean:artifacts -- --keep-batches 20 --days 30 --max-mb 512
 ```
+
+默认保留最近 12 个显式批次内的 run，并删除 14 天前的其余证据；只动 `artifacts/runs`。

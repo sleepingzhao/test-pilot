@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type StoredRun, type StoredTest } from "./api";
+import { api, type StoredBatch, type StoredRun, type StoredTest } from "./api";
+import { BatchDetailView } from "./BatchDetailView";
 import {
   AssertionProviderPanel,
   buildProviderAssertion,
@@ -24,7 +25,7 @@ type IrAssertion = {
   oracle?: string;
 };
 
-type View = "home" | "tests" | "create" | "history" | "audit" | "run";
+type View = "home" | "tests" | "create" | "history" | "audit" | "run" | "batch";
 type CreateChannel = "intent" | "prd" | "record";
 type TestFilter = "all" | "draft" | "weak" | "pilot" | "demo";
 
@@ -85,13 +86,15 @@ export function App() {
     approvedDemoCount?: number;
     weakApprovedCount?: number;
     weakApprovedTests?: Array<{ id: string; title: string; count: number }>;
-    recentBatches?: Array<{ startedAt: string; total: number; passed: number; durationMs: number }>;
+    recentBatches?: Array<{ batchId: string; startedAt: string; total: number; passed: number; durationMs: number }>;
     flakeRecoveryCount?: number;
     flakeRecoveryRate?: number;
     multiAttemptRuns?: number;
   } | null>(null);
   const [flakeMetrics, setFlakeMetrics] = useState<{
     runCount: number;
+    flakeRate: number;
+    batchCount?: number;
     flakeRecoveryCount: number;
     flakeRecoveryRate: number;
     multiAttemptRuns: number;
@@ -111,6 +114,7 @@ export function App() {
       batchCount: number;
       aggregate: {
         passRate: number;
+        flakeRate: number;
         flakeRecoveryRate: number;
         durationMs: number;
         meetsPassTarget: boolean;
@@ -144,6 +148,8 @@ export function App() {
     lastError?: string | null;
   } | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+  const [runBackView, setRunBackView] = useState<"history" | "batch">("history");
   const [diagnoseRun, setDiagnoseRun] = useState<StoredRun | null>(null);
   const [diagnoseDetail, setDiagnoseDetail] = useState<{
     failureKind: string | null;
@@ -200,13 +206,24 @@ export function App() {
     }
   };
 
-  const openRunDetail = (run: StoredRun) => {
+  const openRunDetail = (run: StoredRun, from: "history" | "batch" = "history") => {
     setSelectedRunId(run.runId);
+    setRunBackView(from);
     setView("run");
   };
 
   const closeRunDetail = () => {
     setSelectedRunId(null);
+    setView(runBackView === "batch" && selectedBatchId ? "batch" : "history");
+  };
+
+  const openBatch = (batchId: string) => {
+    setSelectedBatchId(batchId);
+    setView("batch");
+  };
+
+  const closeBatch = () => {
+    setSelectedBatchId(null);
     setView("history");
   };
 
@@ -244,7 +261,7 @@ export function App() {
         approvedTestCount?: number;
         weakApprovedCount?: number;
         weakApprovedTests?: Array<{ id: string; title: string; count: number }>;
-        recentBatches?: Array<{ startedAt: string; total: number; passed: number; durationMs: number }>;
+        recentBatches?: Array<{ batchId: string; startedAt: string; total: number; passed: number; durationMs: number }>;
         flakeRecoveryCount?: number;
         flakeRecoveryRate?: number;
         multiAttemptRuns?: number;
@@ -254,23 +271,27 @@ export function App() {
       setSummary(null);
     }
     try {
-      const flake = await api<{
-        runCount: number;
-        flakeRecoveryCount: number;
-        flakeRecoveryRate: number;
-        multiAttemptRuns: number;
-        excludedAssertionFailures: number;
-        byTest: Array<{
-          testId: string;
-          testTitle: string;
+      const flakeRes = await api<{
+        report: {
           runCount: number;
           flakeRate: number;
           flakeRecoveryCount: number;
+          flakeRecoveryRate: number;
           multiAttemptRuns: number;
-        }>;
-        failureKinds: Array<{ kind: string; count: number }>;
+          excludedAssertionFailures: number;
+          byTest: Array<{
+            testId: string;
+            testTitle: string;
+            runCount: number;
+            flakeRate: number;
+            flakeRecoveryCount: number;
+            multiAttemptRuns: number;
+          }>;
+          failureKinds: Array<{ kind: string; count: number }>;
+        };
+        batchCount?: number;
       }>("/api/metrics/flake");
-      setFlakeMetrics(flake);
+      setFlakeMetrics({ ...flakeRes.report, batchCount: flakeRes.batchCount });
     } catch {
       setFlakeMetrics(null);
     }
@@ -280,6 +301,7 @@ export function App() {
           batchCount: number;
           aggregate: {
             passRate: number;
+            flakeRate: number;
             flakeRecoveryRate: number;
             durationMs: number;
             meetsPassTarget: boolean;
@@ -1145,7 +1167,7 @@ export function App() {
                   通过率 {Math.round(baseline.report.aggregate.passRate * 100)}%（目标 ≥
                   {Math.round(baseline.targets.passRateMin * 100)}%
                   {baseline.report.aggregate.meetsPassTarget ? " ✓" : " ✗"}）· flake{" "}
-                  {Math.round(baseline.report.aggregate.flakeRecoveryRate * 100)}%（目标 &lt;
+                  {Math.round(baseline.report.aggregate.flakeRate * 100)}%（目标 &lt;
                   {Math.round(baseline.targets.flakeRateMax * 100)}%
                   {baseline.report.aggregate.meetsFlakeTarget ? " ✓" : " ✗"}）· 总耗时{" "}
                   {Math.round(baseline.report.aggregate.durationMs / 1000)}s
@@ -1153,7 +1175,9 @@ export function App() {
                 <ul className="batch-trend-list">
                   {baseline.report.batches.map((b) => (
                     <li key={b.batchId}>
-                      <span>{new Date(b.startedAt).toLocaleString()}</span>
+                      <button type="button" className="link-button" onClick={() => openBatch(b.batchId)}>
+                        {new Date(b.startedAt).toLocaleString()}
+                      </button>
                       <span className={b.passed === b.total ? "batch-ok" : "batch-warn"}>
                         {b.passed}/{b.total}
                       </span>
@@ -1169,8 +1193,11 @@ export function App() {
               <div className="batch-trend flake-panel">
                 <h3 className="batch-trend-title">Flake 统计</h3>
                 <p className="flake-lede">
-                  计分运行 {flakeMetrics.runCount} · 重试 {flakeMetrics.multiAttemptRuns} · 恢复{" "}
-                  {flakeMetrics.flakeRecoveryCount}（{Math.round(flakeMetrics.flakeRecoveryRate * 100)}%）
+                  最近 {flakeMetrics.batchCount ?? "?"} 个显式批次 · 计分运行 {flakeMetrics.runCount} · flake{" "}
+                  {(flakeMetrics.flakeRate * 100).toFixed(1)}%（目标 &lt;
+                  {Math.round((baseline?.targets.flakeRateMax ?? 0.05) * 100)}%，
+                  {flakeMetrics.flakeRate < (baseline?.targets.flakeRateMax ?? 0.05) ? "达标" : "未达标"}） · 重试{" "}
+                  {flakeMetrics.multiAttemptRuns} · 恢复 {flakeMetrics.flakeRecoveryCount}
                   {flakeMetrics.excludedAssertionFailures > 0
                     ? ` · 断言失败 ${flakeMetrics.excludedAssertionFailures} 次不计入 flake`
                     : ""}
@@ -1207,8 +1234,10 @@ export function App() {
                 <ul className="batch-trend-list">
                   {summary.recentBatches.map(
                     (b) => (
-                      <li key={b.startedAt}>
-                        <span>{new Date(b.startedAt).toLocaleString()}</span>
+                      <li key={b.batchId}>
+                        <button type="button" className="link-button" onClick={() => openBatch(b.batchId)}>
+                          {new Date(b.startedAt).toLocaleString()}
+                        </button>
                         <span className={b.passed === b.total ? "batch-ok" : "batch-warn"}>
                           {b.passed}/{b.total} 通过
                         </span>
@@ -1405,7 +1434,15 @@ export function App() {
           <RunDetailView
             runId={selectedRunId}
             onBack={closeRunDetail}
-            onOpenBatch={(batchId) => notify(`批次 ${batchId}（可在首页批次列表查看）`)}
+            onOpenBatch={openBatch}
+          />
+        )}
+
+        {view === "batch" && selectedBatchId && (
+          <BatchDetailView
+            batchId={selectedBatchId}
+            onBack={closeBatch}
+            onOpenRun={(run) => openRunDetail(run, "batch")}
           />
         )}
 
@@ -1415,7 +1452,6 @@ export function App() {
             <p className="section-lede">Trace 与 network.json 每次运行都会生成（新运行的记录可下载）。</p>
             <div className="list">
               {runs.map((r) => {
-                const shotHref = failureScreenshotPath(r);
                 return (
                 <div className="row row-history" key={r.runId}>
                   <div className="row-main">
@@ -1437,20 +1473,9 @@ export function App() {
                     <span className={`status-pill ${r.status === "passed" ? "pass" : "fail"}`}>
                       {r.status === "passed" ? "通过" : "失败"}
                     </span>
-                    <a className="btn-small" href={`/api/runs/${r.runId}/artifacts/trace.zip`}>
-                      Trace
-                    </a>
-                    <a className="btn-small" href={`/api/runs/${r.runId}/artifacts/network.json`}>
-                      网络
-                    </a>
                     <button type="button" className="btn-small" onClick={() => openRunDetail(r)}>
-                      详情
+                      详情与证据
                     </button>
-                    {shotHref && (
-                      <a className="btn-small" href={shotHref} target="_blank" rel="noreferrer">
-                        截图
-                      </a>
-                    )}
                     {r.status !== "passed" && (
                       <button type="button" className="btn-small primary" onClick={() => void openDiagnose(r)}>
                         诊断

@@ -14,18 +14,24 @@ export function artifactUrl(run: StoredRun, fileName: string): string {
 
 export type EvidenceRow = { label: string; href: string | null };
 
+function available(run: StoredRun, kind: string): boolean {
+  const flag = run.artifactsPresent?.[kind];
+  if (flag !== undefined) return flag;
+  return Boolean(artifactFileName(run, kind));
+}
+
 export function listEvidenceRows(run: StoredRun): EvidenceRow[] {
   const trace = artifactFileName(run, "trace");
   const network = artifactFileName(run, "network");
   const rows: EvidenceRow[] = [
-    { label: "Trace", href: trace ? artifactUrl(run, trace) : null },
-    { label: "Network", href: network ? artifactUrl(run, network) : null },
-    { label: "截图", href: failureScreenshotPath(run) },
+    { label: "Trace", href: trace && available(run, "trace") ? artifactUrl(run, trace) : null },
+    { label: "Network", href: network && available(run, "network") ? artifactUrl(run, network) : null },
+    { label: "截图", href: available(run, "screenshot") ? failureScreenshotPath(run) : null },
   ];
   const har = artifactFileName(run, "har");
-  if (har) rows.push({ label: "HAR", href: artifactUrl(run, har) });
+  if (har) rows.push({ label: "HAR", href: available(run, "har") ? artifactUrl(run, har) : null });
   const log = artifactFileName(run, "log");
-  if (log) rows.push({ label: "运行清单", href: artifactUrl(run, log) });
+  if (log) rows.push({ label: "运行清单", href: available(run, "log") ? artifactUrl(run, log) : null });
   return rows;
 }
 

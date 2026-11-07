@@ -47,6 +47,9 @@ export type StoredBatch = {
   status: "running" | "completed" | "failed";
   runIds: string[];
   error?: string;
+  /** full = approved-only whole suite; selected = explicit testId; include-draft = mixed. */
+  mode?: "full" | "selected" | "include-draft";
+  repeatCount?: number;
   /** Sum of artifact bytes for runs in this batch (best-effort at completion). */
   artifactBytesTotal?: number;
 };
@@ -138,14 +141,18 @@ export class FileStore {
     const dir = join(this.root, "runs");
     let files: string[];
     try {
-      files = (await readdir(dir)).filter((f) => f.endsWith(".json"));
+      files = (await readdir(dir)).filter((f) => f.endsWith(".json")).sort();
     } catch {
       return [];
     }
     const runs: StoredRun[] = [];
     for (const f of files.slice(-limit * 2)) {
-      const raw = await readFile(join(dir, f), "utf8");
-      runs.push(JSON.parse(raw) as StoredRun);
+      try {
+        const raw = await readFile(join(dir, f), "utf8");
+        runs.push(JSON.parse(raw) as StoredRun);
+      } catch {
+        /* skip corrupt / vanished run */
+      }
     }
     return runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, limit);
   }
@@ -169,15 +176,43 @@ export class FileStore {
     const dir = join(this.root, "batches");
     let files: string[];
     try {
-      files = (await readdir(dir)).filter((f) => f.endsWith(".json"));
+      files = (await readdir(dir)).filter((f) => f.endsWith(".json")).sort();
     } catch {
       return [];
     }
     const batches: StoredBatch[] = [];
     for (const f of files) {
-      const raw = await readFile(join(dir, f), "utf8");
-      batches.push(JSON.parse(raw) as StoredBatch);
+      try {
+        const raw = await readFile(join(dir, f), "utf8");
+        batches.push(JSON.parse(raw) as StoredBatch);
+      } catch {
+        /* skip corrupt batch */
+      }
     }
     return batches.sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, limit);
+  }
+
+  /**
+   * A process restart leaves in-memory batch jobs behind. Reconcile persisted
+   * running batches from the runs that were actually written.
+   */
+  async recoverInterruptedBatches(): Promise<number> {
+    const batches = await this.listBatches(1000);
+    const running = batches.filter((b) => b.status === "running");
+    if (running.length === 0) return 0;
+    const runs = await this.listRuns(10_000);
+    for (const batch of running) {
+      const batchRuns = runs.filter((r) => r.batchId === batch.batchId);
+      const complete = batchRuns.length >= batch.total;
+      await this.saveBatch({
+        ...batch,
+        completedAt: new Date().toISOString(),
+        status: complete ? "completed" : "failed",
+        passed: batchRuns.filter((r) => r.status === "passed").length,
+        runIds: batchRuns.map((r) => r.runId),
+        error: complete ? undefined : "interrupted by process restart",
+      });
+    }
+    return running.length;
   }
 }

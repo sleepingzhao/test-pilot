@@ -69,18 +69,6 @@
         "requestBodyContains": "TestPilot-"
       },
       "oracle": "api-contract"
-    },
-    {
-      "id": "ticket-submit-success-db",
-      "type": "db",
-      "provider": "postgres-readonly",
-      "configRef": "pilot-db",
-      "expect": {
-        "queryRef": "order-by-run-id",
-        "rowCount": 1,
-        "params": { "runId": "{{runId}}" }
-      },
-      "oracle": "human-approved"
     }
   ],
   "policy": {

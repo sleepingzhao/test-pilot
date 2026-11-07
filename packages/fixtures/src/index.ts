@@ -63,7 +63,7 @@ const DEFAULT_REQUEST_REFS: Record<string, { urlIncludes: string; method?: strin
   "users-lookup-existing-email": { urlIncludes: "/api/users", method: "POST" },
   "tickets-create-attempt": { urlIncludes: "/api/tickets", method: "POST" },
   "pilot-ticket-submit": {
-    urlIncludes: process.env.TESTPILOT_PILOT_TICKET_API_INCLUDES ?? "/workorder",
+    urlIncludes: process.env.TESTPILOT_PILOT_TICKET_API_INCLUDES ?? "/workorder/",
     method: "POST",
   },
 };

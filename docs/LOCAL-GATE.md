@@ -38,6 +38,7 @@ pnpm clean:artifacts --execute    # 实际删除
 ## 并行批跑（V0.4）
 
 批量回归并行度：`TESTPILOT_MAX_PARALLEL`（默认 2，上限 4），见 `.env.example`。
+单条用例硬超时：`TESTPILOT_RUN_TIMEOUT_MS`（默认 180000，范围 30s–10min）；超时会落一条 error run，批次继续，不会卡死。
 
 ## 与 `pnpm dev` 的关系
 

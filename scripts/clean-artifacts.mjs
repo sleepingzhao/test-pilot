@@ -16,6 +16,7 @@ import {
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const dryRun = !args.includes("--execute");
+const VALUE_FLAGS = new Set(["--keep-batches", "--keep", "--days", "--max-mb"]);
 
 function option(name) {
   const index = args.indexOf(name);
@@ -23,7 +24,21 @@ function option(name) {
   return args[index + 1];
 }
 
+function validateArgs() {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--") continue;
+    if (!arg.startsWith("--")) throw new Error(`unexpected argument: ${arg}`);
+    if (arg === "--execute" || arg === "--help") continue;
+    if (!VALUE_FLAGS.has(arg)) throw new Error(`unknown flag: ${arg}`);
+    const next = args[i + 1];
+    if (!next || next.startsWith("--")) throw new Error(`${arg} requires a value`);
+    i += 1;
+  }
+}
+
 try {
+  validateArgs();
   const keepBatches = parseKeepBatches(option("--keep-batches") ?? option("--keep"));
   const days = parseCleanupDays(option("--days") ?? "14");
   const maxMb = option("--max-mb");

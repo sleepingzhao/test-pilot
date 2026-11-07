@@ -20,6 +20,7 @@ export type RegressionBaselineReport = {
     totalRuns: number;
     passedRuns: number;
     passRate: number;
+    flakeRate: number;
     flakeRecoveryRate: number;
     durationMs: number;
     meetsPassTarget: boolean;
@@ -36,7 +37,13 @@ export function computeRegressionBaseline(
   targets = DEFAULT_TARGETS,
 ): RegressionBaselineReport | null {
   const completed = batches
-    .filter((b) => b.status === "completed" && b.runIds.length > 0)
+    .filter(
+      (b) =>
+        b.status === "completed" &&
+        b.runIds.length > 0 &&
+        b.mode === "full" &&
+        (b.repeatCount ?? 1) === 1,
+    )
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
     .slice(0, 3);
   if (completed.length < 3) return null;
@@ -63,8 +70,10 @@ export function computeRegressionBaseline(
       if (r && !r.trial) allRuns.push(r);
     }
   }
-  const passedRuns = allRuns.filter((r) => r.status === "passed").length;
-  const passRate = allRuns.length ? passedRuns / allRuns.length : 0;
+  // Missing runs (launch/validation failures) still count as not-passed.
+  const totalRuns = completed.reduce((s, b) => s + b.total, 0);
+  const passedRuns = completed.reduce((s, b) => s + b.passed, 0);
+  const passRate = totalRuns ? passedRuns / totalRuns : 0;
   const flake = buildFlakeMetricsReport(allRuns);
   const durationMs = batchRows.reduce((s, b) => s + b.durationMs, 0);
 
@@ -73,13 +82,14 @@ export function computeRegressionBaseline(
     batchCount: 3,
     batches: batchRows,
     aggregate: {
-      totalRuns: allRuns.length,
+      totalRuns,
       passedRuns,
       passRate,
+      flakeRate: flake.flakeRate,
       flakeRecoveryRate: flake.flakeRecoveryRate,
       durationMs,
       meetsPassTarget: passRate >= targets.passRateMin,
-      meetsFlakeTarget: flake.flakeRecoveryRate < targets.flakeRateMax,
+      meetsFlakeTarget: flake.flakeRate < targets.flakeRateMax,
     },
     targets,
   };

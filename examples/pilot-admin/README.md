@@ -19,6 +19,6 @@
 - `cascaderPath` 四级文案与线上级联一致；
 - UI 成功文案（默认断言「提交成功」）；
 - `expect.statusCode` 与 `TESTPILOT_PILOT_TICKET_API_INCLUDES`（默认匹配 URL 含 `/workorder` 的 POST）；
-- 可选 DB 断言 `ticket-submit-success-db`（需只读 `pilot-db` 配置，见 `docs/assertion-db-config.example.json`）。
+- 需要 DB 证明时，再按 `docs/assertion-db-config.example.json` 配置只读 `pilot-db` 并添加 DB 断言行；未配置时不要保留 DB 断言，否则回归会按 ENVIRONMENT 失败。
 
-负向用例仍由 auto-intake 草稿 `pilot-auto-ticket-no-attachment` 覆盖「未选省市区」场景。
+负向用例由 seed 的 `pilot-ticket-no-region` 覆盖「未选省市区」场景；auto-intake 草稿 `pilot-auto-ticket-no-attachment` 覆盖必填校验。

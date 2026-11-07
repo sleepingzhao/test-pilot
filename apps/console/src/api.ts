@@ -25,9 +25,18 @@ export type StoredRun = {
   startedAt: string;
   completedAt: string;
   trial?: boolean;
+  batchId?: string;
+  batchStartedAt?: string;
   metrics?: { durationMs: number; failureKind?: string; attemptCount?: number; flakeRecovery?: boolean };
-  steps: Array<{ stepId: string; status: string; message?: string }>;
-  assertions: Array<{ assertionId: string; passed: boolean; message?: string }>;
+  steps: Array<{ stepId: string; status: string; durationMs?: number; message?: string }>;
+  assertions: Array<{
+    assertionId: string;
+    passed: boolean;
+    message?: string;
+    errorKind?: string;
+    expected?: unknown;
+    actual?: unknown;
+  }>;
   artifacts: { dir: string; artifacts: Array<{ kind: string; path: string }> };
 };
 

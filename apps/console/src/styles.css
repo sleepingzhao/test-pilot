@@ -384,6 +384,131 @@ button.status-chip {
   grid-template-columns: 1fr auto 1.4fr;
 }
 
+.btn-back {
+  margin-bottom: 16px;
+}
+
+.run-detail-meta {
+  font-size: 14px;
+  color: var(--muted-strong);
+  margin: 6px 0 0;
+}
+
+.run-detail-kind {
+  margin: 12px 0 0;
+  font-size: 14px;
+}
+
+.run-detail-grid {
+  display: grid;
+  gap: 18px;
+  margin-top: 20px;
+}
+
+@media (min-width: 960px) {
+  .run-detail-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .run-detail-evidence {
+    grid-column: 1 / -1;
+  }
+}
+
+.run-step-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+}
+
+.run-step {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.run-step:last-child {
+  border-bottom: none;
+}
+
+.run-step-failed .run-step-status {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.run-step-msg {
+  color: var(--muted-strong);
+}
+
+.run-assertion-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.run-assertion-list li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.run-assertion-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.assert-fail strong {
+  color: var(--red);
+}
+
+.assert-detail pre {
+  font-size: 12px;
+  overflow-x: auto;
+  background: var(--bg);
+  padding: 10px;
+  border-radius: 8px;
+  margin: 8px 0 0;
+}
+
+.evidence-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.evidence-links li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.evidence-missing {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.run-step-muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .batch-dur {
   font-variant-numeric: tabular-nums;
   color: var(--muted);

@@ -9,6 +9,7 @@ import {
 } from "./AssertionProviderPanel";
 import type { TestStep } from "@testpilot/test-ir/step-edit";
 import { StepEditorPanel } from "./StepEditorPanel";
+import { RunDetailView } from "./RunDetailView";
 import { failureKindLabel, failureScreenshotPath, summarizeAssertion } from "./stepSummary";
 
 type IrAssertion = {
@@ -23,7 +24,7 @@ type IrAssertion = {
   oracle?: string;
 };
 
-type View = "home" | "tests" | "create" | "history" | "audit";
+type View = "home" | "tests" | "create" | "history" | "audit" | "run";
 type CreateChannel = "intent" | "prd" | "record";
 type TestFilter = "all" | "draft" | "weak" | "pilot" | "demo";
 
@@ -119,6 +120,7 @@ export function App() {
     error?: string;
     lastError?: string | null;
   } | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [diagnoseRun, setDiagnoseRun] = useState<StoredRun | null>(null);
   const [diagnoseDetail, setDiagnoseDetail] = useState<{
     failureKind: string | null;
@@ -173,6 +175,16 @@ export function App() {
     } catch {
       /* ignore */
     }
+  };
+
+  const openRunDetail = (run: StoredRun) => {
+    setSelectedRunId(run.runId);
+    setView("run");
+  };
+
+  const closeRunDetail = () => {
+    setSelectedRunId(null);
+    setView("history");
   };
 
   const notify = (message: string, kind: "info" | "success" | "error" = "info") => {
@@ -1311,6 +1323,14 @@ export function App() {
           </section>
         )}
 
+        {view === "run" && selectedRunId && (
+          <RunDetailView
+            runId={selectedRunId}
+            onBack={closeRunDetail}
+            onOpenBatch={(batchId) => notify(`批次 ${batchId}（可在首页批次列表查看）`)}
+          />
+        )}
+
         {view === "history" && (
           <section>
             <h2 className="section-title">结果</h2>
@@ -1345,6 +1365,9 @@ export function App() {
                     <a className="btn-small" href={`/api/runs/${r.runId}/artifacts/network.json`}>
                       网络
                     </a>
+                    <button type="button" className="btn-small" onClick={() => openRunDetail(r)}>
+                      详情
+                    </button>
                     {shotHref && (
                       <a className="btn-small" href={shotHref} target="_blank" rel="noreferrer">
                         截图

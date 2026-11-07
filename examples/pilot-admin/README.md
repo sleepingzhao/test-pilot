@@ -14,10 +14,11 @@
 
 `tests/pilot-ticket-submit-success.json` 为模板：含登录、`selectCascader` 省市区街道、UI + HTTP 断言。
 
-批准前请在真实试点页面上确认并修改：
+批准前请在真实试点页面上确认并修改（完整清单见 [`docs/pilot-ticket-v04-alignment.md`](../../docs/pilot-ticket-v04-alignment.md)）：
 
 - `cascaderPath` 四级文案与线上级联一致；
 - UI 成功文案（默认断言「提交成功」）；
-- `expect.statusCode` 与 `TESTPILOT_PILOT_TICKET_API_INCLUDES`（默认匹配 URL 含 `/workorder` 的 POST）。
+- `expect.statusCode` 与 `TESTPILOT_PILOT_TICKET_API_INCLUDES`（默认匹配 URL 含 `/workorder` 的 POST）；
+- 可选 DB 断言 `ticket-submit-success-db`（需只读 `pilot-db` 配置，见 `docs/assertion-db-config.example.json`）。
 
 负向用例仍由 auto-intake 草稿 `pilot-auto-ticket-no-attachment` 覆盖「未选省市区」场景。

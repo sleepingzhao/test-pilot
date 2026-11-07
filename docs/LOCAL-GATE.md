@@ -24,6 +24,21 @@ pnpm verify
 
 `runner-web` 里的 `ticket-p1.test.ts` 同样依赖 `:4173`；若 demo 未起，单元测试阶段会失败。
 
+## 证据清理（V0.4）
+
+```bash
+pnpm clean:artifacts              # 默认 dry-run
+pnpm clean:artifacts --execute    # 实际删除
+```
+
+- 仅删除 `artifacts/runs/<runId>/`；**不**改动 `data/tests`、`data/runs`、`data/batches`。
+- 默认保留最近 **12** 个显式批次内的 run（`--keep-batches K`），并剔除超过 **14** 天的其余证据（`--days N`）。
+- 可选 `--max-mb` 限制 `artifacts/runs` 总体积。
+
+## 并行批跑（V0.4）
+
+批量回归并行度：`TESTPILOT_MAX_PARALLEL`（默认 2，上限 4），见 `.env.example`。
+
 ## 与 `pnpm dev` 的关系
 
 日常开发用 `pnpm dev`（控制台 + API + demo）。**不等同于** verify；改代码后仍应单独跑 `pnpm verify` 再 push。

@@ -8,10 +8,11 @@ export type FlakeStats = {
 };
 
 export function computeFlakeStats(runs: StoredRun[]): FlakeStats {
-  const runCount = runs.length;
+  const scored = runs.filter((r) => !r.trial);
+  const runCount = scored.length;
   let multiAttemptRuns = 0;
   let flakeRecoveryCount = 0;
-  for (const run of runs) {
+  for (const run of scored) {
     const attempts = run.metrics?.attemptCount ?? 1;
     if (attempts > 1) multiAttemptRuns += 1;
     if (run.status === "passed" && (run.metrics?.flakeRecovery || attempts > 1)) {

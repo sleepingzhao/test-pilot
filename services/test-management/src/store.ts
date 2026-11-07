@@ -34,6 +34,19 @@ export type StoredRun = RunResult & {
   testTitle: string;
   /** Draft trial runs are evidence, not regression runs; excluded from metrics. */
   trial?: boolean;
+  batchId?: string;
+  batchStartedAt?: string;
+};
+
+export type StoredBatch = {
+  batchId: string;
+  startedAt: string;
+  completedAt?: string;
+  total: number;
+  passed: number;
+  status: "running" | "completed" | "failed";
+  runIds: string[];
+  error?: string;
 };
 
 export type RecordJob = {
@@ -51,6 +64,7 @@ export class FileStore {
   async init() {
     await mkdir(join(this.root, "tests"), { recursive: true });
     await mkdir(join(this.root, "runs"), { recursive: true });
+    await mkdir(join(this.root, "batches"), { recursive: true });
   }
 
   project(): Project {
@@ -132,5 +146,36 @@ export class FileStore {
       runs.push(JSON.parse(raw) as StoredRun);
     }
     return runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, limit);
+  }
+
+  async saveBatch(batch: StoredBatch): Promise<void> {
+    if (!isSafeRunId(batch.batchId)) throw new Error(`invalid batch id: ${batch.batchId}`);
+    await writeFile(join(this.root, "batches", `${batch.batchId}.json`), JSON.stringify(batch, null, 2));
+  }
+
+  async getBatch(batchId: string): Promise<StoredBatch | undefined> {
+    if (!isSafeRunId(batchId)) return undefined;
+    try {
+      const raw = await readFile(join(this.root, "batches", `${batchId}.json`), "utf8");
+      return JSON.parse(raw) as StoredBatch;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async listBatches(limit = 20): Promise<StoredBatch[]> {
+    const dir = join(this.root, "batches");
+    let files: string[];
+    try {
+      files = (await readdir(dir)).filter((f) => f.endsWith(".json"));
+    } catch {
+      return [];
+    }
+    const batches: StoredBatch[] = [];
+    for (const f of files) {
+      const raw = await readFile(join(dir, f), "utf8");
+      batches.push(JSON.parse(raw) as StoredBatch);
+    }
+    return batches.sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, limit);
   }
 }

@@ -236,6 +236,16 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 
 ### 6.1 V0.4 任务清单（可重复回归）
 
+**执行看板**
+
+- [x] V4-1 显式批次与并行执行 — `batchId`/`batchStartedAt`、`data/batches/`、`GET /api/batches`；`TESTPILOT_MAX_PARALLEL`（默认 2、上限 4）并行批跑；单跑不写 batch、指标仅显式批次；`batch-parallel` / `explicit-batch` / `batch-metrics` 测试；`pnpm verify` 全绿
+- [ ] V4-2 Flake 统计与看板
+- [ ] V4-3 运行详情页
+- [ ] V4-4 证据保留与清理
+- [ ] V4-5 试点成功用例业务化
+- [ ] V4-6 连续 3 批基线
+- [ ] V4-7 文档与门禁
+
 **目标：** 从「能跑一次」到「敢天天跑」——批次可追踪、失败可定位、flake 可见、证据不失控。
 
 | ID | 任务 | 完成定义（DoD） |
@@ -362,7 +372,7 @@ pnpm --filter @testpilot/test-management exec playwright install chromium
 
 - 试点「工单提交成功」：练习环境已覆盖；`pilot-ticket-submit-success` 模板须在真实试点上校对级联/HTTP 后再批准。
 - 原生 select 已支持录制/回放；cascader 录制仍只给 warning，需手工补 `selectCascader` 步骤。
-- 回归批次按时间窗口聚合，手动单跑靠近批次时会被并入同一批次；V0.4 再引入显式 batchId。
+- 回归批次按显式 `batchId` 聚合；手工单跑不写 batchId，不进入批次统计（V4-1）。
 - 无 PostgreSQL 持久化 / 多项目 / RBAC / 远程 CI（按路线后续版本）。
 
 ### 11.4 证据要求

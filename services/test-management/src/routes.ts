@@ -12,7 +12,7 @@ import { validateAssertionProviders } from "@testpilot/assertions";
 import { computeAssertionConfigHash } from "@testpilot/fixtures";
 import { classifyFailure } from "@testpilot/evidence";
 import { chromium } from "playwright";
-import type { FileStore, RecordJob, StoredRun, StoredTest } from "./store.js";
+import type { FileStore, RecordJob, StoredBatch, StoredRun, StoredTest } from "./store.js";
 import { llmUsageSnapshot } from "./llm-usage.js";
 import {
   applyOptionalLlmDraft,
@@ -42,7 +42,8 @@ import {
   absoluteStepUrls,
   DEMO_BASE_URL,
 } from "./run-env.js";
-import { estimateLastBatchDurationMs, groupRunsIntoBatches } from "./batch-metrics.js";
+import { estimateLastBatchDurationMs, groupExplicitBatches } from "./batch-metrics.js";
+import { mapWithConcurrency, maxParallelFromEnv } from "./batch-parallel.js";
 import {
   isAllowedTargetUrl,
   isSafeArtifactName,
@@ -63,6 +64,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 export type RunBatchJob = {
   id: string;
+  batchId: string;
   status: "running" | "completed" | "failed";
   total: number;
   completed: number;
@@ -219,25 +221,36 @@ async function checkTargetReachable(baseUrl: string): Promise<boolean> {
   }
 }
 
-async function executeRuns(
+async function appendRunMetrics(dataRoot: string, stored: StoredRun, extra?: Record<string, unknown>) {
+  await appendFile(
+    join(dataRoot, "metrics.jsonl"),
+    `${JSON.stringify({
+      at: stored.completedAt,
+      testId: stored.testId,
+      status: stored.status,
+      durationMs: stored.metrics?.durationMs,
+      failureKind: stored.metrics?.failureKind,
+      attemptCount: stored.metrics?.attemptCount ?? 1,
+      flakeRecovery: stored.metrics?.flakeRecovery ?? false,
+      batchId: stored.batchId,
+      llmTokens: 0,
+      ...extra,
+    })}\n`,
+  );
+}
+
+async function runSingleTest(
   store: FileStore,
-  tests: StoredTest[],
+  test: StoredTest,
   baseUrl: string,
   projectId: string,
   artifactsRoot: string,
   dataRoot: string,
-  job?: RunBatchJob,
-): Promise<StoredRun[]> {
-  const results: StoredRun[] = [];
-  for (const test of tests) {
-    if (job) {
-      job.currentTitle = test.title;
-    }
+  batch?: { batchId: string; batchStartedAt: string },
+): Promise<StoredRun | null> {
+  try {
     const v = validateTestIR(test.ir);
-    if (!v.ok) {
-      if (job) job.completed += 1;
-      continue;
-    }
+    if (!v.ok) return null;
     const runEnv = buildRunEnvironment(baseUrl);
     const result = await runTestIR(v.value, {
       headless: true,
@@ -250,28 +263,40 @@ async function executeRuns(
       artifacts,
       projectId,
       testTitle: test.title,
+      ...(batch ? { batchId: batch.batchId, batchStartedAt: batch.batchStartedAt } : {}),
     };
     await store.saveRun(stored);
-    results.push(stored);
+    await appendRunMetrics(dataRoot, stored);
+    return stored;
+  } catch {
+    return null;
+  }
+}
+
+async function executeRuns(
+  store: FileStore,
+  tests: StoredTest[],
+  baseUrl: string,
+  projectId: string,
+  artifactsRoot: string,
+  dataRoot: string,
+  job?: RunBatchJob,
+): Promise<StoredRun[]> {
+  const parallel = tests.length > 1 ? maxParallelFromEnv() : 1;
+  const batchCtx =
+    job != null ? { batchId: job.batchId, batchStartedAt: job.startedAt } : undefined;
+
+  const outcomes = await mapWithConcurrency(tests, parallel, async (test) => {
+    if (job) job.currentTitle = test.title;
+    const stored = await runSingleTest(store, test, baseUrl, projectId, artifactsRoot, dataRoot, batchCtx);
     if (job) {
       job.completed += 1;
-      job.runs = [...results];
+      if (stored) job.runs = [...job.runs, stored];
     }
-    await appendFile(
-      join(dataRoot, "metrics.jsonl"),
-      `${JSON.stringify({
-        at: stored.completedAt,
-        testId: stored.testId,
-        status: stored.status,
-        durationMs: stored.metrics?.durationMs,
-        failureKind: stored.metrics?.failureKind,
-        attemptCount: stored.metrics?.attemptCount ?? 1,
-        flakeRecovery: stored.metrics?.flakeRecovery ?? false,
-        llmTokens: 0,
-      })}\n`,
-    );
-  }
-  return results;
+    return stored;
+  });
+
+  return outcomes.filter((r): r is StoredRun => r != null);
 }
 
 async function executeSingleIrRun(
@@ -302,20 +327,7 @@ async function executeSingleIrRun(
     trial: true,
   };
   await store.saveRun(stored);
-  await appendFile(
-    join(dataRoot, "metrics.jsonl"),
-    `${JSON.stringify({
-      at: stored.completedAt,
-      testId: stored.testId,
-      status: stored.status,
-      durationMs: stored.metrics?.durationMs,
-      failureKind: stored.metrics?.failureKind,
-      attemptCount: stored.metrics?.attemptCount ?? 1,
-      flakeRecovery: stored.metrics?.flakeRecovery ?? false,
-      llmTokens: 0,
-      trial: true,
-    })}\n`,
-  );
+  await appendRunMetrics(dataRoot, stored, { trial: true });
   return stored;
 }
 
@@ -747,7 +759,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       pilotBaselineMinutes: baselineMin,
       pilotBaselineNotes: baseline?.notes ?? null,
       minutesSavedVsBaseline,
-      recentBatches: groupRunsIntoBatches(runs).slice(0, 8),
+      recentBatches: groupExplicitBatches(runs.filter((r) => !r.trial)).slice(0, 8),
       flakeRecoveryCount: flake.flakeRecoveryCount,
       flakeRecoveryRate: flake.flakeRecoveryRate,
       multiAttemptRuns: flake.multiAttemptRuns,
@@ -773,6 +785,21 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const job = batchJobs.get(jobId);
     if (!job) return reply.notFound("batch job not found");
     return job;
+  });
+
+  app.get("/api/batches", async () => ({ batches: await store.listBatches(24) }));
+
+  app.get("/api/batches/:batchId", async (req, reply) => {
+    const { batchId } = req.params as { batchId: string };
+    if (!isSafeRunId(batchId)) return reply.notFound("batch not found");
+    const batch = await store.getBatch(batchId);
+    if (!batch) return reply.notFound("batch not found");
+    const runs: StoredRun[] = [];
+    for (const runId of batch.runIds) {
+      const run = await store.getRun(runId);
+      if (run) runs.push(run);
+    }
+    return { batch, runs };
   });
 
   app.post("/api/projects/:projectId/runs", async (req, reply) => {
@@ -838,6 +865,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const jobId = `batch_${Date.now()}`;
     const job: RunBatchJob = {
       id: jobId,
+      batchId: jobId,
       status: "running",
       total: list.length,
       completed: 0,
@@ -846,19 +874,51 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     };
     batchJobs.set(jobId, job);
 
+    const batchRecord: StoredBatch = {
+      batchId: jobId,
+      startedAt: job.startedAt,
+      total: list.length,
+      passed: 0,
+      status: "running",
+      runIds: [],
+    };
+    await store.saveBatch(batchRecord);
+
     void executeRuns(store, list, baseUrl, projectId, artifactsRoot, dataRoot, job)
-      .then((runs) => {
+      .then(async (runs) => {
         job.status = "completed";
         job.runs = runs;
         job.completedAt = new Date().toISOString();
+        await store.saveBatch({
+          ...batchRecord,
+          completedAt: job.completedAt,
+          passed: runs.filter((r) => r.status === "passed").length,
+          status: "completed",
+          runIds: runs.map((r) => r.runId),
+        });
       })
-      .catch((err) => {
+      .catch(async (err) => {
         job.status = "failed";
         job.error = err instanceof Error ? err.message : String(err);
         job.completedAt = new Date().toISOString();
+        await store.saveBatch({
+          ...batchRecord,
+          completedAt: job.completedAt,
+          passed: job.runs.filter((r) => r.status === "passed").length,
+          status: "failed",
+          runIds: job.runs.map((r) => r.runId),
+          error: job.error,
+        });
       });
 
-    return { jobId, async: true, total: list.length };
+    return {
+      jobId,
+      batchId: jobId,
+      async: true,
+      total: list.length,
+      batch: batchRecord,
+      maxParallel: maxParallelFromEnv(),
+    };
   });
 
   app.get("/api/runs", async () => store.listRuns(100));

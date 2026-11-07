@@ -37,6 +37,7 @@ for (const sub of ["examples/demo-webapp/tests", "examples/pilot-admin/tests", "
 console.log("ci-local: unit tests");
 runIn("packages/test-ir", "pnpm", ["test"]);
 runIn("packages/planner", "pnpm", ["test"]);
+runIn("packages/detect", "pnpm", ["test"]);
 runIn("packages/assertions", "pnpm", ["test"]);
 runIn("packages/evidence", "pnpm", ["test"]);
 runIn("packages/fixtures", "pnpm", ["test"]);

@@ -79,19 +79,35 @@ test("draft catalog tests do not keep stale approval metadata", async () => {
   assert.equal(saved?.approvedBy, undefined);
 });
 
-test("pilot catalog sync loads pilot-ticket-no-region as draft", async () => {
-  const root = await mkdtemp(join(tmpdir(), "testpilot-pilot-seed-"));
+test("shipped pilot catalog is empty so pilot tests are not auto-seeded", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-pilot-empty-"));
   const store = new FileStore(join(root, "data"));
   await store.init();
   try {
     await seedIfEmpty(store);
-    let saved = await store.getTest("pilot-ticket-no-region");
-    if (!saved) {
-      await syncPilotCatalogTests(store);
-      saved = await store.getTest("pilot-ticket-no-region");
-    }
-    assert.ok(saved, "pilot-ticket-no-region should be in store after seed/sync");
-    assert.equal(saved.id, "pilot-ticket-no-region");
+    await syncPilotCatalogTests(store);
+    const pilots = (await store.listTests()).filter((t) => t.id.startsWith("pilot-"));
+    assert.deepEqual(pilots.map((t) => t.id), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("pilot catalog sync still loads a listed pilot test as draft", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-pilot-seed-"));
+  const store = new FileStore(join(root, "data"));
+  await store.init();
+  const catalog = join(root, "pilot-catalog.json");
+  await writeFile(
+    catalog,
+    JSON.stringify([
+      { file: "examples/pilot-admin/tests/pilot-ticket-no-region.json", title: "【试点】catalog" },
+    ]),
+  );
+  try {
+    await syncCatalogFromFile(store, catalog, { pilotCatalog: true });
+    const saved = await store.getTest("pilot-ticket-no-region");
+    assert.ok(saved, "pilot-ticket-no-region should be in store after sync");
     assert.equal(saved.approvalStatus, "draft");
     assert.ok(saved.ir.steps.some((s) => s.id === "wait-region-alert"));
   } finally {

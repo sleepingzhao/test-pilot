@@ -30,7 +30,7 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 
 **审批以 IR 内容为准：** 批准时保存当时的 IR 快照；构建产物升级导致哈希算法变化时，只要 IR 内容没变，不会要求重新审阅；IR 真正变更才会退回草稿。
 
-证据目录默认自动保留最近 10 个批次与最近 10 条独立运行（`TESTPILOT_ARTIFACT_KEEP_BATCHES` / `TESTPILOT_ARTIFACT_KEEP_RUNS`，批次结束与服务启动时清理）；也可用 `pnpm clean:artifacts` 手动预览/清理（默认 dry-run，见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)）。批量并行度由 `TESTPILOT_MAX_PARALLEL` 控制（默认 2），试点用例共享账号会串行执行以避免登录竞态。
+证据目录默认只保留最近 10 个 run 的文件夹（`TESTPILOT_ARTIFACT_KEEP_RUNS`，批次结束与服务启动时清理，与 session 类似）；也可用 `pnpm clean:artifacts` 手动预览/清理（默认 dry-run，见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)）。批量并行度由 `TESTPILOT_MAX_PARALLEL` 控制（默认 2），试点用例共享账号会串行执行以避免登录竞态。
 
 本地发布前门禁（无 GitHub CI）：[`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md) · 命令 `pnpm verify`（需 demo `:4173` 可达，见文档）。
 

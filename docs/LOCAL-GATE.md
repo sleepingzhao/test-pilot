@@ -32,7 +32,7 @@ pnpm clean:artifacts --execute    # 实际删除
 ```
 
 - 仅删除 `artifacts/runs/<runId>/`；**不**改动 `data/tests`、`data/runs`、`data/batches`。
-- **自动保留**：每个批次结束与服务启动时，保留最近 **10** 个批次与最近 **10** 条独立运行的证据（`TESTPILOT_ARTIFACT_KEEP_BATCHES` / `TESTPILOT_ARTIFACT_KEEP_RUNS`）。
+- **自动保留**：每个批次结束与服务启动时，只保留最近 **10** 个 run 的 artifacts 文件夹（`TESTPILOT_ARTIFACT_KEEP_RUNS`，与 session 类似）；更早的批次证据会显示「未生成」。
 - 手动清理默认保留最近 **10** 个批次（`--keep-batches K`），可配合 `--days N` 与 `--max-mb` 限制总量。
 - 页面导航超时默认 45s（`TESTPILOT_NAV_TIMEOUT_MS`）；试点用例共享账号在批内串行执行，避免并发登录竞态。
 

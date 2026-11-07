@@ -149,10 +149,9 @@ test("recent standalone runs stay protected during automatic pruning", async () 
     const removed = await autoPruneArtifacts({
       artifactsRoot: artifacts,
       dataRoot: data,
-      keepBatches: 1,
       keepRuns: 1,
     });
-    assert.equal(removed, 1);
+    assert.equal(removed, 2);
     await stat(join(runsRoot, "run_recent", "trace.zip"));
     await assert.rejects(stat(join(runsRoot, "run_old")));
   } finally {

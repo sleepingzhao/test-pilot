@@ -1,16 +1,1 @@
-[
-  {
-    "id": "pilot-auto-ticket-no-attachment",
-    "title": "【试点】用例1 — 提交工单必填校验（无附件）",
-    "intent": "打开提交工单弹窗，填写联系电话/详细地址/需求说明但跳过省市区街道，确认出现必填提示；不要上传附件（附件功能暂不测试）。",
-    "pathAfterLogin": "/customer",
-    "refreshDraft": false
-  },
-  {
-    "id": "pilot-auto-customer-smoke",
-    "title": "【试点】用例2 — 客户中心页加载",
-    "intent": "登录后打开客户中心页，确认页面正常加载，不要求提交工单。",
-    "pathAfterLogin": "/customer",
-    "refreshDraft": false
-  }
-]
+[]

@@ -100,14 +100,9 @@ async function loadRecentRunIds(dataRoot: string, limit: number): Promise<string
     .map((r) => r.runId);
 }
 
-export function keepBatchesFromEnv(): number {
-  const n = Number(process.env.TESTPILOT_ARTIFACT_KEEP_BATCHES ?? 10);
-  return Number.isInteger(n) && n >= 1 ? Math.min(n, 100) : 10;
-}
-
-export function keepStandaloneRunsFromEnv(): number {
+export function keepRunsFromEnv(): number {
   const n = Number(process.env.TESTPILOT_ARTIFACT_KEEP_RUNS ?? 10);
-  return Number.isInteger(n) && n >= 0 ? Math.min(n, 100) : 10;
+  return Number.isInteger(n) && n >= 1 ? Math.min(n, 200) : 10;
 }
 
 export async function planArtifactCleanup(opts: {
@@ -233,19 +228,17 @@ export async function executeArtifactCleanup(
   return removed;
 }
 
-/** Bounded evidence retention: keep the latest N batches plus recent standalone runs. */
+/** Session-like retention: keep artifact folders for the latest N runs only. */
 export async function autoPruneArtifacts(opts: {
   artifactsRoot: string;
   dataRoot: string;
-  keepBatches?: number;
   keepRuns?: number;
 }): Promise<number> {
-  const keepBatches = opts.keepBatches ?? keepBatchesFromEnv();
-  const keepRuns = opts.keepRuns ?? keepStandaloneRunsFromEnv();
+  const keepRuns = opts.keepRuns ?? keepRunsFromEnv();
   const plan = await planArtifactCleanup({
     artifactsRoot: opts.artifactsRoot,
     dataRoot: opts.dataRoot,
-    keepBatches,
+    keepBatches: 0,
     days: null,
     maxTotalBytes: null,
     dryRun: false,

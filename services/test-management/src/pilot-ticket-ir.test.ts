@@ -35,7 +35,7 @@ test("pilot ticket HTTP assertion fails when the configured expectation is not m
     page,
     network: [
       {
-        url: "https://pilot.example/workorder/create",
+        url: "https://pilot.example/api/workorder/workOrder/create",
         method: "POST",
         status: 500,
         resourceType: "xhr",
@@ -50,7 +50,7 @@ test("pilot ticket HTTP assertion fails when the configured expectation is not m
     page,
     network: [
       {
-        url: "https://pilot.example/workorder/create",
+        url: "https://pilot.example/api/workorder/workOrder/create",
         method: "POST",
         status: 200,
         resourceType: "xhr",
@@ -65,7 +65,7 @@ test("pilot ticket HTTP assertion fails when the configured expectation is not m
     page,
     network: [
       {
-        url: "https://pilot.example/workorder/create",
+        url: "https://pilot.example/api/workorder/workOrder/create",
         method: "POST",
         status: 200,
         resourceType: "xhr",

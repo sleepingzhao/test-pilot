@@ -32,7 +32,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | 断言引擎 | 可用 | UI / captured-http / postgres-readonly / otel-trace Provider；负向探针 4 路 |
 | 弱断言 | 0 条 | 首页/列表/筛选/审阅弹窗可见；批准时强制拦截 |
 | 本地验证 | 通过 | `pnpm verify`（见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)）；含 IR 校验、单元测试、demo smoke、负向探针 |
-| 全量回归 | 16/16 通过 | 2026-11-06 控制台「运行全部回归」实跑，含 4 条试点用例；单次 pilot 登录超时归为 `ENVIRONMENT` 并已由重试策略覆盖 |
+| 全量回归 | 54/54 通过（连续 3 批） | 2026-11-07 显式批次，每批 18 条；flake 3.7%；详见 V4-6 |
 | CI | 无（有意） | 无 `.github/workflows`；[`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md) 为唯一门禁说明 |
 | LLM | 可选 | 1M max_tokens 透传；配置/运行错误在控制台可见 |
 
@@ -243,7 +243,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - [x] V4-3 运行详情页 — 控制台 run/batch 视图：步骤时间线、断言 expected/actual（API 读取时再次脱敏）、attempt/failureKind、批次链接、证据「打开/未生成」（清理后不产生死链）；`run-detail-evidence.test.ts` / `run-api-redaction.test.ts`；`pnpm verify` 全绿
 - [x] V4-4 证据保留与清理 — `artifact-cleanup.ts`；`pnpm clean:artifacts` 默认 dry-run（`--keep-batches` / `--days` / `--max-mb`）；执行时再次校验路径必须位于 `artifacts/runs`；未知/缺值参数报错；`artifact-cleanup.test.ts`；`pnpm verify` 全绿
 - [x] V4-5 试点成功用例业务化 — HTTP 断言 `statusCode/requestBodyContains` + 可选 DB 对齐清单 `docs/pilot-ticket-v04-alignment.md`；`pilot-ticket-submit-success` 与 `pilot-ticket-no-region` 已由用户人工批准（2026-11-07）；负向探针证明 HTTP 断言可失败；DB 断言在配置只读库后再追加
-- [ ] V4-6 连续 3 批基线 — 2026-11-07 实跑 3 批全量（各 16 条）：46/48 通过（95.8%，达标）、flake **6.25%**（未达 <5% 目标）。flake 来自 2 条试点环境失败（登录页 30s 超时、客户中心 Playwright tracing 卡死）。机制已验证；需稳定试点或为这两条测试显式增加 ENVIRONMENT 重试后重新验收
+- [x] V4-6 连续 3 批基线 — 2026-11-07 连续 3 个显式全量批次（各 18 条）：**54/54 通过（100%）**、flake **3.7%**（2/54，均为 ENVIRONMENT 重试恢复）、单批 73–84s。此前多轮受试点环境抖动影响（登录页 30s 超时、长连接导致 run 卡 180s），已修复 runner 网络证据挂起、点击后请求竞态、试点登录/区域选择步骤；最终基线在环境恢复后取得，`pnpm verify` 全绿。
 - [x] V4-7 文档与门禁 — README / `LOCAL-GATE` 并行度与清理策略；ROADMAP V0.4 看板更新；`pnpm verify` 全绿
 
 **目标：** 从「能跑一次」到「敢天天跑」——批次可追踪、失败可定位、flake 可见、证据不失控。

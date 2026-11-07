@@ -1,5 +1,5 @@
 import type { Locator as TargetLocator, TestIR, TestStep } from "@testpilot/test-ir";
-import { runAssertion } from "@testpilot/assertions";
+import { runAssertion, urlPathMatches } from "@testpilot/assertions";
 import type { RunArtifacts } from "@testpilot/evidence";
 import { classifyFailure, createEvidenceCollector, maxRunAttempts, redactForEvidence, redactStringBody, redactStrings, shouldRetryAfterFailure } from "@testpilot/evidence";
 import type { RunEnvironment } from "@testpilot/fixtures";
@@ -229,6 +229,20 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
     if (status === "passed") {
       if (ir.assertions.some((a) => a.type === "api")) {
         await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => undefined);
+        for (const assertion of ir.assertions) {
+          if (assertion.type !== "api" || !assertion.requestRef) continue;
+          const spec = resolveRequestRef(assertion.requestRef, options.env);
+          if (!spec) continue;
+          const expect = (assertion.expect ?? {}) as Record<string, unknown>;
+          const expectsAbsence = expect.absent === true || expect.requestCount === 0;
+          // A click can dispatch its request after networkidle already settled.
+          await evidence.waitForNetworkEntry(
+            (entry) =>
+              urlPathMatches(entry.url, spec.urlIncludes) &&
+              (!spec.method || entry.method.toUpperCase() === spec.method.toUpperCase()),
+            expectsAbsence ? 1_500 : 10_000,
+          );
+        }
       }
       await evidence.waitForNetworkCapture();
       const networkLog = evidence.getNetworkLog();

@@ -18,5 +18,9 @@
       "contains": "密码",
       "oracle": "requirement"
     }
-  ]
+  ],
+  "policy": {
+    "screenshots": "on-failure",
+    "retry": { "attempts": 1, "on": ["ENVIRONMENT"] }
+  }
 }

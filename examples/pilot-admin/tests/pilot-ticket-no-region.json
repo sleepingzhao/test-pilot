@@ -23,6 +23,7 @@
       "valueRef": "env.adminPassword"
     },
     { "id": "submit-login", "action": "click", "target": { "role": "button", "name": "登录" } },
+    { "id": "wait-login-done", "action": "wait", "target": { "name": "我的工单" } },
     { "id": "goto-customer", "action": "navigate", "path": "/customer" },
     { "id": "open-ticket", "action": "click", "target": { "role": "button", "name": "提交工单" } },
     {
@@ -66,5 +67,8 @@
       "oracle": "api-contract"
     }
   ],
-  "policy": { "screenshots": "on-failure" }
+  "policy": {
+    "screenshots": "on-failure",
+    "retry": { "attempts": 1, "on": ["ENVIRONMENT"] }
+  }
 }

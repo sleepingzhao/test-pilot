@@ -22,6 +22,7 @@ export type {
   RequestRefSpec,
 } from "./types.js";
 export { runApiAssertion, runCapturedHttpAssertion, validateCapturedHttpAssertion } from "./captured-http.js";
+export { urlPathMatches } from "./url-path-match.js";
 export {
   runPostgresReadonlyAssertion,
   validatePostgresReadonlyAssertion,

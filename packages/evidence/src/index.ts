@@ -54,6 +54,12 @@ export function createEvidenceCollector(options: EvidenceOptions) {
   const network: NetworkEntry[] = [];
   const networkPending: Promise<void>[] = [];
 
+  /** Long-lived/streaming responses never finish their body; never block the run on them. */
+  async function settleNetwork(timeoutMs = 8_000) {
+    const settled = Promise.all(networkPending).catch(() => undefined);
+    await Promise.race([settled, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
+  }
+
   async function writeNetworkLog() {
     const path = join(runDir, "network.json");
     const redacted = network.map((n) =>
@@ -77,7 +83,21 @@ export function createEvidenceCollector(options: EvidenceOptions) {
     },
 
     async waitForNetworkCapture(): Promise<void> {
-      await Promise.all(networkPending);
+      await settleNetwork();
+    },
+
+    /** Polls for a matching response; clicks can issue requests after networkidle already settled. */
+    async waitForNetworkEntry(
+      predicate: (entry: NetworkEntry) => boolean,
+      timeoutMs = 10_000,
+    ): Promise<boolean> {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        await settleNetwork(1_000);
+        if (network.some(predicate)) return true;
+        if (Date.now() >= deadline) return false;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
     },
 
     async attachPage(ctx: BrowserContext, page: Page) {
@@ -104,13 +124,18 @@ export function createEvidenceCollector(options: EvidenceOptions) {
           /* ignore */
         }
         network.push(entry);
+        const contentType = (entry.responseHeaders?.["content-type"] ?? "").toLowerCase();
+        if (contentType.includes("text/event-stream")) return;
         networkPending.push(
           (async () => {
             try {
               const lenHeader = res.headers()["content-length"];
               const len = lenHeader ? Number(lenHeader) : 0;
               if (len > 8000) return;
-              const text = await res.text();
+              const text = await Promise.race([
+                res.text().catch(() => ""),
+                new Promise<string>((resolve) => setTimeout(() => resolve(""), 5_000)),
+              ]);
               if (text.length > 0 && text.length <= 8000) {
                 entry.responseBody = text.slice(0, 4000);
               }

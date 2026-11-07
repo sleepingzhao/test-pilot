@@ -49,14 +49,14 @@ pnpm start
 # 打开 http://127.0.0.1:8787
 ```
 
-LLM（DeepSeek 等）是可选能力，只用于草稿与诊断；密钥只写在 **`.env`** 的 `TESTPILOT_LLM_API_KEY`。默认 `deepseek` / `deepseek-chat` / 2048 tokens；provider 的 token 上限由服务端决定，错误会显示在控制台。完整变量见 `.env.example`。
+LLM（DeepSeek 等）是可选能力：目前只用于草稿与诊断，确定性回归 **零 LLM**。按 V0.6 路线，后续只增加低置信度能力归类和独立的 Agent 语义评测（见 [`ROADMAP.md`](ROADMAP.md) §6.3），不会让 LLM 直接写回归用例。密钥只写在 **`.env`** 的 `TESTPILOT_LLM_API_KEY`。默认 `deepseek` / `deepseek-chat` / 2048 tokens；provider 的 token 上限由服务端决定，错误会显示在控制台。完整变量见 `.env.example`。
 
 Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](ROADMAP.md)，本地门禁见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)。
 
 ## 架构（与 design 图对齐）
 
 - **Interface**：Web Console（`apps/console`）· CLI 供脚本与高级用法
-- **Intelligence**：Planner / Context（迭代中）· 回归执行 **零 LLM**
+- **Intelligence**：Planner / Context（迭代中）· Detect 能力探测（V0.6 骨架）· 确定性回归 **零 LLM**
 - **Test IR + Assertions**：`packages/test-ir` · `packages/assertions`
 - **Platform**：Web 已可用 · Phone / Glass 见 `packages/platform` 路线图
 - **Execution + Evidence**：`packages/runner-web` · `packages/evidence`
@@ -69,6 +69,7 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 | **Web Console** | `apps/console` |
 | Test IR | `packages/test-ir` |
 | Planner / 页面快照 | `packages/planner` · `packages/context-web` |
+| Capability detection (V0.6) | `packages/detect` |
 | Recorder | `packages/recorder-web` |
 | Web runner | `packages/runner-web` |
 | Assertions | `packages/assertions` |
@@ -77,6 +78,8 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 | Platform roadmap | `packages/platform` |
 | Management API | `services/test-management` |
 | Demo + 种子用例 | `examples/demo-webapp` |
+
+下一阶段（V0.6）是[能力探测与机制包](ROADMAP.md)：先发现系统是什么能力（CRUD / 实时消息 / 富媒体 / Agent 等），再用对应机制包和真实证据断言测试；实现细节见 `ROADMAP.md` §6.3。
 
 高级用户仍可用 `pnpm cli run …`（见 `ROADMAP.md` 附录）。
 

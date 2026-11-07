@@ -34,7 +34,7 @@ pnpm clean:artifacts --execute    # 实际删除
 - 仅删除 `artifacts/runs/<runId>/`；**不**改动 `data/tests`、`data/runs`、`data/batches`。
 - **自动保留**：每个批次结束与服务启动时，只保留最近 **10** 个 run 的 artifacts 文件夹（`TESTPILOT_ARTIFACT_KEEP_RUNS`，与 session 类似）；更早的批次证据会显示「未生成」。
 - 手动清理默认保留最近 **10** 个批次（`--keep-batches K`），可配合 `--days N` 与 `--max-mb` 限制总量。
-- 页面导航超时默认 45s（`TESTPILOT_NAV_TIMEOUT_MS`）；试点用例共享账号在批内串行执行，避免并发登录竞态。
+- 页面导航超时默认 45s（`TESTPILOT_NAV_TIMEOUT_MS`）；试点用例共享账号在批内串行执行，避免并发登录竞态。UI 断言会等待目标文案出现（默认 8s，`TESTPILOT_UI_ASSERT_TIMEOUT_MS`），并在断言前等待点击触发的 XHR/fetch 完成，避免成功提示还没渲染就判定失败。
 
 ## 需求→测试（V0.5-lite）
 

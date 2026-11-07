@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { BrowserContext, Page, Response } from "playwright";
+import type { BrowserContext, Page, Request, Response } from "playwright";
 
 export type ArtifactRef = {
   kind: "trace" | "screenshot" | "har" | "log" | "network";
@@ -53,11 +53,17 @@ export function createEvidenceCollector(options: EvidenceOptions) {
   let context: BrowserContext | undefined;
   const network: NetworkEntry[] = [];
   const networkPending: Promise<void>[] = [];
+  const inFlight = new Set<Request>();
 
   /** Long-lived/streaming responses never finish their body; never block the run on them. */
   async function settleNetwork(timeoutMs = 8_000) {
-    const settled = Promise.all(networkPending).catch(() => undefined);
-    await Promise.race([settled, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await Promise.allSettled(networkPending);
+      if (inFlight.size === 0) return;
+      // A click's fetch has been dispatched but its response has not arrived yet.
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    }
   }
 
   async function writeNetworkLog() {
@@ -104,6 +110,15 @@ export function createEvidenceCollector(options: EvidenceOptions) {
       context = ctx;
       await mkdir(runDir, { recursive: true });
       await ctx.tracing.start({ screenshots: true, snapshots: true, sources: true });
+      page.on("request", (req: Request) => {
+        const type = req.resourceType();
+        if (type === "xhr" || type === "fetch" || type === "document") inFlight.add(req);
+      });
+      const finish = (req: Request) => {
+        inFlight.delete(req);
+      };
+      page.on("requestfinished", finish);
+      page.on("requestfailed", finish);
       page.on("response", (res: Response) => {
         const req = res.request();
         if (network.length > 200) return;
@@ -125,7 +140,10 @@ export function createEvidenceCollector(options: EvidenceOptions) {
         }
         network.push(entry);
         const contentType = (entry.responseHeaders?.["content-type"] ?? "").toLowerCase();
-        if (contentType.includes("text/event-stream")) return;
+        if (contentType.includes("text/event-stream")) {
+          inFlight.delete(req);
+          return;
+        }
         networkPending.push(
           (async () => {
             try {

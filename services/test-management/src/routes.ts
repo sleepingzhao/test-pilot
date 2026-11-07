@@ -405,6 +405,52 @@ async function executeRuns(
   return outcomes.filter((r): r is StoredRun => r != null);
 }
 
+/** One-paragraph requirements usually start with the behavior; use it as the title. */
+export function titleFromRequirement(text: string): string {
+  const first = text.split(/[\n。！？!?；;]/)[0]?.trim() ?? "";
+  const withoutParenthetical = first.replace(/[（(][^）)]*[）)]/g, "").trim();
+  return (withoutParenthetical || "需求草案").slice(0, 30);
+}
+
+/** Pilot ticket forms use the create request as the durable success oracle. */
+export function resolveRequirementAssertions(
+  usePilotOracle: boolean,
+  fallback: StoredTest["ir"]["assertions"],
+): StoredTest["ir"]["assertions"] {
+  if (!usePilotOracle) return fallback;
+  return [
+    {
+      id: "ticket-submit-api",
+      type: "api",
+      provider: "captured-http",
+      requestRef: "pilot-ticket-submit",
+      expect: { statusCode: 200, requestBodyContains: "TestPilot-" },
+      oracle: "api-contract",
+    },
+  ];
+}
+
+/**
+ * An unapproved draft's assertion is a guess. A miss proves the guess wrong at
+ * least as often as it proves the product wrong, so never report PRODUCT_DEFECT
+ * for it; the human still approves the assertion before regression.
+ */
+export function reclassifyDraftAssertionFailures(run: StoredRun, approved: boolean): StoredRun {
+  if (approved) return run;
+  const assertions = run.assertions.map((a) =>
+    !a.passed && a.errorKind === "PRODUCT_DEFECT"
+      ? { ...a, errorKind: "ASSERTION_ORACLE" as const }
+      : a,
+  );
+  const failureKind =
+    run.metrics?.failureKind === "PRODUCT_DEFECT" ? "ASSERTION_ORACLE" : run.metrics?.failureKind;
+  return {
+    ...run,
+    assertions,
+    metrics: { ...run.metrics, failureKind },
+  };
+}
+
 async function executeSingleIrRun(
   store: FileStore,
   test: StoredTest,
@@ -425,13 +471,16 @@ async function executeSingleIrRun(
     env: runEnv,
   });
   const artifacts = await ensureNetworkArtifact(result.artifacts);
-  const stored: StoredRun = {
-    ...result,
-    artifacts,
-    projectId,
-    testTitle: test.title,
-    trial: true,
-  };
+  const stored = reclassifyDraftAssertionFailures(
+    {
+      ...result,
+      artifacts,
+      projectId,
+      testTitle: test.title,
+      trial: true,
+    },
+    test.approvalStatus === "approved",
+  );
   await store.saveRun(stored);
   await appendRunMetrics(dataRoot, stored, { trial: true });
   return stored;
@@ -823,10 +872,10 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         },
       }),
     };
-    const title = body.title?.trim() || "需求草案";
     const channel = body.channel === "prd" ? "prd" : "intent";
     const text = body.text?.trim();
     if (!text) return reply.code(400).send({ error: "请粘贴需求描述或 PRD 片段" });
+    const title = body.title?.trim() || titleFromRequirement(text);
     onStage("校验目标环境");
     const target: RequirementTarget = body.target === "pilot" || body.target === "custom" ? body.target : "demo";
     const project = store.project();
@@ -893,7 +942,16 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     });
     const testId = makeIntakeTestId(title);
     const steps = mergeRequirementSteps(onPilot, onPilot ? await pilotLoginSteps() : [], draft.steps);
-    const partial = draftToPartialIR(testId, { ...draft, steps });
+    // The pilot's success toast is transient and can vanish before assertions run;
+    // the create request (200 + our unique run marker in the body) is durable evidence.
+    const assertedOnSubmit = onPilot && draft.steps.some((s) => s.id === "submit-form");
+    const assertions = resolveRequirementAssertions(assertedOnSubmit, draft.assertions);
+    const partial = draftToPartialIR(testId, { ...draft, steps, assertions });
+    if (assertedOnSubmit) {
+      draft.uncertainties.push(
+        "成功断言使用试点创建接口：HTTP 200 且请求体包含本次运行的 TestPilot- 标记；Toast 会消失，不作为唯一证据。",
+      );
+    }
     const ir = onPilot
       ? {
           ...partial,

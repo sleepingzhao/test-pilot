@@ -1,6 +1,6 @@
 import type { TestIR, TestAssertion } from "@testpilot/test-ir";
 import { planFromIntake, suggestAssertionHints } from "./intake.js";
-export type { PageContext, PlannerDraft, PlannerInput } from "./types.js";
+export type { PageContext, PlannerDraft, PlannerInput, FormFieldHint, FormHint } from "./types.js";
 import type { PlannerDraft, PlannerInput } from "./types.js";
 
 export function planDraft(input: PlannerInput) {

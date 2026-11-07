@@ -69,6 +69,48 @@ test("ticket intake clicks form submit by testId, not 提交工单", () => {
   assert.ok(successAssert?.contains?.includes("工单已提交"));
 });
 
+test("explored dialog form becomes replayable fill and select steps", () => {
+  const context: PageContext = {
+    url: "http://pilot.example/customer",
+    elements: [
+      { role: "button", name: "提交工单" },
+      { role: "div", name: "提交服务工单" },
+    ],
+    form: {
+      scope: "dialog",
+      title: "提交服务工单",
+      submitLabel: "确认提交",
+      openTarget: { role: "button", name: "提交工单" },
+      fields: [
+        { label: "联系电话", kind: "text", value: "19900000000" },
+        { label: "省", kind: "combobox", option: "北京市" },
+        { label: "市", kind: "combobox", option: "市辖区" },
+        { label: "详细地址", kind: "text", value: "" },
+        { label: "需求说明", kind: "textarea", value: "" },
+      ],
+    },
+  };
+  const draft = planFromIntake({
+    title: "创建工单",
+    channel: "prd",
+    text: "登录后点击提交工单输入信息后可以成功创建工单（不用提交附件）",
+    context,
+  });
+  assert.ok(draft.steps.some((s) => s.id === "open-submit-ticket"));
+  assert.deepEqual(
+    draft.steps.filter((s) => s.id.startsWith("choose-")).map((s) => s.target?.name ?? s.target?.label),
+    ["省", "北京市", "市", "市辖区"],
+  );
+  const fills = draft.steps.filter((s) => s.action === "fill");
+  assert.deepEqual(
+    fills.map((s) => s.target?.label),
+    ["详细地址", "需求说明"],
+  );
+  assert.equal(draft.steps.find((s) => s.id === "submit-form")?.target?.name, "确认提交");
+  assert.equal(draft.assertions.find((a) => a.id === "ticket-submitted")?.contains, "工单已提交");
+  assert.equal(draft.steps.some((s) => s.id === "submit-ticket-form"), false);
+});
+
 test("unmatched requirement asserts a visible page anchor, not the goal sentence", () => {
   const context: PageContext = {
     url: "http://127.0.0.1:4173/",

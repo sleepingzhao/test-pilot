@@ -4,8 +4,13 @@ import Fastify from "fastify";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { registerRoutes } from "./routes.js";
-import { FileStore } from "./store.js";
+import {
+  registerRoutes,
+  reclassifyDraftAssertionFailures,
+  resolveRequirementAssertions,
+  titleFromRequirement,
+} from "./routes.js";
+import { FileStore, type StoredRun } from "./store.js";
 
 test("POST /api/requirement-flow requires text (negative)", async () => {
   const root = await mkdtemp(join(tmpdir(), "tp-req-"));
@@ -20,6 +25,54 @@ test("POST /api/requirement-flow requires text (negative)", async () => {
   });
   assert.equal(res.statusCode, 400);
   await app.close();
+});
+
+test("derives a readable title from the first requirement sentence", () => {
+  assert.equal(
+    titleFromRequirement("登录后点击提交工单输入信息后可以成功创建工单（不用提交附件）"),
+    "登录后点击提交工单输入信息后可以成功创建工单",
+  );
+  assert.equal(titleFromRequirement("第一句话。第二句话"), "第一句话");
+  assert.equal(titleFromRequirement("   "), "需求草案");
+});
+
+test("pilot form submit asserts the create request instead of a transient toast", () => {
+  const fallback = [
+    { id: "ticket-submitted", type: "ui" as const, contains: "工单已提交", oracle: "human-approved" as const },
+  ];
+  const out = resolveRequirementAssertions(true, fallback);
+  assert.equal(out.length, 1);
+  const assertion = out[0] as { type: string; requestRef?: string; expect?: Record<string, unknown> };
+  assert.equal(assertion.type, "api");
+  assert.equal(assertion.requestRef, "pilot-ticket-submit");
+  assert.deepEqual(assertion.expect, { statusCode: 200, requestBodyContains: "TestPilot-" });
+  assert.equal(resolveRequirementAssertions(false, fallback), fallback);
+});
+
+test("draft assertion misses are not reported as product defects", () => {
+  const run = {
+    runId: "run_1",
+    testId: "t1",
+    testVersion: 1,
+    status: "failed",
+    startedAt: new Date().toISOString(),
+    completedAt: new Date().toISOString(),
+    steps: [],
+    assertions: [{ assertionId: "ticket-submitted", passed: false, errorKind: "PRODUCT_DEFECT" }],
+    artifacts: { screenshots: [], traces: [], notes: undefined } as unknown as StoredRun["artifacts"],
+    metrics: { durationMs: 1, llmTokensUsed: 0, failureKind: "PRODUCT_DEFECT", attemptCount: 1 },
+    projectId: "default",
+    testTitle: "draft",
+    trial: true,
+  } as StoredRun;
+
+  const draft = reclassifyDraftAssertionFailures(run, false);
+  assert.equal(draft.metrics?.failureKind, "ASSERTION_ORACLE");
+  assert.equal(draft.assertions[0]?.errorKind, "ASSERTION_ORACLE");
+
+  const approved = reclassifyDraftAssertionFailures(run, true);
+  assert.equal(approved.metrics?.failureKind, "PRODUCT_DEFECT");
+  assert.equal(approved.assertions[0]?.errorKind, "PRODUCT_DEFECT");
 });
 
 test("requirement job reports progress and exposes validation failure", async () => {

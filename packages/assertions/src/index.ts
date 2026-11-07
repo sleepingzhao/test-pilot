@@ -58,6 +58,16 @@ export function locatorToPlaywright(locator: Locator): string {
   throw new Error("locator must include testId, css, role, label, or placeholder");
 }
 
+/** Success text often renders a moment after the last request settles. */
+function uiAssertTimeoutMs(): number {
+  const raw = Number(process.env.TESTPILOT_UI_ASSERT_TIMEOUT_MS ?? 8_000);
+  return Number.isFinite(raw) && raw >= 0 ? Math.min(raw, 30_000) : 8_000;
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 export async function runUiAssertion(
   assertion: TestAssertion,
   ctx: AssertionContext,
@@ -102,7 +112,12 @@ export async function runUiAssertion(
       else if (t.css) el = ctx.page.locator(t.css);
       else throw new Error("empty target");
       await el.waitFor({ state: "visible", timeout: 10_000 });
-      const text = await el.innerText();
+      const deadline = Date.now() + uiAssertTimeoutMs();
+      let text = await el.innerText().catch(() => "");
+      while (!text.includes(assertion.contains) && Date.now() < deadline) {
+        await sleep(100);
+        text = await el.innerText().catch(() => text);
+      }
       const passed = text.includes(assertion.contains);
       return {
         assertionId: id,
@@ -118,9 +133,20 @@ export async function runUiAssertion(
       await ctx.page
         .waitForFunction("document.body && document.body.innerText.trim().length > 0", { timeout: 20_000 })
         .catch(() => undefined);
+      const appeared = await ctx.page
+        .waitForFunction(
+          (needle: string) => {
+            const doc = (globalThis as unknown as { document?: { body?: { innerText: string } } }).document;
+            return Boolean(doc?.body?.innerText.includes(needle));
+          },
+          assertion.contains,
+          { timeout: uiAssertTimeoutMs() },
+        )
+        .then(() => true)
+        .catch(() => false);
       const body = ctx.page.locator("body");
       const text = await body.innerText();
-      const passed = text.includes(assertion.contains);
+      const passed = appeared && text.includes(assertion.contains);
       return {
         assertionId: id,
         passed,

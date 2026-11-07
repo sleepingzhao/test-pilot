@@ -28,7 +28,7 @@ test("retries with the provider's max_tokens limit instead of failing the call",
           choices: [
             {
               message: {
-                content: JSON.stringify({ uncertainties: ["请人工确认"], assertionContains: ["已保存"] }),
+                content: JSON.stringify({ uncertainties: ["请人工确认"], assertionContains: ["保存成功"] }),
               },
             },
           ],
@@ -57,6 +57,108 @@ test("retries with the provider's max_tokens limit instead of failing the call",
     assert.deepEqual(seen, [1_000_000, 1_000, 1_000]);
     assert.ok(out.tokensUsed >= 12);
     assert.ok(out.draft.sources.includes("llm-hints"));
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("drops assertion hints already visible before the action", async () => {
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      const body = JSON.parse(raw) as { messages: Array<{ content: string }> };
+      const isStepsCall = body.messages.some((m) => m.content.includes("QA automation planner"));
+      const payload = isStepsCall
+        ? { steps: [{ id: "s1", action: "click", target: { testId: "open-ticket" } }] }
+        : { assertionContains: ["我的工单", "提交成功"] };
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          usage: { total_tokens: 3 },
+          choices: [{ message: { content: JSON.stringify(payload) } }],
+        }),
+      );
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  const config: LlmPlannerConfig = {
+    provider: "deepseek",
+    apiKey: "test-key",
+    baseUrl: `http://127.0.0.1:${port}`,
+    model: "test-model",
+    temperature: 0.2,
+    maxTokens: 2_000,
+    timeoutMs: 5_000,
+  };
+
+  try {
+    const out = await enhanceDraftWithLlm(config, {
+      goal: "提交工单",
+      context: {
+        url: "http://127.0.0.1:4173/customer",
+        elements: [
+          { role: "link", name: "我的工单" },
+          { role: "button", name: "提交工单", testId: "open-ticket" },
+        ],
+      },
+      ruleDraft: {
+        steps: [{ id: "open", action: "click", target: { testId: "open-ticket" } }],
+        assertions: [],
+        uncertainties: [],
+        sources: ["intent"],
+      },
+    });
+    const contains = out.draft.assertions.map((a) => (a as { contains?: string }).contains);
+    assert.equal(contains.includes("我的工单"), false);
+    assert.equal(contains.includes("提交成功"), true);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("retries once when the provider returns malformed JSON", async () => {
+  let calls = 0;
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      calls += 1;
+      const content =
+        calls === 1 ? '{"assertionContains":["提交成功",]}' : JSON.stringify({ assertionContains: ["提交成功"] });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          usage: { total_tokens: 4 },
+          choices: [{ message: { content } }],
+        }),
+      );
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  const config: LlmPlannerConfig = {
+    provider: "deepseek",
+    apiKey: "test-key",
+    baseUrl: `http://127.0.0.1:${port}`,
+    model: "test-model",
+    temperature: 0.2,
+    maxTokens: 2_000,
+    timeoutMs: 5_000,
+  };
+
+  try {
+    const out = await enhanceDraftWithLlm(config, {
+      goal: "提交后提示提交成功",
+      context: { url: "http://127.0.0.1:4173/", elements: [] },
+      ruleDraft: { steps: [], assertions: [], uncertainties: [], sources: ["intent"] },
+    });
+    assert.ok(calls >= 2);
+    assert.ok(out.tokensUsed >= 8);
+    assert.ok(
+      out.draft.assertions.some((a) => (a as { contains?: string }).contains === "提交成功"),
+    );
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

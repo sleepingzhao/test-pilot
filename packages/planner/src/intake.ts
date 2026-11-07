@@ -1,5 +1,5 @@
 import { isWeakAssertionText, type TestAssertion, type TestStep } from "@testpilot/test-ir";
-import type { PageContext, PlannerDraft } from "./types.js";
+import type { FormHint, PageContext, PlannerDraft } from "./types.js";
 
 export type IntakeChannel = "intent" | "prd" | "record";
 
@@ -38,6 +38,63 @@ function isAttachmentField(el: { name?: string; inputType?: string; role?: strin
   const name = (el.name ?? "").toLowerCase();
   if (el.inputType === "file") return true;
   return /附件|上传|upload|file/.test(name);
+}
+
+function valueForField(label: string): string {
+  if (/电话|手机|phone|mobile/i.test(label)) return "19900000000";
+  if (/邮箱|email/i.test(label)) return "testpilot@example.com";
+  if (/需求|描述|说明|备注|内容|标题/i.test(label)) return "TestPilot 自动化验证 {{runId}}";
+  return "TestPilot-{{runId}}";
+}
+
+/** Plan from a form captured after opening it: the fields only exist inside the dialog. */
+function appendExploredFormSteps(
+  steps: TestStep[],
+  form: FormHint,
+  uncertainties: string[],
+): void {
+  const fields = form.fields ?? [];
+  const filled: string[] = [];
+  const chosen: string[] = [];
+  fields.forEach((field, i) => {
+    if (field.kind === "combobox") {
+      if (!field.option) return;
+      steps.push({
+        id: `choose-${i + 1}`,
+        action: "click",
+        target: { label: field.label },
+      });
+      steps.push({
+        id: `choose-${i + 1}-option`,
+        action: "click",
+        target: { role: "option", name: field.option },
+      });
+      chosen.push(`${field.label}=${field.option}`);
+      return;
+    }
+    if (field.value?.trim()) return;
+    steps.push({
+      id: `fill-${i + 1}`,
+      action: "fill",
+      target: { label: field.label },
+      value: valueForField(field.label),
+    });
+    filled.push(field.label);
+  });
+  if (form.submitLabel) {
+    steps.push({
+      id: "submit-form",
+      action: "click",
+      target: { role: "button", name: form.submitLabel },
+    });
+  }
+  const parts = [
+    filled.length ? `填写 ${filled.join("、")}` : "",
+    chosen.length ? `选择 ${chosen.join("、")}` : "",
+  ].filter(Boolean);
+  uncertainties.push(
+    `已从「${form.title ?? "打开的表单"}」识别表单：${parts.join("；") || "无需输入"}；下拉选项取自打开表单时看到的第一个可选项，试跑会验证整条链。`,
+  );
 }
 
 /** Form submit — not nav actions like「提交工单」(design §5: prefer testId, avoid substring role names). */
@@ -127,24 +184,39 @@ export function planFromIntake(input: IntakeInput): PlannerDraft {
 
   const combined = norm(goal);
   const ticketFlow = textMentionsTicket(goal) || textMentionsTicket(input.title);
+  const form = input.context.form;
+  const exploredForm = form && form.fields.length > 0 && form.submitLabel ? form : undefined;
 
   const submitTicketBtn = input.context.elements.find(
     (el) => el.role === "button" && el.name && /提交工单/.test(el.name),
   );
-  if (ticketFlow && submitTicketBtn?.name) {
-    steps.push({
-      id: "open-submit-ticket",
-      action: "click",
-      target: submitTicketBtn.testId
-        ? { testId: submitTicketBtn.testId }
-        : { role: "button", name: submitTicketBtn.name.trim() },
-    });
-    appendTicketFormSteps(
-      steps,
-      input.context,
-      uncertainties,
-      textMentionsNoAttachment(goal, input.constraints),
-    );
+  if (ticketFlow) {
+    const opener = submitTicketBtn?.name
+      ? {
+          id: "open-submit-ticket",
+          action: "click" as const,
+          target: submitTicketBtn.testId
+            ? { testId: submitTicketBtn.testId }
+            : { role: "button", name: submitTicketBtn.name.trim() },
+        }
+      : form?.scope === "dialog" && form.openTarget
+        ? {
+            id: "open-submit-ticket",
+            action: "click" as const,
+            target: { ...form.openTarget },
+          }
+        : undefined;
+    if (opener) steps.push(opener);
+    if (exploredForm) {
+      appendExploredFormSteps(steps, exploredForm, uncertainties);
+    } else {
+      appendTicketFormSteps(
+        steps,
+        input.context,
+        uncertainties,
+        textMentionsNoAttachment(goal, input.constraints),
+      );
+    }
   }
 
   const assertions: TestAssertion[] = [];
@@ -153,24 +225,19 @@ export function planFromIntake(input: IntakeInput): PlannerDraft {
   }
 
   if (ticketFlow) {
-    if (textMentionsNoAttachment(goal, input.constraints)) {
-      const alert = input.context.elements.find((el) => el.testId === "ticket-alert" || el.role === "alert");
-      assertions.push({
-        id: "ticket-submitted",
-        type: "ui",
-        ...(alert?.testId ? { target: { testId: alert.testId } } : {}),
-        contains: "工单已提交",
-        oracle: "human-approved",
-      });
-      uncertainties.push("断言示例为「工单已提交」；若试点文案不同，批准前请改成真实成功提示。");
-    } else {
-      assertions.push({
-        id: "ticket-context",
-        type: "ui",
-        contains: "工单",
-        oracle: "human-approved",
-      });
-    }
+    const alert = input.context.elements.find((el) => el.testId === "ticket-alert" || el.role === "alert");
+    assertions.push({
+      id: "ticket-submitted",
+      type: "ui",
+      ...(alert?.testId ? { target: { testId: alert.testId } } : {}),
+      contains: "工单已提交",
+      oracle: "human-approved",
+    });
+    uncertainties.push(
+      textMentionsNoAttachment(goal, input.constraints)
+        ? "断言示例为「工单已提交」；若试点文案不同，试跑会用页面上实际出现的成功提示替换。"
+        : "成功提示按常见文案「工单已提交」生成；试跑会用页面上实际出现的成功提示校验或替换。",
+    );
   } else if (textMentionsPageSmoke(goal) || textMentionsPageSmoke(input.title)) {
     const anchor = input.context.elements.find(
       (el) => el.name && /客户|工作台|首页|控制台|欢迎/.test(el.name) && el.name.length <= 32,

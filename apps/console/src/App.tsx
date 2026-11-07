@@ -12,6 +12,7 @@ import type { TestStep } from "@testpilot/test-ir/step-edit";
 import { StepEditorPanel } from "./StepEditorPanel";
 import { RequirementFlowView } from "./RequirementFlowView";
 import { RunDetailView } from "./RunDetailView";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { failureKindLabel, failureScreenshotPath, summarizeAssertion } from "./stepSummary";
 
 type IrAssertion = {
@@ -27,7 +28,8 @@ type IrAssertion = {
 };
 
 type View = "home" | "tests" | "create" | "history" | "run" | "batch";
-type TestFilter = "all" | "draft" | "weak" | "pilot" | "demo";
+type TestEnvKey = "pilot" | "demo" | "custom";
+type TestFilter = "all" | "draft" | `env:${TestEnvKey}`;
 
 function isPilotTest(t: StoredTest): boolean {
   if (t.title.includes("【试点】")) return true;
@@ -35,6 +37,32 @@ function isPilotTest(t: StoredTest): boolean {
   if (t.ir?.baseUrlRef === "pilot-admin") return true;
   return false;
 }
+
+function originOf(url?: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Classify by the IR's actual target, falling back to the project default (demo). */
+function testEnvKey(t: StoredTest, demoOrigin: string | null, pilotOrigin: string | null): TestEnvKey {
+  if (isPilotTest(t)) return "pilot";
+  if (t.ir?.baseUrlRef === "staging-console") return "demo";
+  const origin = originOf(t.ir?.baseUrl);
+  if (!origin) return "demo";
+  if (demoOrigin && origin === demoOrigin) return "demo";
+  if (pilotOrigin && origin === pilotOrigin) return "pilot";
+  return "custom";
+}
+
+const ENV_LABELS: Record<TestEnvKey, string> = {
+  pilot: "试点",
+  demo: "练习",
+  custom: "自定义",
+};
 
 export function App() {
   const [view, setView] = useState<View>("home");
@@ -45,6 +73,13 @@ export function App() {
   const [bootstrapped, setBootstrapped] = useState(false);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; kind: "info" | "success" | "error" } | null>(null);
+  const [confirmRequest, setConfirmRequest] = useState<{
+    title: string;
+    body?: string;
+    confirmLabel: string;
+    danger?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reviewToken = useRef(0);
   const [editTest, setEditTest] = useState<StoredTest | null>(null);
@@ -600,17 +635,30 @@ export function App() {
     notify("已更新建议，请确认后保存");
   };
 
-  const closeReview = () => {
-    if (reviewDirty && !window.confirm("有未保存的步骤或断言修改，确定关闭？")) return;
+  const closeReviewNow = () => {
     setEditTest(null);
     setTrialResult(null);
     setReviewDirty(false);
   };
 
+  const closeReview = () => {
+    if (!reviewDirty) {
+      closeReviewNow();
+      return;
+    }
+    setConfirmRequest({
+      title: "放弃未保存的修改？",
+      body: "步骤或断言的修改还没有保存，关闭后不会保留。",
+      confirmLabel: "放弃修改",
+      danger: true,
+      onConfirm: closeReviewNow,
+    });
+  };
+
   useEffect(() => {
     if (!editTest) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeReview();
+      if (e.key === "Escape" && !confirmRequest) closeReview();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -876,11 +924,9 @@ export function App() {
     }
   };
 
-  const deleteDraft = async () => {
-    if (!editTest) return;
-    if (!window.confirm(`删除草稿「${editTest.title}」？此操作不可撤销。`)) return;
+  const deleteDraftNow = async (test: StoredTest) => {
     try {
-      await api(`/api/tests/${editTest.id}`, { method: "DELETE" });
+      await api(`/api/tests/${test.id}`, { method: "DELETE" });
       setEditTest(null);
       setReviewDirty(false);
       notify("草稿已删除", "success");
@@ -888,6 +934,18 @@ export function App() {
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e), "error");
     }
+  };
+
+  const deleteDraft = () => {
+    if (!editTest) return;
+    const target = editTest;
+    setConfirmRequest({
+      title: "删除草稿？",
+      body: `「${target.title}」删除后不可恢复，也不会再出现在用例列表里。`,
+      confirmLabel: "删除",
+      danger: true,
+      onConfirm: () => void deleteDraftNow(target),
+    });
   };
 
   const startRecord = async () => {
@@ -935,11 +993,23 @@ export function App() {
     if (!aWeak && bWeak) return 1;
     return a.title.localeCompare(b.title, "zh-CN");
   });
+  const demoOrigin = originOf(demoUrl);
+  const pilotOrigin = originOf(pilotUrl);
+  const envCounts = new Map<TestEnvKey, number>();
+  for (const t of tests) {
+    const key = testEnvKey(t, demoOrigin, pilotOrigin);
+    envCounts.set(key, (envCounts.get(key) ?? 0) + 1);
+  }
+  const envFilters = (["pilot", "demo", "custom"] as const)
+    .filter((key) => (envCounts.get(key) ?? 0) > 0)
+    .map((key) => ({ id: `env:${key}` as TestFilter, label: ENV_LABELS[key] }));
+  const activeEnvKey = testFilter.startsWith("env:")
+    ? (testFilter.slice(4) as TestEnvKey)
+    : null;
+
   const filteredTests = sortedTests.filter((t) => {
     if (testFilter === "draft") return t.approvalStatus === "draft";
-    if (testFilter === "weak") return (t.weakAssertions?.length ?? 0) > 0;
-    if (testFilter === "pilot") return isPilotTest(t);
-    if (testFilter === "demo") return !isPilotTest(t);
+    if (activeEnvKey) return testEnvKey(t, demoOrigin, pilotOrigin) === activeEnvKey;
     return true;
   });
 
@@ -965,10 +1035,6 @@ export function App() {
       key: "weak",
       text: `${summary!.weakApprovedCount} 条弱断言`,
       tone: "bad",
-      onClick: () => {
-        setTestFilter("weak");
-        setView("tests");
-      },
     });
   }
   if (demoOk === false) statusItems.push({ key: "demo", text: "练习应用未启动（:4173）", tone: "bad" });
@@ -1304,15 +1370,11 @@ export function App() {
             <h2 className="section-title">用例</h2>
             <p className="section-lede">已批准用例会参与「运行全部」。草稿需编辑断言并批准。</p>
             <div className="test-filters">
-              {(
-                [
-                  ["all", "全部"],
-                  ["draft", "草稿"],
-                  ["weak", "弱断言"],
-                  ["pilot", "试点"],
-                  ["demo", "练习"],
-                ] as const
-              ).map(([id, label]) => (
+              {[
+                { id: "all" as TestFilter, label: "全部" },
+                { id: "draft" as TestFilter, label: "草稿" },
+                ...envFilters,
+              ].map(({ id, label }) => (
                 <button
                   key={id}
                   type="button"
@@ -1804,6 +1866,20 @@ export function App() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmRequest !== null}
+        title={confirmRequest?.title ?? ""}
+        body={confirmRequest?.body}
+        confirmLabel={confirmRequest?.confirmLabel}
+        danger={confirmRequest?.danger}
+        onCancel={() => setConfirmRequest(null)}
+        onConfirm={() => {
+          const request = confirmRequest;
+          setConfirmRequest(null);
+          request?.onConfirm();
+        }}
+      />
 
       {toast && <div className={`toast toast-${toast.kind}`}>{toast.message}</div>}
     </div>

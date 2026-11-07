@@ -24,9 +24,9 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 
 > 安全默认值：API 只监听 `127.0.0.1`，CORS 只放行本机控制台，写请求校验 `Origin`。若必须设 `HOST` 为非回环地址，同时设置 `TESTPILOT_API_TOKEN`，否则 API 会拒绝启动；自定义控制台域名需加入 `TESTPILOT_ALLOWED_ORIGINS`，额外测试环境需加入 `TESTPILOT_ALLOWED_TARGETS`。
 
-在控制台里：**创建**（粘贴 PRD/需求 → 选环境 → 自动试跑报告 → 通过后一键入回归，**试跑不等于批准**；录制作为次级入口）、**运行全部用例**、**Flake 检查 ×3**、**运行详情**、**三批基线**、**审阅（含审批身份）**、下载 Trace。
+在控制台里：**创建**（粘贴 PRD/需求 → 选环境 → 自动试跑报告 → 通过后一键入回归，**试跑不等于批准**；录制作为次级入口）、**用例**（按草稿与目标环境筛选，试点/练习/自定义只在实际存在对应用例时出现）、**运行全部用例**、**Flake 检查 ×3**、**运行详情**、**三批基线**、**审阅（含审批身份）**、下载 Trace。
 
-**V0.5-lite 路径：** 侧栏「创建」→ 贴需求并选练习/试点/白名单环境 → 生成并试跑 → 审阅不确定项与断言 → 试跑通过时点「一键加入回归」（会二次确认 + `irHash` 审批，不会自动批准）。
+**V0.5-lite 路径：** 侧栏「创建」→ 贴需求并选练习/试点/白名单环境 → 生成并试跑 → 审阅不确定项与断言 → 试跑通过时点「一键加入回归」（会二次确认 + `irHash` 审批，不会自动批准）。试点工单会先打开表单、采集可见字段与下拉选项再生成步骤；成功断言优先用创建接口（HTTP 200 + 请求体里的本次运行标记），不依赖会消失的 Toast。
 
 **审批以 IR 内容为准：** 批准时保存当时的 IR 快照；构建产物升级导致哈希算法变化时，只要 IR 内容没变，不会要求重新审阅；IR 真正变更才会退回草稿。
 
@@ -37,10 +37,10 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 ### 业务试点（P0-1）
 
 1. 复制凭据：`cp .env.example .env` 并填写 `TESTPILOT_ENV_ADMIN_*`（勿提交 Git）
-2. 重启 `pnpm dev`，用例列表会出现 **【试点】** 用例
-3. 配置 `.env` 后批准「密码登录」用例，可与 Demo 用例一起回归
+2. 重启 `pnpm dev`，在「创建」里选「业务试点」，贴一句需求 → 自动生成并试跑
+3. 试跑通过后人工审阅步骤/断言，再点「一键加入回归」
 
-试点地址与凭据只放在本地 **`.env`** 和 **`docs/pilot-*.json`**（已 gitignore，见 `*.example.json` 模板）。配置完成后重启 API，会按 `pilot-intake-presets.json` **自动生成试点草稿**（无需在控制台手动创建）。
+试点地址与凭据只放在本地 **`.env`** 和 **`docs/pilot-*.json`**（已 gitignore，见 `*.example.json` 模板）。`pilot-intake-presets.json` 为空时不会自动生成试点草稿；需要预置草稿时再往该文件里加条目。
 
 生产式单端口（构建后 API 托管静态 Console）：
 
@@ -68,8 +68,12 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 | --- | --- |
 | **Web Console** | `apps/console` |
 | Test IR | `packages/test-ir` |
+| Planner / 页面快照 | `packages/planner` · `packages/context-web` |
 | Recorder | `packages/recorder-web` |
 | Web runner | `packages/runner-web` |
+| Assertions | `packages/assertions` |
+| Evidence | `packages/evidence` |
+| Fixtures / 环境引用 | `packages/fixtures` |
 | Platform roadmap | `packages/platform` |
 | Management API | `services/test-management` |
 | Demo + 种子用例 | `examples/demo-webapp` |
@@ -96,4 +100,4 @@ pnpm clean:artifacts -- --execute       # 实际删除
 pnpm clean:artifacts -- --keep-batches 20 --days 30 --max-mb 512
 ```
 
-默认保留最近 12 个显式批次内的 run，并删除 14 天前的其余证据；只动 `artifacts/runs`。
+默认保留最近 10 个 run 的证据目录（自动清理，`TESTPILOT_ARTIFACT_KEEP_RUNS`）；手动清理默认只保留最近 10 个显式批次，并删除 14 天前的其余证据；只动 `artifacts/runs`。

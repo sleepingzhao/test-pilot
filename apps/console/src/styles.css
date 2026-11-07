@@ -442,6 +442,29 @@ button.status-chip {
   color: var(--muted-strong);
 }
 
+.run-step-msg,
+.run-step-more {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.run-step-more summary {
+  cursor: pointer;
+  color: var(--muted-strong);
+}
+
+.run-step-more pre {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  background: var(--bg);
+  padding: 8px;
+  border-radius: 8px;
+  margin: 6px 0 0;
+}
+
 .run-assertion-list {
   list-style: none;
   margin: 0;
@@ -467,7 +490,10 @@ button.status-chip {
 
 .assert-detail pre {
   font-size: 12px;
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 240px;
+  white-space: pre-wrap;
+  word-break: break-word;
   background: var(--bg);
   padding: 10px;
   border-radius: 8px;
@@ -627,7 +653,10 @@ button.status-chip {
   background: var(--bg);
   padding: 8px;
   border-radius: 8px;
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 200px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .batch-dur {
@@ -799,6 +828,15 @@ button.status-chip {
 .btn-secondary:hover:not(:disabled) {
   background: #f8f9fb;
   border-color: var(--muted);
+}
+
+.btn-danger {
+  background: var(--red);
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #912018;
 }
 
 .btn-tertiary {

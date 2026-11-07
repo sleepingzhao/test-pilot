@@ -67,6 +67,104 @@ document.getElementById("go").addEventListener("click", () => {
   }
 });
 
+test("waits for a click's in-flight request before UI assertions", async () => {
+  const server = createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/api/save") {
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("{}");
+      }, 500);
+      return;
+    }
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html>
+<div id="msg"></div>
+<button id="go">submit</button>
+<script>
+document.getElementById("go").addEventListener("click", () => {
+  fetch("/api/save", { method: "POST", body: "ok" })
+    .then((r) => r.text())
+    .then(() => { setTimeout(() => { document.getElementById("msg").textContent = "Submitted successfully"; }, 400); });
+});
+</script>`);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  const dir = await mkdtemp(join(tmpdir(), "testpilot-inflight-ui-"));
+
+  try {
+    const run = await runTestIR(
+      {
+        id: "inflight-ui",
+        version: 1,
+        platform: "web",
+        baseUrlRef: "local",
+        steps: [
+          { id: "open", action: "navigate", path: "/" },
+          { id: "submit", action: "click", target: { css: "#go" } },
+        ],
+        assertions: [
+          { id: "submitted", type: "ui", contains: "Submitted successfully", oracle: "human-approved" },
+        ],
+      },
+      {
+        headless: true,
+        env: {
+          baseUrl: `http://127.0.0.1:${port}`,
+          baseUrlRefs: { local: `http://127.0.0.1:${port}` },
+        },
+        artifactsDir: dir,
+      },
+    );
+    assert.equal(run.status, "passed");
+    assert.equal(run.assertions[0]?.passed, true);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("UI assertion still fails when the success text never appears", async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end("<!doctype html><p>nothing happened</p>");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  const dir = await mkdtemp(join(tmpdir(), "testpilot-ui-negative-"));
+  const previous = process.env.TESTPILOT_UI_ASSERT_TIMEOUT_MS;
+  process.env.TESTPILOT_UI_ASSERT_TIMEOUT_MS = "600";
+
+  try {
+    const run = await runTestIR(
+      {
+        id: "ui-negative",
+        version: 1,
+        platform: "web",
+        baseUrlRef: "local",
+        steps: [{ id: "open", action: "navigate", path: "/" }],
+        assertions: [
+          { id: "submitted", type: "ui", contains: "Submitted successfully", oracle: "human-approved" },
+        ],
+      },
+      {
+        headless: true,
+        env: {
+          baseUrl: `http://127.0.0.1:${port}`,
+          baseUrlRefs: { local: `http://127.0.0.1:${port}` },
+        },
+        artifactsDir: dir,
+      },
+    );
+    assert.equal(run.status, "failed");
+    assert.equal(run.assertions[0]?.passed, false);
+    assert.equal(run.assertions[0]?.errorKind, "PRODUCT_DEFECT");
+  } finally {
+    if (previous === undefined) delete process.env.TESTPILOT_UI_ASSERT_TIMEOUT_MS;
+    else process.env.TESTPILOT_UI_ASSERT_TIMEOUT_MS = previous;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("an open streaming response does not block the run", async () => {
   const server = createServer((req, res) => {
     if (req.url === "/stream") {

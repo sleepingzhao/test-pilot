@@ -2,7 +2,14 @@ export type StoredTest = {
   id: string;
   projectId: string;
   title: string;
-  ir: { id: string; version: number; assertions: unknown[]; steps: unknown[]; baseUrlRef?: string };
+  ir: {
+    id: string;
+    version: number;
+    assertions: unknown[];
+    steps: unknown[];
+    baseUrl?: string;
+    baseUrlRef?: string;
+  };
   approvalStatus: "draft" | "approved";
   irHash?: string;
   assertionConfigHash?: string;
@@ -70,10 +77,16 @@ function approvalHeaders(): Record<string, string> {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...approvalHeaders(), ...init?.headers },
-  });
+  const headers = new Headers(init?.headers);
+  // DELETE has no body; sending application/json with an empty body makes
+  // Fastify reject it before the route runs.
+  if (init?.body != null && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  for (const [key, value] of Object.entries(approvalHeaders())) {
+    if (!headers.has(key)) headers.set(key, value);
+  }
+  const res = await fetch(`${path}`, { ...init, headers });
   if (!res.ok) {
     const text = await res.text();
     try {

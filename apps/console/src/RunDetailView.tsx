@@ -121,7 +121,16 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
                 {typeof s.durationMs === "number" ? (
                   <span className="run-step-dur">{s.durationMs} ms</span>
                 ) : null}
-                {s.message ? <span className="run-step-msg">{s.message}</span> : null}
+                {s.message ? (
+                  s.message.length > 240 ? (
+                    <details className="run-step-more">
+                      <summary>{s.message.slice(0, 240)}…</summary>
+                      <pre>{s.message}</pre>
+                    </details>
+                  ) : (
+                    <span className="run-step-msg">{s.message}</span>
+                  )
+                ) : null}
               </li>
             ))}
             {run.steps.length === 0 && <li className="run-step-muted">无步骤记录</li>}

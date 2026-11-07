@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { StoredRun, StoredTest } from "./api.js";
 import { api } from "./api.js";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { formatJsonBrief, listEvidenceRows } from "./runDetail.js";
 import { failureKindLabel, summarizeAssertion } from "./stepSummary.js";
 
@@ -50,6 +51,7 @@ export function RequirementFlowView({
   const [result, setResult] = useState<FlowResult | null>(null);
   const [approving, setApproving] = useState(false);
   const [approvedRun, setApprovedRun] = useState<StoredRun | null>(null);
+  const [confirmApprove, setConfirmApprove] = useState(false);
 
   const runFlow = async () => {
     setLoading(true);
@@ -101,12 +103,14 @@ export function RequirementFlowView({
     }
   };
 
-  const addToRegression = async () => {
+  const addToRegression = () => {
     if (!result?.test || result.trial?.run.status !== "passed") return;
-    const ok = window.confirm(
-      "试跑通过不等于自动批准。确认你已审阅步骤与断言，并将此用例加入回归？",
-    );
-    if (!ok) return;
+    setConfirmApprove(true);
+  };
+
+  const confirmAddToRegression = async () => {
+    setConfirmApprove(false);
+    if (!result?.test || result.trial?.run.status !== "passed") return;
     setApproving(true);
     try {
       const full = await api<StoredTest>(`/api/tests/${result.test.id}`);
@@ -284,7 +288,16 @@ export function RequirementFlowView({
                     <li key={s.stepId} className={`run-step${s.status === "failed" ? " run-step-failed" : ""}`}>
                       <span>{s.stepId}</span>
                       <span>{s.status}</span>
-                      {s.message ? <span className="run-step-msg">{s.message}</span> : null}
+                      {s.message ? (
+                        s.message.length > 200 ? (
+                          <details className="run-step-more">
+                            <summary>{s.message.slice(0, 200)}…</summary>
+                            <pre>{s.message}</pre>
+                          </details>
+                        ) : (
+                          <span className="run-step-msg">{s.message}</span>
+                        )
+                      ) : null}
                     </li>
                   ))}
                 </ol>
@@ -356,6 +369,15 @@ export function RequirementFlowView({
           </div>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={confirmApprove}
+        title="加入回归？"
+        body="试跑通过不等于自动批准。确认你已审阅步骤与断言后，将此用例加入回归。"
+        confirmLabel="加入回归"
+        onCancel={() => setConfirmApprove(false)}
+        onConfirm={() => void confirmAddToRegression()}
+      />
     </section>
   );
 }

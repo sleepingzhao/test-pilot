@@ -1,7 +1,10 @@
-import type { PageContext } from "@testpilot/planner";
+import type { FormFieldHint, FormHint, PageContext } from "@testpilot/planner";
 import { snapshotPageContext } from "@testpilot/context-web";
-import { chromium } from "playwright";
+import { chromium, type Locator, type Page } from "playwright";
 import { pilotSecretsConfigured } from "./run-env.js";
+
+const OPTIONAL_FIELD = /可选|optional|服务人员|社区/;
+const SECRET_FIELD = /密码|password|验证码|token/i;
 
 export function normalizePilotBase(base: string): string {
   return base.replace(/\/$/, "");
@@ -55,6 +58,127 @@ export type CapturePilotIntakeOptions = {
   loginPath?: string;
 };
 
+type RawField = {
+  label: string;
+  kind: "text" | "textarea" | "combobox";
+  value: string;
+  selectedText: string;
+};
+
+async function collectVisibleFields(scope: Locator): Promise<RawField[]> {
+  // Keep the callback free of named inner functions: tsx's __name helper would
+  // otherwise be serialized into the page and throw a ReferenceError there.
+  return scope.evaluate((rootEl: any) => {
+    const list: RawField[] = [];
+    rootEl.querySelectorAll("input, textarea").forEach((el: any) => {
+      const style = (globalThis as any).getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden") return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const type = (el.getAttribute("type") || "text").toLowerCase();
+      if (type === "file" || type === "radio" || type === "checkbox" || type === "hidden") return;
+      const label =
+        (el.labels?.[0]?.textContent?.trim()) ||
+        el.getAttribute("aria-label") ||
+        el.getAttribute("placeholder") ||
+        "";
+      if (!label) return;
+      const tag = el.tagName.toLowerCase();
+      const wrapper = el.closest(".el-select");
+      const selectedText = wrapper
+        ? ((wrapper.querySelector(".el-select__selected-item")?.textContent || "").trim())
+        : "";
+      const kind: RawField["kind"] =
+        el.getAttribute("role") === "combobox" || wrapper
+          ? "combobox"
+          : tag === "textarea"
+            ? "textarea"
+            : "text";
+      list.push({ label, kind, value: el.value || "", selectedText });
+    });
+    return list;
+  });
+}
+
+/**
+ * Open dropdowns inside the ticket dialog and record a replayable option chain.
+ * The capture browser is throwaway, so choosing an address here has no side effect;
+ * it tells the planner which labels and options to replay in the real run.
+ */
+async function exploreVisibleForm(page: Page): Promise<FormHint | undefined> {
+  const dialogs = page.locator('[role="dialog"]:visible');
+  const dialogCount = await dialogs.count().catch(() => 0);
+  let scope = page.locator("body");
+  let title: string | undefined;
+  if (dialogCount > 0) {
+    scope = dialogs.last();
+    title =
+      (await scope.getAttribute("aria-label").catch(() => null)) ??
+      (await scope
+        .locator('[role="heading"]')
+        .first()
+        .innerText()
+        .then((t) => t.trim())
+        .catch(() => "")) ??
+      undefined;
+  }
+
+  const raw = await collectVisibleFields(scope).catch(() => [] as RawField[]);
+  if (!raw.length) return undefined;
+
+  const fields: FormFieldHint[] = [];
+  for (const field of raw) {
+    if (SECRET_FIELD.test(field.label)) continue;
+    if (OPTIONAL_FIELD.test(field.label)) continue;
+    if (field.kind !== "combobox") {
+      fields.push({ label: field.label, kind: field.kind, value: field.value });
+      continue;
+    }
+    if (field.selectedText) {
+      fields.push({ label: field.label, kind: "combobox", selectedText: field.selectedText });
+      continue;
+    }
+    const combo = scope.getByLabel(field.label, { exact: true }).first();
+    let clicked = false;
+    try {
+      await combo.click({ timeout: 4_000 });
+      clicked = true;
+    } catch {
+      clicked = false;
+    }
+    if (!clicked) continue;
+    await page.waitForTimeout(400);
+    const options = page.locator('.el-select-dropdown:visible li[role="option"], [role="listbox"]:visible [role="option"]');
+    const optionCount = await options.count().catch(() => 0);
+    if (optionCount === 0) {
+      await page.keyboard.press("Escape").catch(() => undefined);
+      continue;
+    }
+    const option = (await options.first().innerText().catch(() => "")).trim();
+    if (!option) {
+      await page.keyboard.press("Escape").catch(() => undefined);
+      continue;
+    }
+    await options.first().click({ timeout: 5_000 }).catch(() => undefined);
+    await page.waitForTimeout(400);
+    fields.push({ label: field.label, kind: "combobox", option });
+  }
+
+  const submit = scope
+    .getByRole("button", { name: /^(确认提交|提交|保存|确定|创建)$/ })
+    .first();
+  const submitLabel = (await submit.isVisible().catch(() => false))
+    ? (await submit.innerText().catch(() => "")).trim()
+    : undefined;
+
+  return {
+    scope: dialogCount > 0 ? "dialog" : "page",
+    ...(title ? { title } : {}),
+    ...(submitLabel ? { submitLabel } : {}),
+    fields,
+  };
+}
+
 /**
  * Log into pilot admin, navigate to target path, optionally open ticket UI, then snapshot.
  */
@@ -77,7 +201,7 @@ export async function capturePilotIntakeContext(
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
-    await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: 25_000 });
+    await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: 45_000 });
     await page
       .waitForFunction("document.body && document.body.innerText.trim().length > 0", { timeout: 20_000 })
       .catch(() => undefined);
@@ -106,29 +230,52 @@ export async function capturePilotIntakeContext(
     await loginButton.click();
     await page.waitForLoadState("domcontentloaded");
     await page
-      .waitForURL((u) => !/\/login|\/signin|\/sign-in/i.test(u.pathname), { timeout: 15_000 })
+      .waitForURL((u) => !/\/login|\/signin|\/sign-in/i.test(u.pathname), { timeout: 20_000 })
+      .catch(() => undefined);
+    // The shell becomes usable before the route settles; jumping to /customer too
+    // early used to land on the tenant picker (/select) instead.
+    await page
+      .getByText("我的工单")
+      .first()
+      .waitFor({ state: "visible", timeout: 20_000 })
       .catch(() => undefined);
 
     const destination = `${baseNorm}${targetPath.startsWith("/") ? targetPath : `/${targetPath}`}`;
-    await page.goto(destination, { waitUntil: "domcontentloaded", timeout: 25_000 });
+    await page.goto(destination, { waitUntil: "domcontentloaded", timeout: 45_000 });
+    await page.waitForTimeout(1_200);
+    if (/\/select\/?$/.test(page.url())) {
+      await page.goto(destination, { waitUntil: "domcontentloaded", timeout: 45_000 });
+      await page.waitForTimeout(1_200);
+    }
 
     const intent = opts?.intentText ?? "";
+    let form: FormHint | undefined;
     if (/工单|ticket/.test(intent)) {
-      const openByTestId = page.getByTestId("open-ticket");
-      const openByRole = page.getByRole("button", { name: "提交工单", exact: true });
+      let openTarget: FormHint["openTarget"];
+      const openByTestId = page.getByTestId("open-ticket").first();
+      const openByRole = page.getByRole("button", { name: "提交工单", exact: true }).first();
       if (await openByTestId.isVisible().catch(() => false)) {
         await openByTestId.click();
+        openTarget = { testId: "open-ticket" };
       } else if (await openByRole.isVisible().catch(() => false)) {
         await openByRole.click();
+        openTarget = { role: "button", name: "提交工单" };
       }
       await page.waitForTimeout(800);
+      await page
+        .locator('[role="dialog"]:visible')
+        .first()
+        .waitFor({ state: "visible", timeout: 6_000 })
+        .catch(() => undefined);
+      form = await exploreVisibleForm(page);
+      if (form && openTarget) form = { ...form, openTarget };
     }
 
     const context = await snapshotPageContext(page);
     if (looksLikeLoginPageContext(context)) {
       throw new Error("登录后快照仍是登录页，请检查凭据或目标 URL");
     }
-    return context;
+    return form ? { ...context, form } : context;
   } finally {
     await browser.close();
   }

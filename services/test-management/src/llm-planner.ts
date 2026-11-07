@@ -1,6 +1,7 @@
 import type { PageContext, PlannerDraft } from "@testpilot/planner";
 import { mergeLlmHints, validateLlmStepsAgainstContext, type LlmPlannerHints } from "@testpilot/planner";
 import { planFromIntake } from "@testpilot/planner";
+import { isWeakAssertionText } from "@testpilot/test-ir";
 import { redactStringBody } from "@testpilot/evidence";
 import { llmPlannerConfigFromEnv, type LlmPlannerConfig } from "./llm-config.js";
 import { recordLlmFailure, recordLlmUsage } from "./llm-usage.js";
@@ -46,6 +47,25 @@ function maxTokensLimitFromError(text: string): number | undefined {
   return limit > 0 ? limit : undefined;
 }
 
+/** Providers occasionally wrap JSON in fences or emit a bad escape; recover what we can. */
+function parseJsonObject<T>(raw: string): T {
+  const text = raw.trim();
+  const withoutFence = text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  try {
+    return JSON.parse(withoutFence) as T;
+  } catch {
+    const start = withoutFence.indexOf("{");
+    const end = withoutFence.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(withoutFence.slice(start, end + 1)) as T;
+    }
+    throw new SyntaxError("LLM response is not a JSON object");
+  }
+}
+
 async function chatCompletionsJson<T>(
   config: LlmPlannerConfig,
   input: {
@@ -76,15 +96,40 @@ async function chatCompletionsJson<T>(
     throw new Error(`LLM HTTP ${res.status}: ${text.slice(0, 240)}`);
   }
 
-  const body = (await res.json()) as {
-    usage?: { total_tokens?: number };
-    choices?: Array<{ message?: { content?: string } }>;
+  const readBody = async (response: Response) => {
+    const body = (await response.json()) as {
+      usage?: { total_tokens?: number };
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const tokens = body.usage?.total_tokens ?? 0;
+    recordLlmUsage(tokens);
+    return { raw: body.choices?.[0]?.message?.content ?? "{}", tokens };
   };
-  const raw = body.choices?.[0]?.message?.content ?? "{}";
-  const tokensUsed = body.usage?.total_tokens ?? 0;
-  recordLlmUsage(tokensUsed);
-  const parsed = JSON.parse(raw) as T;
-  return { parsed, tokensUsed };
+
+  const first = await readBody(res);
+  let tokensUsed = first.tokens;
+  try {
+    return { parsed: parseJsonObject<T>(first.raw), tokensUsed };
+  } catch {
+    recordLlmFailure("LLM 返回非 JSON，已重试一次");
+  }
+
+  const retry = await postChatCompletion(
+    config,
+    {
+      system: `${input.system}\nReturn ONLY one valid JSON object. No prose, no markdown fences, no trailing text.`,
+      user: input.user,
+    },
+    maxTokens,
+    timeoutMs,
+  );
+  if (!retry.ok) {
+    const text = await retry.text();
+    throw new Error(`LLM HTTP ${retry.status}: ${text.slice(0, 240)}`);
+  }
+  const second = await readBody(retry);
+  tokensUsed += second.tokens;
+  return { parsed: parseJsonObject<T>(second.raw), tokensUsed };
 }
 
 export async function applyOptionalLlmDraft(input: {
@@ -115,6 +160,26 @@ export async function applyOptionalLlmDraft(input: {
       llmUsed: false,
     };
   }
+}
+
+/**
+ * A string already visible before the action cannot prove the action succeeded.
+ * Drop those guesses (and generic chrome) before they become draft assertions.
+ */
+function filterHintAssertions(texts: string[] | undefined, context: PageContext): string[] {
+  const pageText = context.elements.map((el) => el.name ?? "").join("\n");
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const raw of texts ?? []) {
+    const text = raw.trim();
+    if (!text || seen.has(text)) continue;
+    if (isWeakAssertionText(text)) continue;
+    if (pageText.includes(text)) continue;
+    seen.add(text);
+    kept.push(text);
+    if (kept.length >= 2) break;
+  }
+  return kept;
 }
 
 export async function enhanceDraftWithLlm(
@@ -152,7 +217,13 @@ Existing uncertainties: ${redactStringBody(input.ruleDraft.uncertainties.join(" 
     }
   }
 
-  let draft = mergeLlmHints(input.ruleDraft, hints);
+  const ruleAlreadyAssertsSuccess = input.ruleDraft.assertions.some((a) => a.id === "ticket-submitted");
+  let draft = mergeLlmHints(input.ruleDraft, {
+    ...hints,
+    assertionContains: ruleAlreadyAssertsSuccess
+      ? []
+      : filterHintAssertions(hints.assertionContains, input.context),
+  });
   tokensUsed += await tryAttachLlmSteps(config, input.goal, input.context, draft, (next) => {
     draft = next;
   });
@@ -166,6 +237,18 @@ async function tryAttachLlmSteps(
   draft: PlannerDraft,
   apply: (next: PlannerDraft) => void,
 ): Promise<number> {
+  if (context.form?.submitLabel) {
+    // The dialog form was opened and its fields/options captured; replaying that
+    // chain is more reliable than letting the LLM rewrite it from an element list.
+    apply({
+      ...draft,
+      uncertainties: [
+        ...draft.uncertainties,
+        "表单字段与下拉选项取自打开表单时的实时快照，未采用 LLM 步骤覆盖。",
+      ],
+    });
+    return 0;
+  }
   const elementLines = context.elements
     .slice(0, 60)
     .map((el) =>
@@ -199,6 +282,7 @@ Rules: never invent testId or URLs; only use testId values listed above. Element
       // Rule template assertions describe the template's flow; when LLM steps take over,
       // keep only assertions whose text the requirement actually mentions.
       const nextAssertions = draft.assertions.filter((a) => {
+        if (a.id?.startsWith("llm-hint-")) return true;
         const contains = (a as { contains?: string }).contains;
         return !contains || contains.length < 2 || goal.includes(contains.slice(0, 12));
       });

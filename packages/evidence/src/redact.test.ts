@@ -60,3 +60,14 @@ test("redactStrings preserves keys while redacting expect values", () => {
   };
   assert.equal(schema.properties.email.type, "string");
 });
+
+test("redactForEvidence keeps numeric LLM usage counters", () => {
+  const out = redactForEvidence({
+    llmTokensUsed: 1234,
+    accessToken: "secret-value",
+    nested: { llmTokensUsed: 42 },
+  }) as Record<string, unknown>;
+  assert.equal(out.llmTokensUsed, 1234);
+  assert.equal(out.accessToken, "***");
+  assert.equal((out.nested as Record<string, unknown>).llmTokensUsed, 42);
+});

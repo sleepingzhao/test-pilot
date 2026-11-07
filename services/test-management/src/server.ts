@@ -12,6 +12,7 @@ import { bootstrapPilotIntakes } from "./bootstrap-pilot-intakes.js";
 import { isPilotTest } from "./run-env.js";
 import { assertSafeBindHost, corsOrigin, registerSecurity } from "./security.js";
 import { FileStore } from "./store.js";
+import { initLlmUsage } from "./llm-usage.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const dataRoot = join(repoRoot, "data");
@@ -24,6 +25,8 @@ try {
 } catch {
   /* optional */
 }
+
+initLlmUsage(join(dataRoot, "llm-usage.json"));
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "127.0.0.1";

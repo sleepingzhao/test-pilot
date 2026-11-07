@@ -146,6 +146,8 @@ export function App() {
     model?: string;
     error?: string;
     lastError?: string | null;
+    tokensTotal?: number;
+    callCount?: number;
   } | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
@@ -333,7 +335,7 @@ export function App() {
         pilotIntakeUrl?: string | null;
         pilotSecretsConfigured?: boolean;
         llm?: { enabled: boolean; provider?: string; model?: string; error?: string };
-        llmUsage?: { lastError?: string | null };
+        llmUsage?: { lastError?: string | null; tokensTotal?: number; callCount?: number };
         approval?: { approvalTokenRequired: boolean; approvalActors: string[] | null };
       }>("/api/environment");
       setApprovalInfo(env.approval ?? null);
@@ -342,7 +344,16 @@ export function App() {
       setPilotOk(env.pilotReachable ?? null);
       setPilotSecrets(env.pilotSecretsConfigured ?? null);
       setPilotUrl(env.pilotUrl ?? null);
-      setLlmInfo(env.llm ? { ...env.llm, lastError: env.llmUsage?.lastError ?? null } : null);
+      setLlmInfo(
+        env.llm
+          ? {
+              ...env.llm,
+              lastError: env.llmUsage?.lastError ?? null,
+              tokensTotal: env.llmUsage?.tokensTotal ?? 0,
+              callCount: env.llmUsage?.callCount ?? 0,
+            }
+          : null,
+      );
       setPilotIntakeUrl(env.pilotIntakeUrl ?? null);
       setCreateUrl((prev) => {
         if (prev) return prev;
@@ -1118,7 +1129,10 @@ export function App() {
                 试点地址 ↗
               </a>
               {llmInfo?.enabled ? (
-                <span className="link-quiet">LLM：{llmInfo.provider}/{llmInfo.model}（仅草稿与诊断）</span>
+                <span className="link-quiet">
+                  LLM：{llmInfo.provider}/{llmInfo.model} · 累计{" "}
+                  {(llmInfo.tokensTotal ?? 0).toLocaleString()} tokens / {llmInfo.callCount ?? 0} 次（仅草稿与诊断）
+                </span>
               ) : null}
             </div>
             <div className="stat-grid">

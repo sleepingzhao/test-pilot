@@ -6,6 +6,45 @@ import { recordLlmFailure, recordLlmUsage } from "./llm-usage.js";
 
 export { llmPlannerConfigFromEnv, llmPlannerPublicInfo, type LlmPlannerConfig, type LlmPlannerPublicInfo } from "./llm-config.js";
 
+const learnedMaxTokens = new Map<string, number>();
+
+function requestBody(config: LlmPlannerConfig, input: { system: string; user: string }, maxTokens: number) {
+  return {
+    model: config.model,
+    temperature: config.temperature,
+    max_tokens: maxTokens,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: input.system },
+      { role: "user", content: input.user },
+    ],
+  };
+}
+
+async function postChatCompletion(
+  config: LlmPlannerConfig,
+  input: { system: string; user: string },
+  maxTokens: number,
+  timeoutMs: number,
+) {
+  return fetch(`${config.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody(config, input, maxTokens)),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}
+
+/** Providers reject max_tokens above their own output limit; learn it from the 400 body. */
+function maxTokensLimitFromError(text: string): number | undefined {
+  const match = /max_tokens[^[]*\[1,\s*(\d+)\]/i.exec(text);
+  const limit = match ? Number(match[1]) : 0;
+  return limit > 0 ? limit : undefined;
+}
+
 async function chatCompletionsJson<T>(
   config: LlmPlannerConfig,
   input: {
@@ -14,25 +53,23 @@ async function chatCompletionsJson<T>(
     timeoutMs?: number;
   },
 ): Promise<{ parsed: T; tokensUsed: number }> {
-  const res = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: config.model,
-      temperature: config.temperature,
-      max_tokens: config.maxTokens,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: input.system },
-        { role: "user", content: input.user },
-      ],
-    }),
-    signal: AbortSignal.timeout(input.timeoutMs ?? config.timeoutMs),
-  });
+  const timeoutMs = input.timeoutMs ?? config.timeoutMs;
+  const cacheKey = `${config.baseUrl}|${config.model}`;
+  const learned = learnedMaxTokens.get(cacheKey);
+  let maxTokens = learned ? Math.min(config.maxTokens, learned) : config.maxTokens;
 
+  let res = await postChatCompletion(config, input, maxTokens, timeoutMs);
+  if (!res.ok && res.status === 400) {
+    const text = await res.text();
+    const limit = maxTokensLimitFromError(text);
+    if (limit && limit < maxTokens) {
+      learnedMaxTokens.set(cacheKey, limit);
+      maxTokens = limit;
+      res = await postChatCompletion(config, input, maxTokens, timeoutMs);
+    } else {
+      throw new Error(`LLM HTTP 400: ${text.slice(0, 240)}`);
+    }
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`LLM HTTP ${res.status}: ${text.slice(0, 240)}`);

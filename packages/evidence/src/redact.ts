@@ -1,5 +1,7 @@
 const SENSITIVE_HEADER = /^(set-cookie|cookie|authorization|proxy-authorization)$/i;
 const SENSITIVE_KEY = /password|token|secret|api[_-]?key|phone|mobile|email|address|idcard/i;
+/** Usage counters contain "token" but are numbers, not credentials. */
+const USAGE_COUNTER_KEY = /^llmTokens(Used|Total)$/i;
 const SENSITIVE_QUERY = /^(token|phone|email|mobile|password|secret|api[_-]?key)$/i;
 
 export function redactUrl(url: string): string {
@@ -57,7 +59,9 @@ export function redactForEvidence(value: unknown): unknown {
   const obj = value as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(obj)) {
-    if (SENSITIVE_KEY.test(key)) {
+    if (USAGE_COUNTER_KEY.test(key) && typeof val === "number") {
+      out[key] = val;
+    } else if (SENSITIVE_KEY.test(key)) {
       out[key] = "***";
     } else if (key === "url" && typeof val === "string") {
       out[key] = redactUrl(val);

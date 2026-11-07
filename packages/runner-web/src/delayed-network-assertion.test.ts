@@ -15,6 +15,7 @@ test("waits for a click's delayed request before HTTP assertions", async () => {
     }
     res.writeHead(200, { "content-type": "text/html" });
     res.end(`<!doctype html>
+<div role="alert">Saved</div>
 <button id="go">submit</button>
 <script>
 document.getElementById("go").addEventListener("click", () => {
@@ -60,6 +61,7 @@ document.getElementById("go").addEventListener("click", () => {
     );
     assert.equal(run.status, "passed");
     assert.equal(run.assertions[0]?.passed, true);
+    assert.ok(run.finalSignals?.includes("Saved"));
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

@@ -8,7 +8,13 @@ import { assertPlaywrightReady, recordSession } from "@testpilot/recorder-web";
 import { runTestIR, type RunResult } from "@testpilot/runner-web";
 import { snapshotPageContext } from "@testpilot/context-web";
 import { draftToPartialIR, planDraft, planFromIntake, suggestAssertionsForTest, filterForbiddenSuggestionTokens } from "@testpilot/planner";
-import { computeIRHash, IR_HASH_VERSION, validateSemantics, validateTestIR, weakAssertionIssues } from "@testpilot/test-ir";
+import {
+  computeIRHash,
+  IR_HASH_VERSION,
+  validateSemantics,
+  validateTestIR,
+  weakAssertionIssues,
+} from "@testpilot/test-ir";
 import { validateAssertionProviders } from "@testpilot/assertions";
 import { computeAssertionConfigHash } from "@testpilot/fixtures";
 import { classifyFailure, redactForEvidence, redactStringBody } from "@testpilot/evidence";
@@ -21,7 +27,13 @@ import {
   llmPlannerPublicInfo,
   suggestDiagnoseWithLlm,
 } from "./llm-planner.js";
-import { resolveRequirementTargetUrl, type RequirementTarget } from "./requirement-target.js";
+import {
+  resolveRequirementTargetUrl,
+  mergeRequirementSteps,
+  pickObservedSuccessSignal,
+  type RequirementTarget,
+} from "./requirement-target.js";
+import { pilotLoginSteps } from "./bootstrap-pilot-intakes.js";
 import { readNegativeProbeReport } from "./negative-probes.js";
 import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-identity.js";
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
@@ -151,7 +163,7 @@ function forbiddenAssertionIssues(
 }
 
 function makeIntakeTestId(title: string): string {
-  const suffix = Date.now().toString(36);
+  const suffix = `${Date.now().toString(36)}${randomUUID().slice(0, 6)}`;
   const slug = title
     .trim()
     .toLowerCase()
@@ -818,8 +830,6 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
 
     const constraintsDoc = await loadPilotConstraints();
-    const constraintLine = constraintsDoc?.scopeNotes?.[0];
-    const goalText = [text, constraintLine].filter(Boolean).join("\n");
 
     let context;
     const onPilot = pilotUrl ? isPilotIntakeUrl(url, pilotUrl) : false;
@@ -832,7 +842,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
           });
         }
         context = await capturePilotIntakeContext(pilotUrl, url, {
-          intentText: goalText,
+          intentText: text,
           loginPath: (await loadPilotBaseline())?.loginPath,
         });
       } else {
@@ -846,23 +856,41 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       return reply.code(503).send({ error: message });
     }
 
+    // Constraints are hints, not part of the requirement text: appending them
+    // used to make unrelated requirements match the ticket template.
     const ruleDraft = planFromIntake({
       title,
       channel,
-      text: goalText,
+      text,
       context,
       constraints: constraintsDoc?.scopeNotes,
     });
     const { draft, llmTokensUsed, llmUsed } = await applyOptionalLlmDraft({
-      goal: goalText,
+      goal: text,
       context,
       ruleDraft,
     });
     const testId = makeIntakeTestId(title);
-    const partial = draftToPartialIR(testId, draft);
-    const ir = applyBaseUrlTarget({ ...partial, policy: { screenshots: "on-failure" as const } }, url);
+    const steps = mergeRequirementSteps(onPilot, onPilot ? await pilotLoginSteps() : [], draft.steps);
+    const partial = draftToPartialIR(testId, { ...draft, steps });
+    const ir = onPilot
+      ? {
+          ...partial,
+          baseUrlRef: "pilot-admin",
+          policy: {
+            screenshots: "on-failure" as const,
+            retry: { attempts: 1, on: ["ENVIRONMENT" as const] },
+          },
+        }
+      : applyBaseUrlTarget({ ...partial, policy: { screenshots: "on-failure" as const } }, url);
     const validated = validateTestIR(ir);
     if (!validated.ok) return reply.code(400).send({ issues: validated.issues });
+    const missing = [...new Set(missingEnvRefs(validated.value))];
+    if (missing.length) {
+      return reply.code(400).send({
+        error: `用例引用了未配置的环境变量：${missing.join(", ")}（见 .env.example）`,
+      });
+    }
 
     const stored = stampTestMeta({
       id: testId,
@@ -876,6 +904,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       updatedAt: new Date().toISOString(),
     });
     await store.saveTest(stored);
+    let storedTest = stored;
+    const observedNotes: string[] = [];
 
     const autoTrial = body.autoTrial !== false;
     let trialRun: StoredRun | undefined;
@@ -896,11 +926,57 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       }
     }
 
+    // Steps worked but the guessed assertion missed: use the success text the page
+    // actually showed, then re-trial once. A human still approves it.
+    if (trialRun && trialRun.status !== "passed") {
+      const signal = pickObservedSuccessSignal(trialRun);
+      if (signal) {
+        const passedIds = new Set(
+          trialRun.assertions.filter((a) => a.passed).map((a) => a.assertionId),
+        );
+        const kept = validated.value.assertions.filter((a) => a.id && passedIds.has(a.id));
+        const next = validateTestIR({
+          ...validated.value,
+          assertions: [
+            ...kept,
+            {
+              id: "observed-success",
+              type: "ui",
+              contains: signal,
+              oracle: "human-approved",
+            },
+          ],
+        });
+        if (next.ok) {
+          observedNotes.push(`试跑观察到成功提示「${signal}」，已用它作为断言并复跑确认。`);
+          storedTest = stampTestMeta({
+            ...stored,
+            ir: next.value,
+            plannerNotes: [...(stored.plannerNotes ?? []), observedNotes[observedNotes.length - 1]!],
+          });
+          await store.saveTest(storedTest);
+          try {
+            trialRun = await executeSingleIrRun(
+              store,
+              storedTest,
+              next.value,
+              url,
+              project.id,
+              artifactsRoot,
+              dataRoot,
+            );
+          } catch (err) {
+            trialError = err instanceof Error ? err.message : String(err);
+          }
+        }
+      }
+    }
+
     return {
       environment: { target, label: resolved.label, url },
-      test: withWeakAssertions(stored),
+      test: withWeakAssertions(storedTest),
       generation: {
-        uncertainties: draft.uncertainties,
+        uncertainties: [...draft.uncertainties, ...observedNotes],
         sources: draft.sources,
         llmUsed,
         llmTokensUsed,

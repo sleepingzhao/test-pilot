@@ -87,7 +87,7 @@ async function loadPilotConstraints(): Promise<{ scopeNotes: string[] } | null> 
   return null;
 }
 
-async function pilotLoginSteps(): Promise<TestStep[]> {
+export async function pilotLoginSteps(): Promise<TestStep[]> {
   const raw = await readFile(loginIrPath, "utf8");
   const ir = JSON.parse(raw) as { steps: TestStep[] };
   return ir.steps.filter((s) => s.action !== "wait" || s.id === "wait-dashboard");

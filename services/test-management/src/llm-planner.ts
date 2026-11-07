@@ -1,6 +1,7 @@
 import type { PageContext, PlannerDraft } from "@testpilot/planner";
 import { mergeLlmHints, validateLlmStepsAgainstContext, type LlmPlannerHints } from "@testpilot/planner";
 import { planFromIntake } from "@testpilot/planner";
+import { redactStringBody } from "@testpilot/evidence";
 import { llmPlannerConfigFromEnv, type LlmPlannerConfig } from "./llm-config.js";
 import { recordLlmFailure, recordLlmUsage } from "./llm-usage.js";
 
@@ -80,9 +81,9 @@ async function chatCompletionsJson<T>(
     choices?: Array<{ message?: { content?: string } }>;
   };
   const raw = body.choices?.[0]?.message?.content ?? "{}";
-  const parsed = JSON.parse(raw) as T;
   const tokensUsed = body.usage?.total_tokens ?? 0;
   recordLlmUsage(tokensUsed);
+  const parsed = JSON.parse(raw) as T;
   return { parsed, tokensUsed };
 }
 
@@ -122,18 +123,18 @@ export async function enhanceDraftWithLlm(
 ): Promise<{ draft: PlannerDraft; tokensUsed: number }> {
   const elementSample = input.context.elements
     .slice(0, 40)
-    .map((el) => [el.role, el.name, el.testId].filter(Boolean).join(":"))
+    .map((el) => [el.role, el.name ? redactStringBody(el.name) : el.name, el.testId].filter(Boolean).join(":"))
     .join("\n");
 
   const system = `You assist TestPilot QA planners. Reply with JSON only: {"uncertainties": string[], "assertionContains": string[]}.
 Do not invent URLs. assertionContains must be short stable UI text visible after success. Never suggest assertions about file attachments.`;
 
-  const user = `Goal: ${input.goal}
+  const user = `Goal: ${redactStringBody(input.goal)}
 Page: ${input.context.url}
 Interactive elements (sample):
 ${elementSample || "(none)"}
 Existing rule steps: ${input.ruleDraft.steps.map((s) => s.id).join(", ") || "none"}
-Existing uncertainties: ${input.ruleDraft.uncertainties.join(" | ")}`;
+Existing uncertainties: ${redactStringBody(input.ruleDraft.uncertainties.join(" | "))}`;
 
   let hints: LlmPlannerHints;
   let tokensUsed: number;
@@ -168,15 +169,17 @@ async function tryAttachLlmSteps(
   const elementLines = context.elements
     .slice(0, 60)
     .map((el) =>
-      [el.testId ? `testId=${el.testId}` : null, el.role, el.name].filter(Boolean).join(" · "),
+      [el.testId ? `testId=${el.testId}` : null, el.role, el.name ? redactStringBody(el.name) : el.name]
+        .filter(Boolean)
+        .join(" · "),
     )
     .join("\n");
 
   const system = `You are a QA automation planner. Reply JSON only:
 {"steps":[{"id":string,"action":"navigate"|"click"|"fill"|"wait"|"select"|"selectCascader","path"?:string,"target"?:{"testId"?:string,"role"?:string,"name"?:string,"label"?:string},"value"?:string,"valueRef"?:string,"cascaderPath"?:string[]}],"uncertainties"?:string[]}
-Rules: never invent testId or URLs; navigate.path must be relative (/...); selectors must match the element list; use valueRef env.* for secrets never literal passwords.`;
+Rules: never invent testId or URLs; only use testId values listed above. Elements that appear after a click (dialogs, toasts) are not in the list — reference those with role+name or label. navigate.path must be relative (/...); selectors must match the element list; use valueRef env.* for secrets never literal passwords.`;
 
-  const user = `Requirement:\n${goal}\nPage: ${context.url}\nElements:\n${elementLines || "(none)"}\nRule steps for reference: ${draft.steps.map((s) => s.id).join(", ")}`;
+  const user = `Requirement:\n${redactStringBody(goal)}\nPage: ${context.url}\nElements:\n${elementLines || "(none)"}\nRule steps for reference: ${draft.steps.map((s) => s.id).join(", ")}`;
 
   try {
     const out = await chatCompletionsJson<{ steps?: unknown; uncertainties?: string[] }>(config, {
@@ -188,12 +191,25 @@ Rules: never invent testId or URLs; navigate.path must be relative (/...); selec
       context,
     );
     if (validated.ok) {
+      const ruleNavigate = draft.steps.find((s) => s.action === "navigate");
+      const nextSteps =
+        ruleNavigate && !validated.steps.some((s) => s.action === "navigate")
+          ? [ruleNavigate, ...validated.steps]
+          : validated.steps;
+      // Rule template assertions describe the template's flow; when LLM steps take over,
+      // keep only assertions whose text the requirement actually mentions.
+      const nextAssertions = draft.assertions.filter((a) => {
+        const contains = (a as { contains?: string }).contains;
+        return !contains || contains.length < 2 || goal.includes(contains.slice(0, 12));
+      });
       apply({
         ...draft,
-        steps: validated.steps,
+        steps: nextSteps,
+        assertions: nextAssertions,
         uncertainties: [
           ...draft.uncertainties,
           ...(out.parsed.uncertainties ?? []),
+          ...validated.warnings,
           "步骤由 LLM 根据快照生成，试跑后请核对。",
         ],
         sources: [...draft.sources, "llm-steps"],

@@ -26,8 +26,7 @@ type IrAssertion = {
   oracle?: string;
 };
 
-type View = "home" | "requirement" | "tests" | "create" | "history" | "audit" | "run" | "batch";
-type CreateChannel = "intent" | "prd" | "record";
+type View = "home" | "tests" | "create" | "history" | "audit" | "run" | "batch";
 type TestFilter = "all" | "draft" | "weak" | "pilot" | "demo";
 
 function isPilotTest(t: StoredTest): boolean {
@@ -69,7 +68,6 @@ export function App() {
   });
   const [providerFeedback, setProviderFeedback] = useState<ProviderFeedback>({});
   const [providerBusy, setProviderBusy] = useState(false);
-  const [createChannel, setCreateChannel] = useState<CreateChannel>("intent");
   const [createText, setCreateText] = useState("");
   const [createTitle, setCreateTitle] = useState("");
   const [createUrl, setCreateUrl] = useState("");
@@ -412,6 +410,15 @@ export function App() {
     setAssertionText((prev) => (prev.trim() ? prev : contains));
     setAssertionHelp(res.help ?? "");
     setAssertionSuggestions(res.suggestions ?? []);
+  };
+
+  const openReviewById = async (testId: string) => {
+    try {
+      const t = await api<StoredTest>(`/api/tests/${testId}`);
+      await openReview(t);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const openReview = async (t: StoredTest, withHints = true) => {
@@ -894,30 +901,6 @@ export function App() {
     }
   };
 
-  const submitIntake = async () => {
-    const title = createTitle.trim() || "未命名用例";
-    const url = createUrl.trim();
-    const text =
-      createText.trim() ||
-      "登录后提交工单，只填必填项，不要上传附件（附件功能暂不测试）。";
-    try {
-      const res = await api<{ test: StoredTest }>("/api/intake", {
-        method: "POST",
-        body: JSON.stringify({
-          title,
-          url,
-          channel: createChannel === "prd" ? "prd" : "intent",
-          text,
-        }),
-      });
-      notify("已生成草稿，请审阅步骤与断言");
-      await openReview(res.test);
-      await refresh();
-    } catch (e) {
-      notify(e instanceof Error ? e.message : String(e));
-    }
-  };
-
   const startRecord = async () => {
     const testId = `rec-${Date.now().toString(36)}`;
     const url =
@@ -1023,13 +1006,6 @@ export function App() {
           <button type="button" className={view === "home" ? "active" : ""} onClick={() => setView("home")}>
             开始
           </button>
-          <button
-            type="button"
-            className={view === "requirement" ? "active" : ""}
-            onClick={() => setView("requirement")}
-          >
-            需求→测试
-          </button>
           <button type="button" className={view === "tests" ? "active" : ""} onClick={() => setView("tests")}>
             用例
             {draftCount > 0 ? <span className="nav-badge">{draftCount}</span> : null}
@@ -1064,20 +1040,6 @@ export function App() {
       )}
 
       <main>
-        {view === "requirement" && (
-          <RequirementFlowView
-            demoUrl={demoUrl}
-            demoReachable={demoOk}
-            pilotReachable={pilotOk}
-            pilotIntakeUrl={pilotIntakeUrl}
-            onRefresh={refresh}
-            onOpenRun={(runId) => {
-              setSelectedRunId(runId);
-              setView("run");
-            }}
-          />
-        )}
-
         {view === "home" && (
           <section className="hero">
             <p className="hero-eyebrow">TestPilot · 可信回归</p>
@@ -1365,104 +1327,59 @@ export function App() {
           <section>
             <h2 className="section-title">创建用例</h2>
             <p className="section-lede">
-              用一句话、PRD 片段或录制表达测试意图；系统生成可执行草案，你再审阅断言即可。
+              粘贴 PRD 或本次需求，选择环境；系统生成草案并自动试跑，通过后一键加入回归。需要精确操作时再用录制。
             </p>
-            <div className="create-layout">
-              <nav className="create-nav" aria-label="创建方式">
-                {(
-                  [
-                    ["intent", "一句话"],
-                    ["prd", "PRD / 文档"],
-                    ["record", "录制"],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={createChannel === id ? "active" : ""}
-                    onClick={() => setCreateChannel(id)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </nav>
-              <div className="create-panel">
-            <div className="field">
-              <label>用例名称</label>
-              <input
-                value={createTitle}
-                onChange={(e) => setCreateTitle(e.target.value)}
-                placeholder="例如：用例1 — 提交工单（无附件）"
-              />
-            </div>
-            <div className="field">
-              <label>起始 URL</label>
-              <input
-                value={createUrl}
-                onChange={(e) => setCreateUrl(e.target.value)}
-                placeholder="登录后页面或 /admin/login"
-              />
-            </div>
-            {createChannel !== "record" && (
-              <div className="field">
-                <label>{createChannel === "prd" ? "粘贴 PRD / 需求片段" : "你想测什么？"}</label>
-                <div className="chips">
-                  <button
-                    type="button"
-                    className="chip"
-                    onClick={() => {
-                      setCreateTitle("用例1 — 提交工单（无附件）");
-                      setCreateText(
-                        "登录后进入工单页，点击提交工单，只填写必填项并提交，不要上传附件，附件功能暂不测试。",
-                      );
-                    }}
-                  >
-                    用例1：提交工单
-                  </button>
-                  <button
-                    type="button"
-                    className="chip"
-                    onClick={() => {
-                      setCreateTitle("试点 — 密码登录");
-                      setCreateText("使用管理员手机号和密码登录，进入首页。");
-                    }}
-                  >
-                    密码登录
-                  </button>
+            <RequirementFlowView
+              demoUrl={demoUrl}
+              demoReachable={demoOk}
+              pilotReachable={pilotOk}
+              pilotIntakeUrl={pilotIntakeUrl}
+              onRefresh={refresh}
+              onOpenRun={(runId) => {
+                setSelectedRunId(runId);
+                setView("run");
+              }}
+              onOpenReview={(testId) => {
+                void openReviewById(testId);
+              }}
+            />
+            <details className="record-secondary">
+              <summary>用录制创建（可选）</summary>
+              <div className="card-panel">
+                <div className="field">
+                  <label htmlFor="record-title">用例名称</label>
+                  <input
+                    id="record-title"
+                    value={createTitle}
+                    onChange={(e) => setCreateTitle(e.target.value)}
+                    placeholder="例如：用例1 — 提交工单（无附件）"
+                  />
                 </div>
-                <textarea
-                  className="textarea"
-                  rows={5}
-                  value={createText}
-                  onChange={(e) => setCreateText(e.target.value)}
-                  placeholder="例如：登录后提交一条工单，只填必填项，不要上传附件。"
-                />
+                <div className="field">
+                  <label htmlFor="record-url">起始 URL（可选）</label>
+                  <input
+                    id="record-url"
+                    value={createUrl}
+                    onChange={(e) => setCreateUrl(e.target.value)}
+                    placeholder="留空则用试点登录页或练习环境"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="record-notes">补充说明（可选）</label>
+                  <textarea
+                    id="record-notes"
+                    className="textarea"
+                    rows={3}
+                    value={createText}
+                    onChange={(e) => setCreateText(e.target.value)}
+                    placeholder="例如：提交工单时不要带附件"
+                  />
+                </div>
+                <button type="button" className="btn btn-primary" disabled={!!recordJob} onClick={startRecord}>
+                  {recordJob ? "录制中…" : "开始录制"}
+                </button>
               </div>
-            )}
-            {createChannel === "record" && (
-              <div className="field">
-                <label>补充说明（可选）</label>
-                <textarea
-                  className="textarea"
-                  rows={3}
-                  value={createText}
-                  onChange={(e) => setCreateText(e.target.value)}
-                  placeholder="例如：提交工单时不要带附件"
-                />
-              </div>
-            )}
-            <p className="hint-inline">试点约束：提交工单流程不要测附件上传。</p>
-            {createChannel === "record" ? (
-              <button type="button" className="btn btn-primary" disabled={!!recordJob} onClick={startRecord}>
-                {recordJob ? "录制中…" : "开始录制"}
-              </button>
-            ) : (
-              <button type="button" className="btn btn-primary" onClick={submitIntake}>
-                生成草稿
-              </button>
-            )}
-              </div>
-            </div>
+            </details>
           </section>
         )}
 

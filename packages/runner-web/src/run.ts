@@ -33,6 +33,8 @@ export type RunResult = {
     attemptCount: number;
     flakeRecovery?: boolean;
   };
+  /** Visible success/alerts right after the steps; used to derive a real success assertion. */
+  finalSignals?: string[];
 };
 
 export type RunOptions = {
@@ -73,6 +75,22 @@ function locatorCandidates(page: Page, target: TargetLocator): PwLocator[] {
   if (target.css) out.push(page.locator(target.css));
   if (out.length === 0) throw new Error("unsupported locator");
   return out;
+}
+
+async function captureFinalSignals(page: Page): Promise<string[]> {
+  const raw = await page
+    .evaluate(`(() => {
+      const out = [];
+      const nodes = document.querySelectorAll('[role="alert"], .el-message, .toast, [class*="success"], [class*="alert"]');
+      for (const node of Array.from(nodes)) {
+        const text = (node.textContent || "").trim().replace(/\\s+/g, " ");
+        if (text.length >= 2 && text.length <= 80 && !out.includes(text)) out.push(text);
+        if (out.length >= 5) break;
+      }
+      return out;
+    })()`)
+    .catch(() => [] as string[]);
+  return (raw as string[]).map((text) => redactStringBody(text));
 }
 
 async function resolveStepLocator(page: Page, target: TargetLocator, timeoutMs = 4_000) {
@@ -208,6 +226,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
   let browser: Browser | undefined;
   const steps: StepResult[] = [];
   const assertionResults: Awaited<ReturnType<typeof runAssertion>>[] = [];
+  let finalSignals: string[] | undefined;
   let status: RunStatus = "passed";
 
   try {
@@ -246,6 +265,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
       }
       await evidence.waitForNetworkCapture();
       const networkLog = evidence.getNetworkLog();
+      finalSignals = await captureFinalSignals(page);
       const dbClient = buildReadonlyDbClient(options.env);
       const traceClient = buildAgentTraceClient(options.env);
       const assertionCtx = {
@@ -292,6 +312,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         failureKind,
         attemptCount: 1,
       },
+      finalSignals,
     };
   } catch (err) {
     status = "error";

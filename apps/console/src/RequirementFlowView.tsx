@@ -27,6 +27,7 @@ type Props = {
   pilotIntakeUrl: string | null;
   onRefresh: () => Promise<void>;
   onOpenRun: (runId: string) => void;
+  onOpenReview: (testId: string) => void;
 };
 
 export function RequirementFlowView({
@@ -36,6 +37,7 @@ export function RequirementFlowView({
   pilotIntakeUrl,
   onRefresh,
   onOpenRun,
+  onOpenReview,
 }: Props) {
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
@@ -45,11 +47,16 @@ export function RequirementFlowView({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FlowResult | null>(null);
   const [approving, setApproving] = useState(false);
+  const [approvedRun, setApprovedRun] = useState<StoredRun | null>(null);
 
   const runFlow = async () => {
     setLoading(true);
     setError(null);
+    if (result?.test && result.test.approvalStatus !== "approved") {
+      await api(`/api/tests/${result.test.id}`, { method: "DELETE" }).catch(() => undefined);
+    }
     setResult(null);
+    setApprovedRun(null);
     try {
       const res = await api<FlowResult>("/api/requirement-flow", {
         method: "POST",
@@ -88,12 +95,19 @@ export function RequirementFlowView({
           assertionConfigHash: full.currentAssertionConfigHash ?? full.assertionConfigHash,
         }),
       });
-      await api("/api/projects/default/runs", {
-        method: "POST",
-        body: JSON.stringify({ testId: result.test.id }),
-      });
+      const runRes = await api<{ runs?: StoredRun[]; async?: boolean }>(
+        "/api/projects/default/runs",
+        {
+          method: "POST",
+          body: JSON.stringify({ testId: result.test.id }),
+        },
+      );
+      const run = runRes.runs?.[0] ?? null;
+      setApprovedRun(run);
+      setResult((prev) =>
+        prev ? { ...prev, test: { ...prev.test, approvalStatus: "approved" } } : prev,
+      );
       await onRefresh();
-      alert("已批准并执行单条回归确认。");
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
     } finally {
@@ -105,19 +119,20 @@ export function RequirementFlowView({
 
   return (
     <section className="requirement-flow">
-      <h2 className="section-title">需求 → 测试</h2>
-      <p className="section-lede">
-        粘贴本次需求，选择环境，系统生成草案并自动试跑（不计入回归指标）。通过后可一键加入回归——仍需你确认批准。
-      </p>
-
       <div className="card-panel">
         <div className="field">
-          <label>用例标题（可选）</label>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：工单提交成功" />
+          <label htmlFor="requirement-title">用例标题（可选）</label>
+          <input
+            id="requirement-title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="例如：工单提交成功"
+          />
         </div>
         <div className="field">
-          <label>需求 / PRD 片段</label>
+          <label htmlFor="requirement-text">需求 / PRD 片段</label>
           <textarea
+            id="requirement-text"
             rows={6}
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -188,16 +203,34 @@ export function RequirementFlowView({
                 : " · 规则引擎（LLM 未用或已降级）"}
             </p>
             <ul className="diagnose-list">
-              {result.generation.uncertainties.map((u) => (
+              {result.generation.uncertainties.slice(0, 3).map((u) => (
                 <li key={u}>{u}</li>
               ))}
             </ul>
+            {result.generation.uncertainties.length > 3 ? (
+              <details className="uncertainty-more">
+                <summary>还有 {result.generation.uncertainties.length - 3} 条生成说明</summary>
+                <ul className="diagnose-list">
+                  {result.generation.uncertainties.slice(3).map((u) => (
+                    <li key={u}>{u}</li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
             <h4>断言草案</h4>
             <ul className="diagnose-list">
               {(result.test.ir.assertions as Array<Record<string, unknown>>).map((a, i) => (
                 <li key={i}>{summarizeAssertion(a, i)}</li>
               ))}
             </ul>
+            <div className="flow-actions">
+              <button type="button" className="btn-small" onClick={() => onOpenReview(result.test.id)}>
+                打开审阅编辑
+              </button>
+              <button type="button" className="btn-small" disabled={loading} onClick={() => void runFlow()}>
+                重新生成
+              </button>
+            </div>
           </div>
 
           <div className="card-panel">
@@ -256,7 +289,23 @@ export function RequirementFlowView({
             ) : (
               !result.trialError && <p className="hint-inline">未执行试跑</p>
             )}
-            {trial?.status === "passed" ? (
+            {result.test.approvalStatus === "approved" ? (
+              <div className="flow-approved">
+                <p className="run-detail-meta">
+                  已加入回归
+                  {approvedRun
+                    ? ` · 确认跑${approvedRun.status === "passed" ? "通过" : "失败"} · ${
+                        approvedRun.metrics?.durationMs ?? "—"
+                      } ms`
+                    : ""}
+                </p>
+                {approvedRun ? (
+                  <button type="button" className="btn-small" onClick={() => onOpenRun(approvedRun.runId)}>
+                    看确认跑详情
+                  </button>
+                ) : null}
+              </div>
+            ) : trial?.status === "passed" ? (
               <button
                 type="button"
                 className="btn btn-primary"
@@ -266,7 +315,9 @@ export function RequirementFlowView({
                 {approving ? "批准中…" : "一键加入回归"}
               </button>
             ) : (
-              <p className="stat-note">试跑未通过时请先改草案或环境，不会自动批准。</p>
+              <p className="stat-note">
+                试跑未通过时不会自动批准；可先打开审阅编辑，或修改需求后重新生成。
+              </p>
             )}
           </div>
         </div>

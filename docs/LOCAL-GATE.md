@@ -37,7 +37,7 @@ pnpm clean:artifacts --execute    # 实际删除
 
 ## 需求→测试（V0.5-lite）
 
-入口：控制台 **需求→测试** 或 `POST /api/requirement-flow`（`pnpm dev` 时 demo 须可达）。
+入口：控制台 **创建**（唯一入口，录制为次级入口）或 `POST /api/requirement-flow`（`pnpm dev` 时 demo 须可达）。
 
 - 自动试跑记入 `trial`，**不计入**回归指标；批准加入回归仍走 `/api/tests/:id/approve` 与 hash 校验。
 - LLM 不可用时降级为规则草案，界面展示原因。

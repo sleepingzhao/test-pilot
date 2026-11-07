@@ -509,8 +509,12 @@ button.status-chip {
   font-size: 13px;
 }
 
-.requirement-flow .env-picker {
-  border: none;
+.requirement-flow .field input,
+.requirement-flow .field textarea {
+  width: 100%;
+}
+
+.requirement-flow .env-picker {  border: none;
   margin: 16px 0;
   padding: 0;
   display: flex;
@@ -535,6 +539,47 @@ button.status-chip {
   .requirement-result {
     grid-template-columns: 1fr 1fr;
   }
+}
+
+.flow-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.flow-approved {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.record-secondary {
+  margin-top: 28px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.record-secondary summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.record-secondary .card-panel {
+  margin-top: 12px;
+}
+
+.uncertainty-more {
+  margin-top: 8px;
+}
+
+.uncertainty-more summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .assert-pre {

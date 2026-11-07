@@ -1,4 +1,29 @@
+import { isWeakAssertionText, type TestStep } from "@testpilot/test-ir";
+
 export type RequirementTarget = "demo" | "pilot" | "custom";
+
+/** Pick a success text the page actually showed, when all steps passed but assertions missed. */
+export function pickObservedSuccessSignal(run: {
+  status: string;
+  steps: Array<{ status: string }>;
+  finalSignals?: string[];
+}): string | undefined {
+  if (run.status === "passed") return undefined;
+  if (!run.steps.length || run.steps.some((s) => s.status !== "passed")) return undefined;
+  return (run.finalSignals ?? []).find(
+    (text) => text.length >= 2 && text.length <= 80 && !isWeakAssertionText(text),
+  );
+}
+
+/** Pilot runs need the login steps before any requirement-generated step. */
+export function mergeRequirementSteps(
+  onPilot: boolean,
+  loginSteps: TestStep[],
+  draftSteps: TestStep[],
+): TestStep[] {
+  if (!onPilot) return draftSteps;
+  return [...loginSteps.map((s) => ({ ...s, id: `login-${s.id}` })), ...draftSteps];
+}
 
 export function resolveRequirementTargetUrl(input: {
   target: RequirementTarget;

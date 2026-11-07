@@ -68,3 +68,23 @@ test("ticket intake clicks form submit by testId, not 提交工单", () => {
   const successAssert = draft.assertions.find((a) => a.id === "ticket-submitted");
   assert.ok(successAssert?.contains?.includes("工单已提交"));
 });
+
+test("unmatched requirement asserts a visible page anchor, not the goal sentence", () => {
+  const context: PageContext = {
+    url: "http://127.0.0.1:4173/",
+    elements: [
+      { role: "link", name: "用户管理" },
+      { role: "button", name: "添加用户", testId: "add-user-btn" },
+    ],
+  };
+  const draft = planFromIntake({
+    title: "新增用户",
+    channel: "intent",
+    text: "打开用户列表页，点击添加用户，只填写必填项并保存。",
+    context,
+    constraints: ["提交工单流程不要测试附件上传"],
+  });
+  const assertion = draft.assertions.find((a) => a.id === "page-loaded");
+  assert.equal(assertion?.contains, "用户管理");
+  assert.equal(draft.assertions.some((a) => a.id === "goal-smoke"), false);
+});

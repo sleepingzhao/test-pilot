@@ -190,14 +190,24 @@ export function planFromIntake(input: IntakeInput): PlannerDraft {
       oracle: "human-approved",
     });
   } else {
-    const snippet = goal.slice(0, 24).replace(/\s+/g, "");
-    assertions.push({
-      id: "goal-smoke",
-      type: "ui",
-      contains: snippet.length >= 4 ? goal.slice(0, 24) : "管理控制台",
-      oracle: "requirement",
-    });
-    uncertainties.push("未能匹配专用模板，请改用最显眼的成功提示文案作为断言。");
+    const anchor = input.context.elements.find(
+      (el) =>
+        el.name &&
+        el.name.length <= 32 &&
+        /用户|列表|管理|首页|工作台|控制台|订单|客户/.test(el.name),
+    );
+    if (anchor?.name) {
+      assertions.push({
+        id: "page-loaded",
+        type: "ui",
+        ...(anchor.testId ? { target: { testId: anchor.testId } } : {}),
+        contains: anchor.name.trim().slice(0, 24),
+        oracle: "human-approved",
+      });
+      uncertainties.push("未匹配专用模板：先断言页面加载；成功提示请在审阅时补充或采纳 LLM 建议。");
+    } else {
+      uncertainties.push("未匹配专用模板：快照中没有稳定页面文案，请审阅时补充断言。");
+    }
   }
 
   if (input.channel === "prd") {

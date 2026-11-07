@@ -289,13 +289,13 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 
 ### 执行看板
 
-- [x] V5L-1 单页「需求 → 测试」入口 — 控制台 `需求→测试` 页 + `POST /api/requirement-flow`；展示来源、不确定项、断言草案；仅存草稿；`pnpm verify` 全绿
-- [x] V5L-2 Planner 生成可执行步骤 — LLM `llm-steps` 快照校验；失败回退规则草案并标注「需人工补步骤」；`llm-steps.test.ts`；`pnpm verify` 全绿
-- [x] V5L-3 草稿自动试跑与报告 — 生成后自动 trial run；同页时间线/断言/证据/分型；`RequirementFlowView.tsx`；`pnpm verify` 全绿
-- [x] V5L-4 一键加入回归 — 试跑通过后确认批准 + hash 校验 + 单条回归；无自动批准；`pnpm verify` 全绿
-- [x] V5L-5 环境选择与凭据引用 — demo / 试点 / 自定义白名单；`requirement-target.ts`；凭据仍 env ref；`pnpm verify` 全绿
+- [x] V5L-1 单页「需求 → 测试」入口 — 已合并到唯一「创建」入口（独立 `需求→测试` 菜单移除，录制作为次级入口）；`POST /api/requirement-flow` 生成草稿；demo 与试点均实跑通过。
+- [x] V5L-2 Planner 生成可执行步骤 — LLM `llm-steps` 校验：testId 必须来自快照，role/name/label 允许运行时校验；拒绝 `//` 跨站、歧义选择器、密码字面量；LLM 接管时丢弃与需求无关的规则断言；正负测试覆盖。
+- [x] V5L-3 草稿自动试跑与报告 — 生成后自动 trial run（trial 不计回归指标）；同页时间线/断言/证据/分型；步骤全过但断言未命中时，用运行时实际成功提示重建断言并复跑一次；试跑失败提供审阅/重生成入口。
+- [x] V5L-4 一键加入回归 — 试跑通过后确认批准 + hash 校验 + 单条回归；界面显示确认跑结果并可打开详情；无自动批准。
+- [x] V5L-5 环境选择与凭据引用 — demo / 试点 / 自定义白名单；试点自动前置登录步骤并使用 `baseUrlRef: pilot-admin`；凭据仍 env ref（2026-11-07 试点实跑通过）。
 - [x] V5L-6 LLM 用量与失败可见 — 控制台展示累计 tokens / 调用次数 / 最近错误；用量持久化到 `data/llm-usage.json`，重启不清零；Provider 拒绝 `max_tokens` 超限时自动按错误中的上限重试并缓存；`llmTokensUsed` 不再被误脱敏（2026-11-07）。
-- [x] V5L-7 文档与门禁 — README/LOCAL-GATE 写清试跑 vs 入回归边界与操作路径；`pnpm verify` 全绿
+- [x] V5L-7 文档与门禁 — README/LOCAL-GATE 写清试跑 vs 入回归边界；入口合并后文档同步；`pnpm verify` 全绿
 
 ### V0.5-lite 发布门槛
 

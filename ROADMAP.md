@@ -1,8 +1,8 @@
-# TestPilot 执行路线图 v0.3
+# TestPilot 执行路线图 v0.6
 
-## 从「能演示」到「能信任、能证明业务结果」
+## 从「能演示」到「能信任、能证明业务结果」，再到「能发现系统能力」
 
-**2026-11-06 · V0.3 完成，V0.4（可重复回归）已规划 · Cursor 执行，Claude 定期把关**
+**2026-11-08 · V0.5-lite 完成，V0.6（能力探测与机制包）已规划 · Cursor 执行，Claude 定期把关**
 
 > **唯一执行计划。** 原 `docs/BACKLOG.md` 已合并到本文件；`design/` 下的 v0.2 路线 docx 已删除，仅保留架构/概念图。状态只在本文件维护，不要另建待办文件。
 
@@ -26,7 +26,10 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | Web runner | 可用 | 步骤机、重试、定位回退、trace/network/截图 |
 | Web recorder | 已验证（P-3） | 密码/手机号/PII → env/fixture ref；真实浏览器录制测试 `recorded-session.test.ts`；原生 select 录为 `select` 步骤；cascader 仍需手工补 `selectCascader` |
 | Console | 可用 | 步骤编辑/草稿试跑（试跑不计入回归指标）、Provider 审阅面板、审批身份与审计、删除草稿、弱断言门禁 |
-| Planner | 规则式 + 可选 LLM | 否定词已修；LLM 只建议断言，不生成可执行步骤 |
+| Planner | 规则式 + 可选 LLM | 规则模板 + LLM 步骤（快照校验）；表单探索已能采集弹窗字段/下拉；尚无能力探测 |
+| 能力探测（Detect） | 未实现（V0.6） | 现有 intake 只采集单页/单表单；无路由/WS/SSE/Agent 能力图谱 |
+| 实时/富媒体证据 | 未实现（V0.7） | 只抓 HTTP；无 WebSocket frame、SSE、多账号 |
+| Agent 语义断言 | 部分（V0.8） | OTel trace 工具调用断言已有；无幻觉 rubric / LLM judge |
 | 管理 API | 文件存储 | 安全边界已加固；本机无登录；无数据库 |
 | 试点用例 | 15 条已批准 | 登录页与工单必填校验已改强；`pilot-ticket-submit-success` 模板已入库（批准前需对齐级联/HTTP） |
 | 断言引擎 | 可用 | UI / captured-http / postgres-readonly / otel-trace Provider；负向探针 4 路 |
@@ -151,11 +154,15 @@ Console 的断言编辑器需要支持：
 | 版本 | 重点 | 明确不做 |
 |---|---|---|
 | V0.3 可信试点（已完成） | 断言引擎 v2、真实业务断言、真实提交用例、负向验证、工作流正确性 | 多项目、RBAC、分布式调度 |
-| V0.4 可重复回归（当前） | 显式批次与并行、flake 统计与看板、运行详情页、证据保留/清理、试点成功用例业务化、连续 3 批基线 | Provider 扩展、GitLab/CI、PostgreSQL、RBAC、调度 |
-| V0.5 团队平台 | PostgreSQL、项目/环境、RBAC、调度、审计、趋势看板、Provider 扩展（MySQL/SQL Server/事件/对象存储） | 移动端适配 |
+| V0.4 可重复回归（已完成） | 显式批次与并行、flake 统计与看板、运行详情页、证据保留/清理、试点成功用例业务化、连续 3 批基线 | Provider 扩展、GitLab/CI、PostgreSQL、RBAC、调度 |
+| V0.5-lite 需求→自动测试（已完成） | 一句话/PRD → 草稿 → 自动试跑 → 一键入回归；LLM 用量与降级可见 | 自动批准、CI、团队平台 |
+| V0.6 能力探测底座（下一阶段） | Detect、SystemProfile、能力分类 v1、系统画像、LLM 仅做歧义归类 | 新执行器、实时/Agent 断言 |
+| V0.7 实时与媒体机制 | WebSocket/SSE 证据、多账号执行、realtime-messaging、file-media 机制包 | Agent 语义判断 |
+| V0.8 Agent 机制 | 工具调用断言、幻觉/引用/多轮、LLM judge 独立 semantic suite | 自动批准、无证据 judge |
+| V0.9 机制扩展与漂移 | workflow/auth-rbac/search-filter 机制包、探测 diff、pack SDK | 平台化 |
 | V1.0 开源/多端 | Docker、文档、插件 SDK、Android/iOS/Harmony/Glass Adapter、基准 | 一次性完成所有端 |
 
-v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补信任与断言引擎，再扩平台。
+V0.5 完整版（PostgreSQL、多项目、RBAC、调度器）暂缓到机制包稳定后再排；除非用户明确要求，不要提前引入团队平台基础设施。
 
 ## 5. V0.3 任务清单（P0）
 
@@ -226,7 +233,7 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - `pnpm verify` 全绿；安全回归测试全过。
 - 控制台能完成：选择断言类型 → 配置 Provider → 预览 → 批准 → 运行 → 看证据。
 
-## 6. V0.4 / V0.5 / V1.0 摘要
+## 6. V0.4 / V0.5 / V0.6–V0.9 / V1.0 摘要
 
 | 版本 | 任务 |
 |---|---|
@@ -310,9 +317,156 @@ v0.2 的「V0.2 稳定回放 / V0.3 业务闭环」被吸收并重排：先补�
 - 自动批准、去掉 hash 校验、让 LLM 直接写回归用例。
 - CI 集成、PostgreSQL、RBAC、多项目（留在 V0.5 完整版）。
 
+## 6.3 V0.6：能力探测与机制包（下一阶段）
+
+**目标：** 从「需求文本 → 固定模板」升级为「系统能力探测 → 机制包 → 证据断言」。不再只测增删改查；实时消息、富媒体、Agent 等系统按能力选择测试机制。
+
+**为什么：** 现有 `planFromIntake` 是正则模板，`packages/runner-web/src/run.ts` 只开一个 browser context，`packages/evidence` 只抓 HTTP。没有 WebSocket/SSE、多账号、Agent trace，就无法证明「消息真的送达」「Agent 真的调了工具」。竞争力来自「发现系统是什么，并生成匹配的测试机制」，而不是继续堆 UI 断言。
+
+**核心链路：**
+
+```
+URL + 账号
+  → 探测会话（只读爬取 + 被动采集）
+  → SystemProfile：路由/页面、表单、网络、WebSocket、SSE、上传、聊天、Agent 信号
+  → 能力图谱：能力 + 置信度 + 证据 + 缺失前置条件
+  → 人工确认/修正（不确定项变成问题，不猜）
+  → 需求文本 + 能力图谱 → 机制路由
+  → 机制包实例化：场景 + 数据 + 断言 + 负向探针
+  → IR 草稿 → 自动试跑 → 人工批准 → 零 LLM 回归
+```
+
+### 6.3.1 能力分类 v1
+
+| 能力 | 判定信号（规则优先） | 测试机制 | 证据通道 |
+|---|---|---|---|
+| CRUD | 表格 + 新增/编辑/删除 + 表单弹窗 | 生命周期、校验、分页、批量、幂等 | UI + HTTP + DB |
+| Auth/RBAC | 登录页 + 角色/租户菜单 | 登录、会话、越权、租户隔离 | UI + HTTP |
+| Workflow | 状态列 + 审批按钮 | 合法/非法流转、角色、超时 | API + DB + UI |
+| Realtime messaging | WebSocket + 消息列表 + 输入框 + 发送 | 双人送达、图片、超长、重连、顺序/去重 | WS frame + API + DOM(+DB) |
+| File/media | `input[type=file]` + accept | 类型、大小、损坏、预览、下载 | 上传 API + 元数据 + DOM |
+| Search/filter | 搜索框 + 分页 + 排序 | 语义、空态、组合条件、注入 | API + DOM |
+| Agent | 聊天 + 流式 + 工具块 + 模型/引用 | 工具调用、禁用工具、幻觉、引用落地、多轮、预算 | OTel trace + API + LLM judge |
+| Rich content | contenteditable + mention/reaction | 富文本、粘贴、提及、表情 | DOM + API |
+
+CRUD 不是被抛弃，而是变成机制包之一；现有规则模板就是它的 v0。
+
+### 6.3.2 机制包契约
+
+机制包是**代码里评审过、有测试的模块**，不是 LLM 现场生成：
+
+```ts
+interface MechanismPack {
+  id: string;
+  capability: CapabilityId;
+  requires: Requirement[];         // second-actor / ws-observable / trace-source / upload-fixture
+  scenarios: ScenarioTemplate[];   // 参数化，产出 IR
+  assertions: AssertionTemplate[]; // 从探测证据绑定，不猜
+  negativeProbes: ProbeSpec[];     // 机制坏了必须能让断言失败
+  safety: { mutation: "none" | "sandbox-only" | "allowed"; maxActions: number };
+}
+```
+
+- 场景是模板：选择器来自探测快照，数据生成器负责 run marker、长文本、图片、Unicode，产物仍是现有 IR。
+- 缺少前置条件（第二账号、trace 源、WS 可观测）时，控制台显示「已探测到但当前不可测」，不降级成假测试。
+- 每个新断言类型必须先有负向探针（阻断 WS 投递、返回 500、删掉工具调用、喂幻觉答案），否则不允许启用。
+- 超长消息不猜产品上限：先断言「不崩溃、不静默丢、明确错误或完整送达」的不变量，人工确认后再钉成契约。
+
+### 6.3.3 LLM 使用边界
+
+| 环节 | 规则引擎 | LLM |
+|---|---|---|
+| 探测 | 采集、打分、分类、证据关联 | 低置信度/冲突时做歧义归类 |
+| 规划 | 选机制包、实例化场景、生成数据、构造断言 | 界面语义绑定、边界场景候选 |
+| 校验 | schema、元素绑定、证据引用、负向探针 | 无 |
+| 运行 | 确定性断言零 LLM | 仅 `semantic suite` |
+| 诊断 | 失败分型、重试策略 | 失败解释、修复建议 |
+
+四个硬约束：
+
+1. LLM 输出必须是枚举 + JSON schema，不能自造能力分类。
+2. 每条结论必须引用 `evidenceId`，无证据的结论直接丢弃。
+3. 按证据 hash 缓存，检测一次复用；每次会话有 token 预算，超了降级为规则 + 人工问题。
+4. LLM 不写回归用例，只做「候选/补全」，必须过规则校验和人工审批。
+
+**回归零 LLM 的红线保留：** CRUD、实时、媒体、工作流继续零 LLM。Agent 的语义判断单独成 `semantic suite`，有独立预算和门禁；或者先用 LLM 在编写期校准 deterministic proxy，回归只跑 proxy。
+
+### 6.3.4 执行看板
+
+**V0.6 探测底座（约 2 周）**
+
+- [ ] V6-1 `SystemProfile` + `packages/detect` — 定义路由/页面/表单/网络/WS/SSE/上传/聊天/Agent 信号的数据结构与版本；`pnpm verify` 全绿
+- [ ] V6-2 被动采集器 + 有界爬取 — 登录后枚举同源路由（上限 12～20），只读不提交；采集 DOM/表单/网络/WS/SSE；失败不阻塞
+- [ ] V6-3 能力分类规则 v1 — CRUD/Auth/Workflow/Upload/Search/Realtime/Agent/Rich content 的确定性打分、置信度与证据引用；正负测试
+- [ ] V6-4 LLM 歧义归类 — 低置信度/规则冲突时才调用；输入紧凑 digest，输出 enum + evidence ids；schema 校验、缓存、token 预算、无证据丢弃
+- [ ] V6-5 系统画像与 API — 探测报告/能力图谱/未知项/重跑；复用 session 目录 `kind: "detect"`；控制台「系统画像」页与创建页能力提示
+- [ ] V6-6 demo/试点验证 — demo 识别 CRUD/上传/搜索；试点识别当前工单面；规则高置信时 LLM 调用为 0；误判以「待确认问题」呈现；`pnpm verify` 全绿
+
+**V0.7 实时与媒体机制（约 2～3 周）**
+
+- [ ] V7-1 WS/SSE 证据 — 采集 WebSocket frames（方向/URL/大小/前 N 条）与 SSE chunks；脱敏、截断、大小上限；证据可下载
+- [ ] V7-2 多账号执行 — IR 增加 `actors`，runner 支持多 browser context、`uploadFile`、`waitForEvent`；单账号回退必须显式标注
+- [ ] V7-3 `ws` 断言 Provider — 连接/方向/JSON path/contains/regex/minCount/timeout；负向探针（阻断投递必须失败）
+- [ ] V7-4 realtime-messaging 机制包 — 文本送达（出站 WS + 入站 WS + 对方 DOM）、图片、超长、重连、顺序、去重
+- [ ] V7-5 file-media 机制包 — 类型、大小、损坏、预览、下载完整性；负向探针
+- [ ] V7-6 demo fixture 与控制台 — `examples/demo-webapp` 加 `/chat`、`/files`；控制台选 pack、看 WS 证据；`pnpm verify` 全绿
+
+**V0.8 Agent 机制（约 2～3 周）**
+
+- [ ] V8-1 Agent 面探测 — 聊天 + 流式 + 工具块 + 模型/引用 + agent 接口信号；识别 `trace-source` 前置条件
+- [ ] V8-2 Agent 断言增强 — 工具名/参数/次数/顺序/禁用工具/耗时/token；缺 trace 时明确「不可测」
+- [ ] V8-3 `llm-judge` Provider — rubric + evidence + threshold + budget + 负向探针；oracle 必须人工批准
+- [ ] V8-4 agent 机制包 — 必须调工具、不该调工具、禁止工具、引用落地、多轮、未知/拒答、预算
+- [ ] V8-5 demo `/agent` + semantic suite — mock 工具调用 + trace fixture；semantic suite 与零 LLM 回归分开计费/门禁；`pnpm verify` 全绿
+
+**V0.9 机制扩展与漂移（约 2 周）**
+
+- [ ] V9-1 workflow 机制包 — 合法/非法流转、角色、超时
+- [ ] V9-2 auth/rbac 机制包 — 登录、会话、越权、租户隔离
+- [ ] V9-3 search/filter 机制包 — 语义、空态、组合条件、注入
+- [ ] V9-4 探测重跑与 diff — 路由/能力/选择器变化时提示受影响用例，不自动改批准
+- [ ] V9-5 pack SDK + 文档 — 新能力以插件方式接入；`pnpm verify` 全绿
+
+### 6.3.5 发布门槛与验收指标
+
+- V0.6：demo 识别 CRUD/上传/搜索；试点识别当前工单面；规则高置信时 LLM 调用为 0；误判以问题呈现；0 条自动批准。
+- V0.7：demo 上 A→B 文本/图片真实送达；超长按不变量断言；重连不丢不重；阻断投递时断言必须失败。
+- V0.8：工具调用可确定性断言；喂一个「编造答案」的 agent 时幻觉用例必须失败；LLM judge 无证据不得通过；成本可见。
+- V0.9：4 个以上机制包；探测 diff 能指出受影响的用例；不自动改批准。
+
+| 指标 | 目标 | 测量方式 |
+|---|---|---|
+| 能力识别 precision/recall | 标注 fixture 上 ≥90% | 探测报告 vs 人工标注 |
+| 需求 → 机制路由准确率 | ≥90% | 固定需求集回放 |
+| 新断言类型负向探针 | 100% | `pnpm negative-probes` |
+| 每次探测 LLM 调用 | 规则高置信时为 0 | `data/llm-usage.json` / 探测报告 |
+| 假绿事故 | 0 | 评审 + 负向探针 |
+| 回归 flake | <5% | flake 统计 |
+
+### 6.3.6 明确不做
+
+- 不让 LLM 自由生成整套回归用例。
+- 不把无证据的 LLM judge 作为唯一通过条件。
+- 探测默认只读；写操作只在 demo、测试账号或显式允许的沙箱。
+- 没有第二账号或 trace 源时，不假装测过，明确标「当前不可测」。
+- 不自动批准、不弱化审批/弱断言门禁、不改安全默认值、不引入 CI/PostgreSQL/RBAC/Docker，除非用户明确要求。
+
+### 6.3.7 建议的第一个垂直切片
+
+不要直接接真实业务系统。先在 `examples/demo-webapp` 加 `/chat`（WS 双人）、`/agent`（mock 工具调用 + trace）、`/files`，然后：
+
+1. Detect 跑通，输出能力图谱。
+2. realtime pack 跑通文本/图片/超长 + 负向探针。
+3. agent pack 跑通工具调用 + 幻觉负向。
+4. 再接真实试点环境，校准真实选择器、账号和前置条件。
+
+能力分类与机制包必须保持产品无关；真实环境只用于校准，不作为机制本身的一部分。
+
+理由：实时和 Agent 测试没有可控 fixture，就无法证明断言能失败，也无法在 `pnpm verify` 里稳定回归。
+
 ## 7. Cursor 工作协议
 
-- 一次只做一个垂直切片；任务来自本路线图的 ID，不自行扩大范围。V0.4 允许同一会话连续完成多个任务，但每个任务必须单独 commit、单独验证。
+- 一次只做一个垂直切片；任务来自本路线图的 ID，不自行扩大范围。V0.4 起允许同一会话连续完成多个任务，但每个任务必须单独 commit、单独验证。
 - 开始前写清楚：改哪些文件、如何验证、验收标准对应哪一条。
 - 每个改动必须带测试；UI 改动必须在浏览器实际看过并截图/记录。
 - 提交前运行 `pnpm verify`；失败就修，不允许跳过或弱化测试。
@@ -402,7 +556,10 @@ pnpm --filter @testpilot/test-management exec playwright install chromium
 - 试点「工单提交成功」：练习环境已覆盖；`pilot-ticket-submit-success` 模板须在真实试点上校对级联/HTTP 后再批准。
 - 原生 select 已支持录制/回放；cascader 录制仍只给 warning，需手工补 `selectCascader` 步骤。
 - 回归批次按显式 `batchId` 聚合；手工单跑不写 batchId，不进入批次统计（V4-1）。
-- 无 PostgreSQL 持久化 / 多项目 / RBAC / 远程 CI（按路线后续版本）。
+- 无能力探测（Detect）与 `SystemProfile`；需求仍走 `planFromIntake` 规则模板（V0.6）。
+- 无 WebSocket/SSE 帧证据、无多 browser context/多账号执行；实时消息与富媒体机制尚未接入（V0.7）。
+- Agent 断言目前只读 OTel trace；无幻觉 rubric、无独立 semantic suite（V0.8）。
+- 无 PostgreSQL 持久化 / 多项目 / RBAC / 远程 CI（V0.5 完整版暂缓）。
 
 ### 11.4 证据要求
 
@@ -417,3 +574,5 @@ pnpm --filter @testpilot/test-management exec playwright install chromium
 ---
 
 **一句话：v0.3 不追求更多页面和更多按钮，追求「每条通过的测试都能证明业务真的发生了」。**
+
+**一句话：v0.6 不追求更多断言类型，追求「先发现系统是什么能力，再用该能力的真实证据去证明它」。**

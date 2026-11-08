@@ -99,6 +99,73 @@ test("runDetection rejects a custom target outside the allow-list", async () => 
   }
 });
 
+test("real target strips page text from the stored profile", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-detect-real-"));
+  const dataRoot = join(root, "data");
+  const profileWithText: SystemProfile = {
+    ...profile,
+    surfaces: [
+      {
+        route: "/welcome",
+        title: "真实系统标题",
+        elements: [{ role: "button", name: "人名" }],
+      },
+    ],
+    signals: [
+      {
+        id: "dom.table",
+        strength: 1,
+        evidence: [{ id: "ev-real", kind: "dom", summary: "可见表格「真实项目」", route: "/welcome" }],
+      },
+    ],
+  };
+  try {
+    const record = await runDetection(
+      {
+        dataRoot,
+        target: "real",
+        realUrl: "http://127.0.0.1:4173",
+        demoUrl: "http://127.0.0.1:4173",
+      },
+      () => undefined,
+      {
+        openPage: async () => ({ page: {} as never, close: async () => undefined }),
+        collect: async () => profileWithText,
+      },
+    );
+    assert.equal(record.target, "real");
+    assert.equal(record.url, "http://127.0.0.1:4173");
+    assert.equal(record.profile.surfaces[0]?.title, undefined);
+    assert.equal(record.profile.surfaces[0]?.elements[0]?.name, undefined);
+    assert.equal(record.profile.signals[0]?.evidence[0]?.summary, "dom.table");
+    const stored = await readDetection(dataRoot, record.id);
+    assert.equal(stored?.profile.surfaces[0]?.elements[0]?.name, undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("real target without a configured URL fails (negative)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-detect-real-"));
+  const dataRoot = join(root, "data");
+  try {
+    await assert.rejects(
+      runDetection(
+        {
+          dataRoot,
+          target: "real",
+          demoUrl: "http://127.0.0.1:4173",
+        },
+        () => undefined,
+        fakeDeps(),
+      ),
+      /未配置真实环境地址/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("latestDetection filters by target and custom origin", async () => {
   const root = await mkdtemp(join(tmpdir(), "testpilot-detect-"));
   const dataRoot = join(root, "data");

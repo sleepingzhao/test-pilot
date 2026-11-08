@@ -1,4 +1,4 @@
-import type { Locator, Page } from "playwright";
+import type { Frame, Locator, Page } from "playwright";
 import { snapshotPageContext } from "@testpilot/context-web";
 import { evaluateCapabilities } from "./rules.js";
 import {
@@ -19,11 +19,14 @@ export type CollectSystemProfileOptions = {
   settleMs?: number;
   /** Timeout for goto and reload. Default 20000. */
   routeTimeoutMs?: number;
+  /** Wait this long for a collapsed sidebar's expand control before discovery. */
+  expandWaitMs?: number;
 };
 
 type Timing = {
   settleMs: number;
   routeTimeoutMs: number;
+  expandWaitMs?: number;
   discover: boolean;
   reload: boolean;
   gotoUrl?: string;
@@ -32,6 +35,7 @@ type Timing = {
 type SpaTarget = {
   name: string;
   testId?: string;
+  role?: string;
 };
 
 type Sample = {
@@ -51,6 +55,18 @@ const NAV_SELECTOR = [
   "[role='complementary'] a[href]",
   "[class*='sidebar'] a[href]",
   "[class*='sider'] a[href]",
+  "nav button",
+  "[role='navigation'] button",
+  "nav [role='menuitem']",
+  "[role='navigation'] [role='menuitem']",
+  "[role='tab']",
+  "aside button",
+  "aside [role='menuitem']",
+  "[role='complementary'] button",
+  "[role='complementary'] [role='menuitem']",
+  "[class*='sidebar'] button",
+  "[class*='sider'] button",
+  "[role='button']",
 ].join(", ");
 
 /**
@@ -65,6 +81,7 @@ export async function collectSystemProfile(
   const timing = {
     settleMs: Math.max(0, options?.settleMs ?? 1200),
     routeTimeoutMs: Math.max(1000, options?.routeTimeoutMs ?? 20_000),
+    expandWaitMs: Math.max(0, options?.expandWaitMs ?? 0),
   };
   const entryUrl = page.url();
   const surfaces: SurfaceSnapshot[] = [];
@@ -156,14 +173,19 @@ async function samplePage(page: Page, timing: Timing): Promise<Sample | undefine
       }
     }
     await page.waitForTimeout(timing.settleMs);
+    await expandSidebar(page, timing.expandWaitMs ?? 0);
     const discovered = timing.discover ? await discoverLinks(page) : { routes: [], spa: [] };
     const baseDom = await observeDom(page);
     const opened = await readOpenedForm(page, baseDom, timing);
     const surface = await readSurface(page);
+    const frameSignals = await collectFrameSignals(page);
     await closeOpenedForm(page, opened.beforeUrl, timing.routeTimeoutMs);
     return {
       surface,
-      signals: classifySignals({ route: surface.route, dom: opened.dom, network: watch.records.slice() }),
+      signals: [
+        ...classifySignals({ route: surface.route, dom: opened.dom, network: watch.records.slice() }),
+        ...frameSignals,
+      ],
       routes: discovered.routes,
       spa: discovered.spa,
     };
@@ -177,6 +199,7 @@ async function collectSpaView(page: Page, item: SpaTarget, timing: Omit<Timing, 
   const before = page.url();
   const watch = attachNetwork(page);
   try {
+    await expandSidebar(page, 1_500);
     const clicked = await clickSpa(page, item);
     if (!clicked) return undefined;
     await page.waitForTimeout(timing.settleMs);
@@ -187,7 +210,10 @@ async function collectSpaView(page: Page, item: SpaTarget, timing: Omit<Timing, 
     const baseDom = await observeDom(page);
     const opened = await readOpenedForm(page, baseDom, timing);
     const route = pathOf(page.url());
-    const signals = classifySignals({ route, dom: opened.dom, network: watch.records.slice() });
+    const signals = [
+      ...classifySignals({ route, dom: opened.dom, network: watch.records.slice() }),
+      ...(await collectFrameSignals(page)),
+    ];
     await closeOpenedForm(page, opened.beforeUrl, timing.routeTimeoutMs);
     if (!samePlace(before, page.url())) await restore(page, before, timing.routeTimeoutMs);
     return signals;
@@ -324,14 +350,33 @@ async function clickNamed(page: Page, el: DomObservation): Promise<boolean> {
   }
 }
 
-async function clickSpa(page: Page, item: SpaTarget): Promise<boolean> {
-  if (isForbiddenName(item.name)) return false;
+async function expandSidebar(page: Page, waitMs = 0): Promise<void> {
+  const expand = page
+    .getByRole("button", { name: /展开侧栏|展开导航|展开菜单|open sidebar|expand sidebar/i })
+    .filter({ visible: true })
+    .first();
+  if (waitMs > 0) {
+    await expand.waitFor({ state: "visible", timeout: waitMs }).catch(() => undefined);
+  }
+  if (!(await expand.isVisible().catch(() => false))) return;
+  await expand.click({ timeout: 1_500 }).catch(() => undefined);
+  await page.waitForTimeout(800);
+}
+
+async function clickSpa(page: Page, item: SpaTarget): Promise<boolean> {  if (isForbiddenName(item.name)) return false;
   try {
     const located = item.testId
       ? page.getByTestId(item.testId).filter({ visible: true }).first()
-      : page.getByRole("link", { name: item.name, exact: true }).filter({ visible: true }).first();
+      : item.role === "tab"
+        ? page.getByRole("tab", { name: item.name, exact: true }).filter({ visible: true }).first()
+        : item.role === "menuitem"
+          ? page.getByRole("menuitem", { name: item.name, exact: true }).filter({ visible: true }).first()
+          : page.getByRole("link", { name: item.name, exact: true }).filter({ visible: true }).first();
     const button = page.getByRole("button", { name: item.name, exact: true }).filter({ visible: true }).first();
-    const locator = item.testId || (await located.isVisible().catch(() => false)) ? located : button;
+    const locator =
+      item.testId || item.role === "tab" || item.role === "menuitem" || (await located.isVisible().catch(() => false))
+        ? located
+        : button;
     if (!(await locator.isVisible().catch(() => false))) return false;
     if (await isSubmitControl(locator)) return false;
     const href = (await locator.getAttribute("href")) ?? "";
@@ -422,7 +467,28 @@ function domKey(el: DomObservation): string {
 
 async function discoverLinks(page: Page): Promise<{ routes: string[]; spa: SpaTarget[] }> {
   const base = page.url();
-  const raw = (await page.evaluate(DISCOVER_LINKS)) as Array<{ href: string; name: string; testId?: string; download: boolean }>;
+  const raw = (await page.evaluate(DISCOVER_LINKS)) as Array<{
+    href: string;
+    name: string;
+    testId?: string;
+    role?: string;
+    download: boolean;
+    x?: number;
+    width?: number;
+    nav?: boolean;
+  }>;
+  const roleButtons = raw.filter(
+    (link) => link.role === "button" && !link.nav && !link.href.trim(),
+  );
+  const bucketKey = (link: { x?: number; width?: number }): string =>
+    `${Math.round((link.x ?? 0) / 24)}:${Math.round((link.width ?? 0) / 24)}`;
+  const buckets = new Map<string, number>();
+  for (const link of roleButtons) {
+    buckets.set(bucketKey(link), (buckets.get(bucketKey(link)) ?? 0) + 1);
+  }
+  const navBuckets = new Set(
+    [...buckets.entries()].filter(([, count]) => count >= 3).map(([key]) => key),
+  );
   const routes: string[] = [];
   const spa: SpaTarget[] = [];
   const routePaths = new Set<string>();
@@ -433,11 +499,16 @@ async function discoverLinks(page: Page): Promise<{ routes: string[]; spa: SpaTa
     if (kind === "skip") continue;
     if (kind === "spa") {
       if (isForbiddenName(link.name)) continue;
+      if (!link.href.trim() && OPEN_FORM.test(link.name)) continue;
+      if (link.role === "button" && !link.nav && !link.href.trim()) {
+        if ((link.x ?? 999) > 600 || (link.width ?? 0) < 80) continue;
+        if (!navBuckets.has(bucketKey(link))) continue;
+      }
       if (!link.name && !link.testId) continue;
-      const key = link.testId ? `id:${link.testId}` : `name:${link.name}`;
+      const key = link.testId ? `id:${link.testId}` : `${link.role ?? ""}:${link.name}`;
       if (spaKeys.has(key)) continue;
       spaKeys.add(key);
-      spa.push({ name: link.name, testId: link.testId });
+      spa.push({ name: link.name, testId: link.testId, role: link.role });
       continue;
     }
     let absolute: string;
@@ -457,7 +528,7 @@ async function discoverLinks(page: Page): Promise<{ routes: string[]; spa: SpaTa
 
 function linkKind(base: string, href: string): "spa" | "route" | "skip" {
   const trimmed = href.trim();
-  if (!trimmed) return "skip";
+  if (!trimmed) return "spa";
   if (trimmed === "#" || trimmed.startsWith("#") || /^javascript:/i.test(trimmed)) return "spa";
   try {
     const url = new URL(trimmed, base);
@@ -545,9 +616,25 @@ function isDownloadPath(url: string): boolean {
   }
 }
 
-async function observeDom(page: Page): Promise<DomObservation[]> {
+async function observeDom(page: Page | Frame): Promise<DomObservation[]> {
   const observed = (await page.evaluate(OBSERVE_DOM)) as DomObservation[];
   return observed.slice(0, 300);
+}
+
+async function collectFrameSignals(page: Page): Promise<Signal[]> {
+  const out: Signal[] = [];
+  const main = page.mainFrame();
+  for (const frame of page.frames()) {
+    if (frame === main) continue;
+    await frame
+      .waitForFunction("document.body && document.body.innerText.trim().length > 0", {
+        timeout: 8_000,
+      })
+      .catch(() => undefined);
+    const dom = await observeDom(frame).catch(() => []);
+    out.push(...classifySignals({ route: pathOf(frame.url()), dom, network: [] }));
+  }
+  return out;
 }
 
 const OBSERVE_DOM = `(() => {
@@ -648,8 +735,11 @@ const DISCOVER_LINKS = `(() => {
     const text = (el.innerText || "").replace(/\\s+/g, " ").trim();
     const name = (aria || text).slice(0, 80);
     const testId = el.getAttribute("data-testid") || undefined;
-    const item = { href: href, name: name, download: el.hasAttribute("download") };
+    const role = el.getAttribute("role") || (el.tagName.toLowerCase() === "button" ? "button" : undefined);
+    const inNav = Boolean(el.closest("nav, [role='navigation'], aside, [role='complementary'], [class*='sidebar'], [class*='sider']"));
+    const item = { href: href, name: name, download: el.hasAttribute("download"), x: Math.round(rect.x), width: Math.round(rect.width), nav: inNav };
     if (testId) item.testId = testId;
+    if (role) item.role = role;
     out.push(item);
   }
   return out;

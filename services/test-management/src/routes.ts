@@ -52,6 +52,8 @@ import {
   missingEnvRefs,
   pilotBaseUrl,
   pilotSecretsConfigured,
+  realBaseUrl,
+  realSecretsConfigured,
   uniqueTargetBaseUrls,
   absoluteStepUrls,
   DEMO_BASE_URL,
@@ -891,7 +893,15 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (!text) return reply.code(400).send({ error: "请粘贴需求描述或 PRD 片段" });
     const title = body.title?.trim() || titleFromRequirement(text);
     onStage("校验目标环境");
-    const target: RequirementTarget = body.target === "pilot" || body.target === "custom" ? body.target : "demo";
+    const target: RequirementTarget =
+      body.target === "pilot" || body.target === "custom" || body.target === "real"
+        ? body.target
+        : "demo";
+    if (target === "real") {
+      return reply.code(400).send({
+        error: "真实环境目前只支持系统画像探测，暂不自动生成/试跑用例",
+      });
+    }
     const project = store.project();
     const pilotUrl = pilotBaseUrl();
     const pilotIntakeUrl = pilotUrl ? await pilotIntakeDefaultUrl() : "";
@@ -1153,7 +1163,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
   app.post("/api/detect/jobs", async (req, reply) => {
     const body = (req.body ?? {}) as { target?: DetectionTarget; customUrl?: string };
     const target: DetectionTarget =
-      body.target === "pilot" || body.target === "custom" ? body.target : "demo";
+      body.target === "pilot" || body.target === "custom" || body.target === "real"
+        ? body.target
+        : "demo";
     if (target === "custom" && !body.customUrl?.trim()) {
       return reply.code(400).send({ error: "自定义环境需要填写 URL" });
     }
@@ -1181,6 +1193,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         demoUrl: project.defaultBaseUrl,
         pilotUrl: pilotUrl || undefined,
         pilotIntakeUrl: pilotIntakeUrl || undefined,
+        realUrl: realBaseUrl() || undefined,
         loginPath,
       },
       (stage) => {
@@ -1213,7 +1226,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
   app.get("/api/detect/latest", async (req) => {
     const query = req.query as { target?: string; url?: string };
     const target: DetectionTarget =
-      query.target === "pilot" || query.target === "custom" ? query.target : "demo";
+      query.target === "pilot" || query.target === "custom" || query.target === "real"
+        ? query.target
+        : "demo";
     const record = await latestDetection(dataRoot, target, query.url);
     return { record: record ?? null };
   });
@@ -1235,6 +1250,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const pilotIntakeUrl = pilotUrl ? await pilotIntakeDefaultUrl() : "";
     const demoReachable = await checkTargetReachable(DEMO_BASE_URL);
     const pilotReachable = pilotUrl ? await checkTargetReachable(pilotUrl) : false;
+    const realUrl = realBaseUrl();
+    const realReachable = realUrl ? await checkTargetReachable(realUrl) : false;
     return {
       demoUrl: project.defaultBaseUrl,
       demoReachable,
@@ -1242,6 +1259,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       pilotIntakeUrl: pilotIntakeUrl || null,
       pilotReachable,
       pilotSecretsConfigured: pilotSecretsConfigured(),
+      realUrl,
+      realReachable,
+      realSecretsConfigured: realSecretsConfigured(),
       llm: llmPlannerPublicInfo(),
       llmUsage: llmUsageSnapshot(),
       approval: approvalIdentityPublicInfo(),

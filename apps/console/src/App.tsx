@@ -173,6 +173,9 @@ export function App() {
   const [demoOk, setDemoOk] = useState<boolean | null>(null);
   const [demoUrl, setDemoUrl] = useState("http://127.0.0.1:4173/");
   const [pilotOk, setPilotOk] = useState<boolean | null>(null);
+  const [realOk, setRealOk] = useState<boolean | null>(null);
+  const [realUrl, setRealUrl] = useState<string | null>(null);
+  const [realSecrets, setRealSecrets] = useState<boolean | null>(null);
   const [pilotSecrets, setPilotSecrets] = useState<boolean | null>(null);
   const [pilotUrl, setPilotUrl] = useState<string | null>(null);
   const [pilotIntakeUrl, setPilotIntakeUrl] = useState<string | null>(null);
@@ -368,6 +371,9 @@ export function App() {
         pilotUrl?: string;
         pilotIntakeUrl?: string | null;
         pilotSecretsConfigured?: boolean;
+        realReachable?: boolean;
+        realUrl?: string;
+        realSecretsConfigured?: boolean;
         llm?: { enabled: boolean; provider?: string; model?: string; error?: string };
         llmUsage?: { lastError?: string | null; tokensTotal?: number; callCount?: number };
         approval?: { approvalTokenRequired: boolean; approvalActors: string[] | null };
@@ -378,6 +384,9 @@ export function App() {
       setPilotOk(env.pilotReachable ?? null);
       setPilotSecrets(env.pilotSecretsConfigured ?? null);
       setPilotUrl(env.pilotUrl ?? null);
+      setRealOk(env.realReachable ?? null);
+      setRealUrl(env.realUrl ?? null);
+      setRealSecrets(env.realSecretsConfigured ?? null);
       setLlmInfo(
         env.llm
           ? {
@@ -1039,6 +1048,7 @@ export function App() {
   }
   if (demoOk === false) statusItems.push({ key: "demo", text: "练习应用未启动（:4173）", tone: "bad" });
   if (pilotOk === false) statusItems.push({ key: "pilot", text: "试点环境不可达", tone: "bad" });
+  if (realUrl && realOk === false) statusItems.push({ key: "real", text: "真实环境不可达", tone: "bad" });
   if (pilotSecrets === false) statusItems.push({ key: "secrets", text: "试点凭据未配置", tone: "warn" });
   if (llmInfo && !llmInfo.enabled) {
     statusItems.push({
@@ -1514,6 +1524,9 @@ export function App() {
             pilotIntakeUrl={pilotIntakeUrl}
             demoReachable={demoOk}
             pilotReachable={pilotOk}
+            realUrl={realUrl}
+            realReachable={realOk}
+            realSecretsConfigured={realSecrets}
           />
         )}
 

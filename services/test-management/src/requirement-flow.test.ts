@@ -27,6 +27,22 @@ test("POST /api/requirement-flow requires text (negative)", async () => {
   await app.close();
 });
 
+test("real environment requirement generation is blocked (negative)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tp-req-real-"));
+  const store = new FileStore(join(root, "data"));
+  await store.init();
+  const app = Fastify();
+  await registerRoutes(app, store, join(root, "artifacts"), join(root, "data"));
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/requirement-flow",
+    payload: { target: "real", text: "登录后执行只读检查" },
+  });
+  assert.equal(res.statusCode, 400);
+  assert.match(String(res.json().error ?? ""), /系统画像/);
+  await app.close();
+});
+
 test("derives a readable title from the first requirement sentence", () => {
   assert.equal(
     titleFromRequirement("登录后点击提交工单输入信息后可以成功创建工单（不用提交附件）"),

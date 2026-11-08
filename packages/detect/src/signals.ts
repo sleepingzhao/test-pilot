@@ -48,6 +48,8 @@ const TOOL_CALL = /工具调用|tool call|调用工具|function call/i;
 const CITATION = /引用|来源|参考资料|\bcitation\b|\bsource\b/i;
 const AGENT_LABEL = /助手|\bagent\b|\bassistant\b|(?:^|[^a-z])ai(?:[^a-z]|$)/i;
 const CHAT_AREA = /消息|聊天|\bchat\b|\bmessages?\b/i;
+const CHAT_SEARCH = /会话|联系人|聊天|消息|\bchat\b|\bconversation\b|\bcontact\b/i;
+const CHAT_SHELL = /暂无会话|会话列表|聊天记录|联系人|会话\s*\/\s*联系人|消息列表/i;
 
 /** origin + pathname only. Query, hash, and userinfo are dropped. */
 export function normalizeNetworkUrl(raw: string): string {
@@ -124,6 +126,13 @@ export function classifySignals(input: ClassifySignalsInput): Signal[] {
   const messageLists = dom.filter(isMessageList);
   push(signals, route, "dom.message-list", 0.9, "dom", messageLists.map((el) => named("可见消息列表", el)));
 
+  const chatRoute = /(^|\/)(chat|message|messages|im|conversation)(\/|$)/i.test(route);
+  const chatShells = dom.filter((el) => CHAT_SHELL.test(textOf(el)));
+  push(signals, route, "dom.chat-surface", 0.8, "dom", [
+    ...(chatRoute ? ["聊天应用页面"] : []),
+    ...chatShells.map((el) => named("可见会话区", el)),
+  ]);
+
   const composers = dom.filter(isComposer);
   const senders = dom.filter((el) => isAction(el) && SEND_BUTTON.test(textOf(el)));
   if (composers.length > 0 && senders.length > 0) {
@@ -136,7 +145,7 @@ export function classifySignals(input: ClassifySignalsInput): Signal[] {
   const files = dom.filter((el) => isFileInput(el) || isUploadControl(el));
   push(signals, route, "dom.file-input", 1, "dom", files.map((el) => named("可见文件选择或上传控件", el)));
 
-  const searches = dom.filter(isSearchField);
+  const searches = dom.filter((el) => isSearchField(el) && !CHAT_SEARCH.test(textOf(el)));
   push(signals, route, "dom.search-input", 0.9, "dom", searches.map((el) => named("可见搜索框", el)));
 
   const pages = dom.filter((el) => PAGINATION.test(textOf(el)) || PAGINATION.test(el.ariaLabel ?? ""));

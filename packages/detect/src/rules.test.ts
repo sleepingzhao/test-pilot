@@ -47,10 +47,17 @@ const cases: Case[] = [
     requires: ["second-actor", "ws-observable"],
   },
   {
-    name: "websocket without a chat surface asks for confirmation",
+    name: "websocket alone does not ask realtime questions",
     signals: [signal("network.websocket")],
     expected: null,
-    expectQuestion: true,
+    expectQuestion: false,
+  },
+  {
+    name: "websocket plus chat shell classifies realtime",
+    signals: [signal("network.websocket"), signal("dom.chat-surface")],
+    expected: "realtime-messaging",
+    minConfidence: 0.6,
+    requires: ["second-actor", "ws-observable"],
   },
   {
     name: "weak realtime signals stay below the confidence gate",

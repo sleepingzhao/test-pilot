@@ -28,6 +28,7 @@ export const SIGNAL_LABELS: Record<string, string> = {
   "dom.role-menu": "角色/租户菜单",
   "dom.status-column": "状态列",
   "dom.approval-actions": "审批操作",
+  "dom.chat-surface": "聊天应用页面",
   "dom.message-list": "消息列表",
   "dom.message-composer": "消息输入区",
   "dom.file-input": "文件选择/上传控件",

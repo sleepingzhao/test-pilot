@@ -14,6 +14,12 @@ const apiBase = (process.env.TESTPILOT_API_URL ?? "http://127.0.0.1:8787").repla
 const EXPECTED = {
   demo: ["crud", "file-media", "search-filter"],
   pilot: ["file-media", "workflow"],
+  real: ["realtime-messaging"],
+};
+
+/** File/media depends on which real views load in time; report it but do not fail. */
+const OPTIONAL = {
+  real: ["file-media"],
 };
 
 function argValue(name) {
@@ -26,7 +32,7 @@ function argValue(name) {
 const requested = argValue("--target") ?? "demo";
 const targets = requested === "all" ? ["demo", "pilot"] : [requested];
 if (targets.some((target) => !EXPECTED[target])) {
-  console.error(`Unknown target: ${requested}. Use demo, pilot, or all.`);
+  console.error(`Unknown target: ${requested}. Use demo, pilot, real, or all.`);
   process.exit(2);
 }
 
@@ -62,6 +68,7 @@ async function runTarget(target) {
   const capabilities = job.result.profile.capabilities;
   const ids = capabilities.map((item) => item.id);
   const missing = EXPECTED[target].filter((id) => !ids.includes(id));
+  const optionalMissing = (OPTIONAL[target] ?? []).filter((id) => !ids.includes(id));
   const llmCalls = (after.callCount ?? 0) - (before.callCount ?? 0);
   return {
     target,
@@ -76,6 +83,7 @@ async function runTarget(target) {
     })),
     questions: job.result.profile.questions,
     missing,
+    optionalMissing,
     llmCalls,
   };
 }

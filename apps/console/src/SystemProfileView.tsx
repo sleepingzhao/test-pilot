@@ -7,12 +7,16 @@ type Props = {
   pilotIntakeUrl: string | null;
   demoReachable: boolean | null;
   pilotReachable: boolean | null;
+  realUrl: string | null;
+  realReachable: boolean | null;
+  realSecretsConfigured: boolean | null;
 };
 
 const TARGET_LABELS: Record<DetectionTarget, string> = {
   demo: "练习环境",
   pilot: "业务试点",
   custom: "自定义环境",
+  real: "真实环境",
 };
 
 function confidenceClass(confidence: number): string {
@@ -26,6 +30,9 @@ export function SystemProfileView({
   pilotIntakeUrl,
   demoReachable,
   pilotReachable,
+  realUrl,
+  realReachable,
+  realSecretsConfigured,
 }: Props) {
   const [target, setTarget] = useState<DetectionTarget>("demo");
   const [customUrl, setCustomUrl] = useState("");
@@ -146,6 +153,22 @@ export function SystemProfileView({
               : pilotIntakeUrl
                 ? `(${pilotIntakeUrl})`
                 : "（未配置）"}
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="detect-env"
+              checked={target === "real"}
+              onChange={() => setTarget("real")}
+              disabled={!realUrl || !realSecretsConfigured}
+            />
+            真实环境{" "}
+            {realReachable === false
+              ? "（不可达）"
+              : realUrl
+                ? `(${realUrl})`
+                : "（未配置）"}
+            {realSecretsConfigured === false ? " · 缺少凭据" : ""}
           </label>
           <label>
             <input

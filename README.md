@@ -34,7 +34,7 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 
 本地发布前门禁（无 GitHub CI）：[`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md) · 命令 `pnpm verify`（需 demo `:4173` 可达，见文档）。
 
-能力探测校验（需 API 与目标环境已启动）：`pnpm detect:validate -- --target demo`，真实试点用 `--target pilot`，两者一起用 `--target all`；报告写入 `artifacts/detect/validate-last.json`。
+能力探测校验（需 API 与目标环境已启动）：`pnpm detect:validate -- --target demo`，真实试点用 `--target pilot`，两者一起用 `--target all`；真实环境用 `--target real`（只做画像，不自动生成/试跑；稳定检查实时消息，文件/媒体随加载视图出现）。报告写入 `artifacts/detect/validate-last.json`。
 
 ### 业务试点（P0-1）
 
@@ -43,6 +43,12 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 3. 试跑通过后人工审阅步骤/断言，再点「一键加入回归」
 
 试点地址与凭据只放在本地 **`.env`** 和 **`docs/pilot-*.json`**（已 gitignore，见 `*.example.json` 模板）。`pilot-intake-presets.json` 为空时不会自动生成试点草稿；需要预置草稿时再往该文件里加条目。
+
+### 真实环境（仅系统画像）
+
+1. 在本地 `.env` 配置 `TESTPILOT_REAL_BASE_URL`、`TESTPILOT_ENV_REAL_ENTERPRISE_ID`、`TESTPILOT_ENV_REAL_USER_ID`、`TESTPILOT_ENV_REAL_PASSWORD`，并把 origin 加入 `TESTPILOT_ALLOWED_TARGETS`
+2. 重启 `pnpm dev`，在「系统画像」选择「真实环境」
+3. 只读探测；`profile.json` 会去掉页面文本和标题，不保留人名/项目名。真实环境暂不开放自动生成和试跑，避免自动写入业务数据
 
 生产式单端口（构建后 API 托管静态 Console）：
 

@@ -31,6 +31,27 @@ test("custom requires URL (negative)", () => {
   assert.equal(r.ok, false);
 });
 
+test("real target uses the configured URL", () => {
+  const r = resolveRequirementTargetUrl({
+    target: "real",
+    demoUrl: "http://127.0.0.1:4173/",
+    realUrl: "https://real.example",
+  });
+  assert.equal(r.ok, true);
+  if (r.ok) {
+    assert.equal(r.url, "https://real.example");
+    assert.equal(r.label, "真实环境");
+  }
+});
+
+test("real target without config fails (negative)", () => {
+  const r = resolveRequirementTargetUrl({
+    target: "real",
+    demoUrl: "http://127.0.0.1:4173/",
+  });
+  assert.equal(r.ok, false);
+});
+
 test("pilot requirement steps are prefixed with login steps", () => {
   const login = [
     { id: "open-login", action: "navigate" as const, path: "/admin/login" },

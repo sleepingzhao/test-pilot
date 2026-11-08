@@ -104,6 +104,29 @@ test("upload control, status counter, and state actions are distinguished", () =
   assertEvidence(signals, route);
 });
 
+test("chat shell and chat search are realtime, not table search", () => {
+  const route = "/chat/";
+  const signals = classifySignals({
+    route,
+    dom: [
+      {
+        tag: "input",
+        role: "textbox",
+        visible: true,
+        name: "搜索会话 / 联系人 / 消息",
+        ariaLabel: "搜索会话 / 联系人 / 消息",
+        placeholder: "搜索会话 / 联系人 / 消息",
+        inputType: "text",
+      },
+    ],
+    network: [],
+  });
+  const ids = new Set(signals.map((signal) => signal.id));
+  assert.ok(ids.has("dom.chat-surface"));
+  assert.equal(ids.has("dom.search-input"), false);
+  assertEvidence(signals, route);
+});
+
 test("password field and login button are a login form", () => {  const route = "/account";
   const signals = classifySignals({
     route,

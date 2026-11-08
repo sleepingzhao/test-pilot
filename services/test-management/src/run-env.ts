@@ -7,16 +7,30 @@ export function pilotBaseUrl(): string {
   return process.env.TESTPILOT_PILOT_BASE_URL ?? "";
 }
 
+export function realBaseUrl(): string {
+  return process.env.TESTPILOT_REAL_BASE_URL ?? "";
+}
+
+export function realSecretsConfigured(): boolean {
+  return Boolean(
+    process.env.TESTPILOT_ENV_REAL_ENTERPRISE_ID &&
+      process.env.TESTPILOT_ENV_REAL_USER_ID &&
+      process.env.TESTPILOT_ENV_REAL_PASSWORD,
+  );
+}
+
 export function buildRunEnvironment(primaryBaseUrl?: string): RunEnvironment {
   const primary = primaryBaseUrl ?? DEMO_BASE_URL;
   const adminPhone = process.env.TESTPILOT_ENV_ADMIN_PHONE?.trim();
   const adminPassword = process.env.TESTPILOT_ENV_ADMIN_PASSWORD?.trim();
+  const real = realBaseUrl().trim();
   return {
     baseUrl: primary,
     baseUrlRefs: {
       "staging-console": DEMO_BASE_URL,
       "default-env": primary,
       "pilot-admin": pilotBaseUrl(),
+      ...(real ? { "real-env": real } : {}),
     },
     fixtureValues: {
       ...(adminPhone ? { "env.adminPhone": adminPhone } : {}),

@@ -1,6 +1,6 @@
 import type { SystemProfile } from "@testpilot/detect";
 
-export type DetectionTarget = "demo" | "pilot" | "custom";
+export type DetectionTarget = "demo" | "pilot" | "custom" | "real";
 
 export type DetectionRecord = {
   id: string;

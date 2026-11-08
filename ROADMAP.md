@@ -27,7 +27,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | Web recorder | 已验证（P-3） | 密码/手机号/PII → env/fixture ref；真实浏览器录制测试 `recorded-session.test.ts`；原生 select 录为 `select` 步骤；cascader 仍需手工补 `selectCascader` |
 | Console | 可用 | 步骤编辑/草稿试跑（试跑不计入回归指标）、Provider 审阅面板、审批身份与审计、删除草稿、弱断言门禁 |
 | Planner | 规则式 + 可选 LLM | 规则模板 + LLM 步骤（快照校验）；表单探索已能采集弹窗字段/下拉；尚无能力探测 |
-| 能力探测（Detect） | 可用（V0.6） | `packages/detect` 采集器 + 八类规则 + `/api/detect` + 系统画像；demo 识别 CRUD/文件/搜索，试点识别文件/工作流；实时与 Agent 执行在 V0.7/V0.8 |
+| 能力探测（Detect） | 可用（V0.6） | `packages/detect` 采集器 + 八类规则 + `/api/detect` + 系统画像；demo 识别 CRUD/文件/搜索，试点识别文件/工作流，真实环境（只读）识别文件/实时消息；实时与 Agent 执行在 V0.7/V0.8 |
 | 实时/富媒体证据 | 未实现（V0.7） | 只抓 HTTP；无 WebSocket frame、SSE、多账号 |
 | Agent 语义断言 | 部分（V0.8） | OTel trace 工具调用断言已有；无幻觉 rubric / LLM judge |
 | 管理 API | 文件存储 | 安全边界已加固；本机无登录；无数据库 |
@@ -400,7 +400,7 @@ interface MechanismPack {
 - [x] V6-3 能力分类规则 v1 — `packages/detect/src/rules.ts` 覆盖 CRUD/Realtime/Auth/Workflow/File-media/Search-filter/Agent/Rich content；每类正例 + 部分信号提问；`rules.test.ts` 表驱动；`pnpm verify` 全绿（2026-11-08）
 - [ ] V6-4 LLM 歧义归类 — 按需暂缓：当前规则在 demo/试点均为高置信且 0 待确认；出现低置信度案例再做。输入紧凑 digest，输出 enum + evidence ids；schema 校验、缓存、token 预算、无证据丢弃
 - [x] V6-5 系统画像与 API — `services/test-management/src/detection.ts` + `/api/detect` jobs/profiles；复用 session 目录 `kind: "detect"` 与 20 个会话保留；控制台「系统画像」页与创建页能力提示；`detection.test.ts`；demo 实测 CRUD/文件/媒体，`pnpm verify` 全绿（2026-11-08）
-- [x] V6-6 demo/试点验证 — demo 识别 CRUD 0.86 / 文件 0.90 / 搜索 0.72；试点识别文件 0.90 / 工作流 0.65，0 条待确认；两次探测 LLM 调用增量 0；`pnpm detect:validate -- --target all` + `artifacts/detect/validate-last.json`；`pnpm verify` 全绿（2026-11-08）
+- [x] V6-6 demo/试点验证 — demo 识别 CRUD 0.86 / 文件 0.90 / 搜索 0.72；试点识别文件 0.90 / 工作流 0.65，0 条待确认；另接入真实环境 `target=real`（仅系统画像，不开放生成/试跑），稳定识别实时消息，文件/媒体随加载视图出现；页面文本/标题已脱敏；三次探测 LLM 调用增量 0；`pnpm detect:validate -- --target all|real` + `artifacts/detect/validate-last.json`；`pnpm verify` 全绿（2026-11-08）
 
 **V0.7 实时与媒体机制（约 2～3 周）**
 
@@ -559,6 +559,7 @@ pnpm --filter @testpilot/test-management exec playwright install chromium
 - 能力探测已可用，但需求生成仍走 `planFromIntake` 规则模板；把 `SystemProfile` 用于机制路由在 V0.7/V0.8。
 - 无 WebSocket/SSE 帧证据、无多 browser context/多账号执行；实时消息与富媒体机制尚未接入（V0.7）。
 - Agent 断言目前只读 OTel trace；无幻觉 rubric、无独立 semantic suite（V0.8）。
+- 真实环境只开放系统画像；创建/试跑未开放，避免自动写入业务数据。聊天页当前无会话，V0.7 需要人工准备测试会话后再验证消息投递。
 - SPA 视图已采集信号，但 `SystemProfile.surfaces` 目前只记录 URL 路由；V6-5 控制台需要按视图展示时再补。
 - 无 PostgreSQL 持久化 / 多项目 / RBAC / 远程 CI（V0.5 完整版暂缓）。
 

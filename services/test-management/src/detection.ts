@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { collectSystemProfile, type SystemProfile } from "@testpilot/detect";
+import { redactStringBody } from "@testpilot/evidence";
 import { chromium, type Page } from "playwright";
 import { openPilotPage } from "./pilot-intake-snapshot.js";
+import { openRealPage } from "./real-login.js";
 import { resolveRequirementTargetUrl, type RequirementTarget } from "./requirement-target.js";
 import { pilotSecretsConfigured } from "./run-env.js";
 import { isAllowedTargetUrl, isSafeRunId } from "./security.js";
@@ -43,6 +45,7 @@ export type RunDetectionInput = {
   demoUrl: string;
   pilotUrl?: string;
   pilotIntakeUrl?: string;
+  realUrl?: string;
   loginPath?: string;
 };
 
@@ -50,6 +53,7 @@ type OpenPageInput = {
   target: DetectionTarget;
   url: string;
   pilotUrl?: string;
+  realUrl?: string;
   loginPath?: string;
 };
 
@@ -70,6 +74,7 @@ export async function runDetection(
     demoUrl: input.demoUrl,
     pilotUrl: input.pilotUrl,
     pilotIntakeUrl: input.pilotIntakeUrl,
+    realUrl: input.realUrl,
   });
   if (!resolved.ok) throw new Error(resolved.error);
   if (!isAllowedTargetUrl(resolved.url)) throw new Error("目标 URL 不在允许列表");
@@ -82,12 +87,18 @@ export async function runDetection(
     target: input.target,
     url: resolved.url,
     pilotUrl: input.pilotUrl,
+    realUrl: input.realUrl,
     loginPath: input.loginPath,
   });
   try {
     onStage("采集页面与信号");
-    const collect = deps.collect ?? ((page: Page) => collectSystemProfile(page, { maxRoutes: 12 }));
-    const profile = await collect(handle.page);
+    const collectOptions =
+      input.target === "real"
+        ? { maxRoutes: 6, settleMs: 2_500, routeTimeoutMs: 30_000, expandWaitMs: 5_000 }
+        : { maxRoutes: 12 };
+    const collect =
+      deps.collect ?? ((page: Page) => collectSystemProfile(page, collectOptions));
+    const profile = sanitizeProfile(await collect(handle.page), input.target === "real");
 
     onStage("保存系统画像");
     const id = `detect_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
@@ -114,6 +125,10 @@ async function openPage(input: OpenPageInput): Promise<{ page: Page; close: () =
     });
     return { page, close: () => browser.close() };
   }
+  if (input.target === "real") {
+    const { browser, page } = await openRealPage(input.realUrl ?? "");
+    return { page, close: () => browser.close() };
+  }
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
@@ -124,6 +139,35 @@ async function openPage(input: OpenPageInput): Promise<{ page: Page; close: () =
     await browser.close().catch(() => undefined);
     throw err;
   }
+}
+
+/**
+ * Real-environment profiles keep capability/signal/route evidence but drop page
+ * text and titles so stored artifacts do not contain people or project names.
+ */
+function sanitizeProfile(profile: SystemProfile, stripText: boolean): SystemProfile {
+  return {
+    ...profile,
+    surfaces: profile.surfaces.map((surface) => ({
+      route: surface.route,
+      elements: surface.elements.map((element) => ({
+        role: element.role,
+        testId: element.testId,
+        inputType: element.inputType,
+        ...(stripText
+          ? {}
+          : { name: element.name ? redactStringBody(element.name) : element.name }),
+      })),
+      ...(stripText ? {} : { title: surface.title ? redactStringBody(surface.title) : surface.title }),
+    })),
+    signals: profile.signals.map((signal) => ({
+      ...signal,
+      evidence: signal.evidence.map((evidence) => ({
+        ...evidence,
+        summary: stripText ? signal.id : redactStringBody(evidence.summary),
+      })),
+    })),
+  };
 }
 
 export async function saveDetection(dataRoot: string, record: DetectionRecord): Promise<void> {

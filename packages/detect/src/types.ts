@@ -28,6 +28,7 @@ export type SignalId =
   | "dom.role-menu"
   | "dom.status-column"
   | "dom.approval-actions"
+  | "dom.chat-surface"
   | "dom.message-list"
   | "dom.message-composer"
   | "dom.file-input"

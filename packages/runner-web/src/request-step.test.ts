@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdtemp, readdir, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -20,6 +22,30 @@ function requestIr(baseUrl: string, steps: TestStep[]): TestIR {
     steps,
     assertions: [],
   };
+}
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+async function filesContain(dir: string, needle: string): Promise<boolean> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const raw = Buffer.from(needle);
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (await filesContain(path, needle)) return true;
+      continue;
+    }
+    const buf = await readFile(path);
+    if (buf.includes(raw)) return true;
+  }
+  return false;
 }
 
 function listen(server: Server): Promise<number> {
@@ -175,6 +201,130 @@ test("request step does not follow a redirect to another origin", async () => {
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await new Promise<void>((resolve) => evil.close(() => resolve()));
+  }
+});
+
+test("request step saves an id and uses it on the next call", async () => {
+  const users = new Map<string, { email: string }>();
+  let echo = "";
+  const server = createServer((req, res) => {
+    void (async () => {
+      if (req.method === "POST" && req.url === "/api/users") {
+        const body = JSON.parse(await readBody(req)) as { email: string };
+        const id = "user-1";
+        users.set(id, { email: body.email });
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify({ id, email: body.email }));
+        return;
+      }
+      if (req.method === "GET" && req.url?.startsWith("/api/users/")) {
+        const id = req.url.slice("/api/users/".length);
+        const user = users.get(id);
+        res.writeHead(user ? 200 : 404, { "content-type": "application/json" });
+        res.end(JSON.stringify(user ?? { error: "missing" }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/echo") {
+        echo = await readBody(req);
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<!doctype html><body>ok</body>");
+    })();
+  });
+  const port = await listen(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const run = await runTestIR(
+      requestIr(baseUrl, [
+        {
+          id: "create",
+          action: "request",
+          method: "POST",
+          path: "/api/users",
+          body: { email: "created-{{runId}}@example.com" },
+          saveAs: "raw",
+          saveFields: { userId: "id" },
+        },
+        { id: "load", action: "request", method: "GET", path: "/api/users/{{userId}}" },
+        { id: "echo", action: "request", method: "POST", path: "/api/echo", body: "{{raw}}" },
+      ]),
+      { env: { baseUrl }, headless: true, runId: "run-template" },
+    );
+    assert.equal(run.status, "passed", run.steps.map((step) => step.message).join("; "));
+    assert.equal(users.get("user-1")?.email, "created-run-template@example.com");
+    assert.match(echo, /"id":"user-1"/);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("request step fails when an env template is missing and does not record the secret", async () => {
+  const token = "sekret-v7-token-value";
+  const envName = "TESTPILOT_ENV_V7TOKEN";
+  const previous = process.env[envName];
+  delete process.env.TESTPILOT_ENV_V7MISSING;
+  process.env[envName] = token;
+  let hits = 0;
+  let seenToken = "";
+  const server = createServer((req, res) => {
+    hits += 1;
+    seenToken = String(req.headers["x-test-token"] ?? "");
+    res.writeHead(204);
+    res.end();
+  });
+  const port = await listen(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const artifactsDir = await mkdtemp(join(tmpdir(), "testpilot-request-env-"));
+  try {
+    const missing = await runTestIR(
+      requestIr(baseUrl, [
+        {
+          id: "call",
+          action: "request",
+          method: "GET",
+          path: "/api/secret",
+          headers: { "x-test-token": "{{env.v7Missing}}" },
+        },
+      ]),
+      { env: { baseUrl }, headless: true, artifactsDir },
+    );
+    assert.equal(missing.steps[0]?.status, "failed");
+    assert.match(missing.steps[0]?.message ?? "", /request missing env: v7Missing \(TESTPILOT_ENV_V7MISSING\)/);
+    assert.equal(hits, 0);
+
+    const missingVar = await runTestIR(
+      requestIr(baseUrl, [
+        { id: "call", action: "request", method: "GET", path: "/api/users/{{userId}}" },
+      ]),
+      { env: { baseUrl }, headless: true, artifactsDir },
+    );
+    assert.equal(missingVar.steps[0]?.status, "failed");
+    assert.match(missingVar.steps[0]?.message ?? "", /request missing variable: userId/);
+    assert.equal(hits, 0);
+
+    const sent = await runTestIR(
+      requestIr(baseUrl, [
+        {
+          id: "call",
+          action: "request",
+          method: "GET",
+          path: "/api/secret",
+          headers: { "x-test-token": "{{env.v7Token}}" },
+        },
+      ]),
+      { env: { baseUrl }, headless: true, artifactsDir, runId: "env-sent" },
+    );
+    assert.equal(sent.status, "passed", sent.steps.map((step) => step.message).join("; "));
+    assert.equal(seenToken, token);
+    assert.equal(JSON.stringify(sent).includes(token), false);
+    assert.equal(await filesContain(join(artifactsDir, "env-sent"), token), false);
+  } finally {
+    if (previous === undefined) delete process.env[envName];
+    else process.env[envName] = previous;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
 

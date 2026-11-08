@@ -5,6 +5,12 @@ import { classifyFailure, createEvidenceCollector, maxRunAttempts, redactForEvid
 import type { RunEnvironment } from "@testpilot/fixtures";
 import { buildReadonlyDbClient, buildAgentTraceClient, getDbConfigBundle, getAgentConfigBundle, resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveValueRefs } from "@testpilot/fixtures";
 import { executeSelectCascader } from "./select-cascader.js";
+import {
+  assignResponseVariables,
+  lookupProcessEnv,
+  redactSecretValues,
+  renderRequestStep,
+} from "./request-template.js";
 import { chromium, type Browser, type BrowserContext, type Locator as PwLocator, type Page } from "playwright";
 
 export type RunStatus = "passed" | "failed" | "error";
@@ -140,7 +146,7 @@ export function resolveSameOriginRequestUrl(path: string | undefined, baseUrl: s
   }
   if (target.username || target.password) throw new Error("request blocked: URL credentials are not allowed");
   if (target.origin !== base.origin) {
-    throw new Error(`request blocked: cross-origin (target ${target.origin}, base ${base.origin})`);
+    throw new Error("request blocked: cross-origin URL");
   }
   return target;
 }
@@ -152,6 +158,8 @@ async function executeStep(
   baseUrl: string,
   refs: Record<string, string>,
   runId: string,
+  vars: Record<string, string>,
+  secrets: string[],
 ) {
   const started = Date.now();
   try {
@@ -221,17 +229,24 @@ async function executeStep(
         if (step.body !== undefined && step.form !== undefined) {
           throw new Error("request accepts body or form, not both");
         }
-        const target = resolveSameOriginRequestUrl(step.path, baseUrl);
+        const rendered = renderRequestStep(step, {
+          runId,
+          vars,
+          lookupEnv: lookupProcessEnv,
+          secrets,
+        });
+        const target = resolveSameOriginRequestUrl(rendered.path, baseUrl);
         const response = await context.request.fetch(target.href, {
           method: step.method,
-          headers: step.headers,
-          ...(step.body !== undefined ? { data: step.body } : {}),
-          ...(step.form !== undefined ? { form: step.form } : {}),
+          headers: rendered.headers,
+          ...(rendered.body !== undefined ? { data: rendered.body } : {}),
+          ...(rendered.form !== undefined ? { form: rendered.form } : {}),
           maxRedirects: 0,
           failOnStatusCode: false,
           timeout: 15_000,
         });
-        await response.text().catch(() => "");
+        const responseText = await response.text();
+        assignResponseVariables(step, responseText, vars);
         break;
       }
       default:
@@ -239,11 +254,12 @@ async function executeStep(
     }
     return { stepId: step.id, status: "passed" as const, durationMs: Date.now() - started };
   } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err);
     return {
       stepId: step.id,
       status: "failed" as const,
       durationMs: Date.now() - started,
-      message: err instanceof Error ? err.message : String(err),
+      message: redactSecretValues(raw, secrets),
     };
   }
 }
@@ -291,9 +307,11 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
     const context = await browser.newContext();
     const page = await context.newPage();
     await evidence.attachPage(context, page);
+    const vars: Record<string, string> = {};
+    const templateSecrets: string[] = [];
 
     for (const step of ir.steps) {
-      const result = await executeStep(page, context, step, baseUrl, refs, runId);
+      const result = await executeStep(page, context, step, baseUrl, refs, runId, vars, templateSecrets);
       steps.push(result);
       if (result.status === "failed") {
         status = "failed";

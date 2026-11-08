@@ -90,6 +90,13 @@ const cases: Case[] = [
     requires: ["mutation-allowed", "test-data"],
   },
   {
+    name: "state actions plus form classify workflow",
+    signals: [signal("dom.state-actions"), signal("dom.form-dialog")],
+    expected: "workflow",
+    minConfidence: 0.6,
+    requires: ["mutation-allowed", "test-data"],
+  },
+  {
     name: "file input classifies file media",
     signals: [signal("dom.file-input")],
     expected: "file-media",
@@ -228,6 +235,18 @@ test("a table alone does not ask search-filter questions", () => {
   const result = evaluateCapabilities({ signals: [signal("dom.table")] });
   assert.equal(
     result.questions.some((question) => question.capability === "search-filter"),
+    false,
+  );
+});
+
+test("a message list alone does not ask realtime questions", () => {
+  const result = evaluateCapabilities({ signals: [signal("dom.message-list")] });
+  assert.equal(
+    result.capabilities.some((item) => item.id === "realtime-messaging"),
+    false,
+  );
+  assert.equal(
+    result.questions.some((question) => question.capability === "realtime-messaging"),
     false,
   );
 });

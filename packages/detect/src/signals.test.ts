@@ -84,8 +84,27 @@ test("file input is a file signal", () => {
   assertEvidence(signals, route);
 });
 
-test("password field and login button are a login form", () => {
-  const route = "/account";
+test("upload control, status counter, and state actions are distinguished", () => {
+  const route = "/tickets";
+  const signals = classifySignals({
+    route,
+    dom: [
+      { tag: "button", visible: true, name: "拖放现场图片或文档到这里 文件将从浏览器直传" },
+      { tag: "div", role: "status", visible: true, name: "0 / 1000 characters" },
+      { tag: "button", visible: true, name: "消息通知" },
+      { tag: "button", visible: true, name: "取消工单" },
+    ],
+    network: [],
+  });
+  const ids = new Set(signals.map((signal) => signal.id));
+  assert.ok(ids.has("dom.file-input"));
+  assert.ok(ids.has("dom.state-actions"));
+  assert.equal(ids.has("dom.status-column"), false);
+  assert.equal(ids.has("dom.message-list"), false);
+  assertEvidence(signals, route);
+});
+
+test("password field and login button are a login form", () => {  const route = "/account";
   const signals = classifySignals({
     route,
     dom: [

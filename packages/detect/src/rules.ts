@@ -25,6 +25,7 @@ export const DEFAULT_RULES: CapabilityRule[] = [
     id: "realtime.websocket-chat",
     capability: "realtime-messaging",
     requiredSignals: ["network.websocket", "dom.message-list", "dom.message-composer"],
+    partialQuestionSignals: ["network.websocket", "dom.message-composer"],
     confidence: 0.85,
     requires: ["second-actor", "ws-observable"],
     unknowns: ["消息持久化、重连补发与去重策略需在机制包中确认"],
@@ -53,6 +54,16 @@ export const DEFAULT_RULES: CapabilityRule[] = [
     boostPerExtraSignal: 0.1,
     requires: ["mutation-allowed", "test-data"],
     unknowns: ["状态机合法/非法流转与角色权限需人工确认"],
+  },
+  {
+    id: "workflow.state-actions",
+    capability: "workflow",
+    requiredSignals: ["dom.state-actions"],
+    anySignals: ["dom.form-dialog"],
+    confidence: 0.75,
+    boostPerExtraSignal: 0.05,
+    requires: ["mutation-allowed", "test-data"],
+    unknowns: ["发现实体状态操作（取消/关闭/归档等）；需确认状态机与角色"],
   },
   {
     id: "file-media.file-input",
@@ -129,6 +140,7 @@ export const DEFAULT_RULES: CapabilityRule[] = [
 const SIGNAL_LABELS: Record<SignalId, string> = {
   "dom.table": "表格",
   "dom.entity-actions": "实体操作（新增/编辑/删除）",
+  "dom.state-actions": "状态操作（取消/关闭/归档）",
   "dom.form-dialog": "表单弹窗",
   "dom.login-form": "登录表单",
   "dom.role-menu": "角色/租户菜单",

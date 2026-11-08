@@ -34,6 +34,8 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 
 本地发布前门禁（无 GitHub CI）：[`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md) · 命令 `pnpm verify`（需 demo `:4173` 可达，见文档）。
 
+能力探测校验（需 API 与目标环境已启动）：`pnpm detect:validate -- --target demo`，真实试点用 `--target pilot`，两者一起用 `--target all`；报告写入 `artifacts/detect/validate-last.json`。
+
 ### 业务试点（P0-1）
 
 1. 复制凭据：`cp .env.example .env` 并填写 `TESTPILOT_ENV_ADMIN_*`（勿提交 Git）
@@ -79,7 +81,7 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 | Management API | `services/test-management` |
 | Demo + 种子用例 | `examples/demo-webapp` |
 
-下一阶段（V0.6）是[能力探测与机制包](ROADMAP.md)：先发现系统是什么能力（CRUD / 实时消息 / 富媒体 / Agent 等），再用对应机制包和真实证据断言测试；实现细节见 `ROADMAP.md` §6.3。
+V0.6 已完成[能力探测与系统画像](ROADMAP.md)：先发现系统是什么能力（CRUD / 实时消息 / 富媒体 / Agent 等），再按能力选择测试机制；下一阶段是 V0.7 实时消息与富媒体机制。
 
 高级用户仍可用 `pnpm cli run …`（见 `ROADMAP.md` 附录）。
 

@@ -22,6 +22,7 @@ export type RequirementId =
 export type SignalId =
   | "dom.table"
   | "dom.entity-actions"
+  | "dom.state-actions"
   | "dom.form-dialog"
   | "dom.login-form"
   | "dom.role-menu"

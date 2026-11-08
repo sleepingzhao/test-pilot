@@ -216,6 +216,13 @@
         <p class="lede">维护控制台账号。下方列表已包含测试账号 <code>duplicate@example.com</code>，用于验证「重复邮箱」场景。</p>
 
         <div class="card">
+          <input
+            id="user-search"
+            type="search"
+            placeholder="搜索用户邮箱"
+            aria-label="搜索用户"
+            style="margin-bottom:12px;padding:8px 10px;border:1px solid #d9dee8;border-radius:8px;font:inherit;width:100%;max-width:320px"
+          />
           <table aria-label="用户列表">
             <thead>
               <tr>
@@ -294,6 +301,14 @@
       const emailInput = document.getElementById("email");
       const saveBtn = document.getElementById("save-user");
       const cancelBtn = document.getElementById("cancel-user");
+      const userSearch = document.getElementById("user-search");
+
+      userSearch.addEventListener("input", () => {
+        const query = userSearch.value.trim().toLowerCase();
+        document.querySelectorAll('table[aria-label="用户列表"] tbody tr').forEach((row) => {
+          row.hidden = Boolean(query) && !row.textContent.toLowerCase().includes(query);
+        });
+      });
 
       function showAlert(kind, text) {
         alertEl.className = kind + " show";

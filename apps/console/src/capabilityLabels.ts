@@ -22,6 +22,7 @@ export const REQUIREMENT_LABELS: Record<string, string> = {
 export const SIGNAL_LABELS: Record<string, string> = {
   "dom.table": "表格",
   "dom.entity-actions": "实体操作",
+  "dom.state-actions": "状态操作",
   "dom.form-dialog": "表单弹层",
   "dom.login-form": "登录表单",
   "dom.role-menu": "角色/租户菜单",
@@ -29,7 +30,7 @@ export const SIGNAL_LABELS: Record<string, string> = {
   "dom.approval-actions": "审批操作",
   "dom.message-list": "消息列表",
   "dom.message-composer": "消息输入区",
-  "dom.file-input": "文件选择",
+  "dom.file-input": "文件选择/上传控件",
   "dom.search-input": "搜索框",
   "dom.pagination": "分页",
   "dom.agent-chat": "Agent 聊天区",

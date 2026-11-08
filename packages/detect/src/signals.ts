@@ -32,6 +32,10 @@ export type ClassifySignalsInput = {
 
 const ENTITY_ACTION =
   /新增|添加|创建|编辑|修改|删除|移除|保存|\badd\b|\bcreate\b|\bedit\b|\bdelete\b|\bsave\b/i;
+const STATE_ACTION =
+  /取消工单|取消订单|关闭工单|关闭订单|撤回|归档|停用|启用|\barchive\b|\bdeactivate\b|\bactivate\b/i;
+const STATUS_TEXT =
+  /正常|待处理|处理中|进行中|已完成|已关闭|已取消|已超时|开启|关闭|启用|停用|pending|active|done|closed|canceled|cancelled|open|in.?progress/i;
 const APPROVAL_ACTION = /审批|通过|驳回|同意|\bapprove\b|\breject\b/i;
 const ROLE_MENU =
   /角色|权限|租户|组织|团队|\broles?\b|\bpermissions?\b|\btenants?\b|\bteams?\b/i;
@@ -68,6 +72,9 @@ export function classifySignals(input: ClassifySignalsInput): Signal[] {
   const actions = dom.filter((el) => isAction(el) && ENTITY_ACTION.test(textOf(el)));
   push(signals, route, "dom.entity-actions", 0.9, "dom", actions.map((el) => named("可见实体操作", el)));
 
+  const stateActions = dom.filter((el) => isAction(el) && STATE_ACTION.test(textOf(el)));
+  push(signals, route, "dom.state-actions", 0.8, "dom", stateActions.map((el) => named("可见状态操作", el)));
+
   const fields = dom.filter(isFormControl);
   const dialogs = dom.filter((el) => el.role === "dialog" || el.tag === "dialog");
   const forms = dom.filter((el) => el.tag === "form" || el.role === "form");
@@ -101,7 +108,7 @@ export function classifySignals(input: ClassifySignalsInput): Signal[] {
   const statusHeaders = dom.filter(
     (el) => (el.tag === "th" || el.role === "columnheader") && /状态|\bstatus\b/i.test(textOf(el)),
   );
-  const statusBadges = dom.filter((el) => el.role === "status");
+  const statusBadges = dom.filter((el) => el.role === "status" && STATUS_TEXT.test(textOf(el)));
   push(
     signals,
     route,
@@ -126,8 +133,8 @@ export function classifySignals(input: ClassifySignalsInput): Signal[] {
     ]);
   }
 
-  const files = dom.filter((el) => el.tag === "input" && (el.inputType ?? "").toLowerCase() === "file");
-  push(signals, route, "dom.file-input", 1, "dom", files.map((el) => named("可见文件选择", el)));
+  const files = dom.filter((el) => isFileInput(el) || isUploadControl(el));
+  push(signals, route, "dom.file-input", 1, "dom", files.map((el) => named("可见文件选择或上传控件", el)));
 
   const searches = dom.filter(isSearchField);
   push(signals, route, "dom.search-input", 0.9, "dom", searches.map((el) => named("可见搜索框", el)));
@@ -276,6 +283,7 @@ function isLoginRoute(route: string): boolean {
 
 function isMessageList(el: DomObservation): boolean {
   if (el.role === "log") return true;
+  if (el.tag === "button" || el.role === "button") return false;
   if (/消息|message/i.test(el.ariaLabel ?? "")) return true;
   const container = el.role === "list" || el.role === "feed" || el.tag === "ul" || el.tag === "ol";
   return container && CHAT_AREA.test(textOf(el));
@@ -283,8 +291,18 @@ function isMessageList(el: DomObservation): boolean {
 
 function isChatSurface(el: DomObservation): boolean {
   if (el.role === "log" || el.role === "feed") return true;
+  if (el.tag === "button" || el.role === "button") return false;
   if (/消息|聊天|\bchat\b|\bmessage/i.test(el.ariaLabel ?? "")) return true;
   return (el.role === "list" || el.tag === "section") && CHAT_AREA.test(textOf(el));
+}
+
+function isFileInput(el: DomObservation): boolean {
+  return el.tag === "input" && (el.inputType ?? "").toLowerCase() === "file";
+}
+
+function isUploadControl(el: DomObservation): boolean {
+  if (!/附件|上传|拖放.*文件|\bupload\b|\battachment\b/i.test(textOf(el))) return false;
+  return el.role === "group" || isAction(el);
 }
 
 function isComposer(el: DomObservation): boolean {

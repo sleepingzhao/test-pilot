@@ -28,7 +28,18 @@ export type NetworkEntry = {
   /** Truncated POST/PUT body for api-contract assertions (secrets redacted). */
   requestBody?: string;
   responseBody?: string;
+  requestHeaders?: Record<string, string>;
   responseHeaders?: Record<string, string>;
+};
+
+export type DirectNetworkInput = {
+  url: string;
+  method: string;
+  status?: number;
+  requestHeaders?: Record<string, string>;
+  requestBody?: string;
+  responseHeaders?: Record<string, string>;
+  responseBody?: string;
 };
 
 import {
@@ -74,6 +85,7 @@ export function createEvidenceCollector(options: EvidenceOptions) {
         url: redactUrl(n.url),
         requestBody: n.requestBody ? redactStringBody(n.requestBody) : undefined,
         responseBody: n.responseBody ? redactStringBody(n.responseBody) : undefined,
+        requestHeaders: redactHeaders(n.requestHeaders),
         responseHeaders: redactHeaders(n.responseHeaders),
       }),
     );
@@ -86,6 +98,26 @@ export function createEvidenceCollector(options: EvidenceOptions) {
   return {
     getNetworkLog(): NetworkEntry[] {
       return [...network];
+    },
+
+    /** Records a direct `request` step. Same truncation as page captures; redaction happens on write. */
+    recordNetworkEntry(input: DirectNetworkInput) {
+      if (network.length > 200) return;
+      const entry: NetworkEntry = {
+        url: input.url.slice(0, 500),
+        method: input.method,
+        status: input.status,
+        resourceType: "fetch",
+      };
+      if (input.requestBody && input.requestBody.length > 0 && input.requestBody.length <= 8000) {
+        entry.requestBody = input.requestBody.slice(0, 4000);
+      }
+      if (input.responseBody && input.responseBody.length > 0 && input.responseBody.length <= 8000) {
+        entry.responseBody = input.responseBody.slice(0, 4000);
+      }
+      if (input.requestHeaders) entry.requestHeaders = pickResponseHeaders(input.requestHeaders);
+      if (input.responseHeaders) entry.responseHeaders = pickResponseHeaders(input.responseHeaders);
+      network.push(entry);
     },
 
     async waitForNetworkCapture(): Promise<void> {

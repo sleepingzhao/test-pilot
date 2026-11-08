@@ -1,6 +1,6 @@
 import { requestPathIssue, type Locator as TargetLocator, type TestIR, type TestStep } from "@testpilot/test-ir";
 import { runAssertion, urlPathMatches } from "@testpilot/assertions";
-import type { RunArtifacts } from "@testpilot/evidence";
+import type { DirectNetworkInput, RunArtifacts } from "@testpilot/evidence";
 import { classifyFailure, createEvidenceCollector, maxRunAttempts, redactForEvidence, redactStringBody, redactStrings, shouldRetryAfterFailure } from "@testpilot/evidence";
 import type { RunEnvironment } from "@testpilot/fixtures";
 import { buildReadonlyDbClient, buildAgentTraceClient, getDbConfigBundle, getAgentConfigBundle, resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveValueRefs } from "@testpilot/fixtures";
@@ -10,6 +10,7 @@ import {
   lookupProcessEnv,
   redactSecretValues,
   renderRequestStep,
+  requestBodyForEvidence,
 } from "./request-template.js";
 import { chromium, type Browser, type BrowserContext, type Locator as PwLocator, type Page } from "playwright";
 
@@ -160,6 +161,7 @@ async function executeStep(
   runId: string,
   vars: Record<string, string>,
   secrets: string[],
+  recordNetworkEntry: (input: DirectNetworkInput) => void,
 ) {
   const started = Date.now();
   try {
@@ -246,6 +248,15 @@ async function executeStep(
           timeout: 15_000,
         });
         const responseText = await response.text();
+        recordNetworkEntry({
+          url: target.href,
+          method: step.method,
+          status: response.status(),
+          requestHeaders: rendered.headers,
+          requestBody: requestBodyForEvidence(rendered),
+          responseHeaders: response.headers(),
+          responseBody: responseText,
+        });
         assignResponseVariables(step, responseText, vars);
         break;
       }
@@ -311,7 +322,17 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
     const templateSecrets: string[] = [];
 
     for (const step of ir.steps) {
-      const result = await executeStep(page, context, step, baseUrl, refs, runId, vars, templateSecrets);
+      const result = await executeStep(
+        page,
+        context,
+        step,
+        baseUrl,
+        refs,
+        runId,
+        vars,
+        templateSecrets,
+        evidence.recordNetworkEntry,
+      );
       steps.push(result);
       if (result.status === "failed") {
         status = "failed";

@@ -65,7 +65,7 @@ export function redactForEvidence(value: unknown): unknown {
       out[key] = "***";
     } else if (key === "url" && typeof val === "string") {
       out[key] = redactUrl(val);
-    } else if (key === "responseHeaders" || key === "headers") {
+    } else if (key === "responseHeaders" || key === "requestHeaders" || key === "headers") {
       out[key] = redactHeaders(val as Record<string, string>);
     } else if (key === "requestBodies" || key === "responseBodies") {
       out[key] = Array.isArray(val)

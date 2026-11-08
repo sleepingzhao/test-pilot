@@ -96,6 +96,13 @@ export function renderRequestStep(step: TestStep, ctx: TemplateContext): Rendere
   };
 }
 
+export function requestBodyForEvidence(rendered: RenderedRequest): string | undefined {
+  if (typeof rendered.body === "string") return rendered.body;
+  if (rendered.body !== undefined) return JSON.stringify(rendered.body);
+  if (rendered.form) return new URLSearchParams(rendered.form).toString();
+  return undefined;
+}
+
 export function readDotPath(value: unknown, path: string): unknown {
   if (!path.trim()) return undefined;
   let current = value;

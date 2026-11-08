@@ -328,6 +328,72 @@ test("request step fails when an env template is missing and does not record the
   }
 });
 
+test("api assertion matches a request step response of 201 and JSON", async () => {
+  const server = createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/api/users") {
+      void readBody(req).then(() => {
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, email: "created@example.com" }));
+      });
+      return;
+    }
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end("<!doctype html><body>ok</body>");
+  });
+  const port = await listen(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const artifactsDir = await mkdtemp(join(tmpdir(), "testpilot-request-evidence-"));
+  try {
+    const run = await runTestIR(
+      {
+        id: "request-assert",
+        version: 1,
+        platform: "web",
+        baseUrl,
+        steps: [
+          { id: "open", action: "navigate", path: "/" },
+          {
+            id: "create",
+            action: "request",
+            method: "POST",
+            path: "/api/users",
+            headers: { authorization: "Bearer sekret-v7-evidence", cookie: "session=abc" },
+            body: { email: "created@example.com" },
+          },
+        ],
+        assertions: [
+          {
+            id: "created",
+            type: "api",
+            requestRef: "users-create",
+            expect: { statusCode: 201, responseJsonBody: { ok: true, email: "created@example.com" } },
+            oracle: "api-contract",
+          },
+        ],
+      },
+      {
+        env: {
+          baseUrl,
+          requestRefs: { "users-create": { urlIncludes: "/api/users", method: "POST" } },
+        },
+        headless: true,
+        artifactsDir,
+        runId: "evidence-run",
+      },
+    );
+    assert.equal(run.status, "passed", run.assertions.map((item) => item.message).join("; "));
+    assert.equal(run.assertions[0]?.passed, true);
+    assert.ok(run.artifacts.artifacts.some((item) => item.kind === "network"));
+    const written = await readFile(join(artifactsDir, "evidence-run", "network.json"), "utf8");
+    assert.match(written, /"authorization": "\*\*\*"/);
+    assert.match(written, /"cookie": "\*\*\*"/);
+    assert.doesNotMatch(written, /sekret-v7-evidence/);
+    assert.doesNotMatch(written, /session=abc/);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("request step fails when method or path is missing", async () => {
   const baseUrl = "http://127.0.0.1:9";
   const missingMethod = await runTestIR(

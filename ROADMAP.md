@@ -396,7 +396,7 @@ interface MechanismPack {
 **V0.6 探测底座（约 2 周）**
 
 - [ ] V6-1 `SystemProfile` + `packages/detect` — 定义路由/页面/表单/网络/WS/SSE/上传/聊天/Agent 信号的数据结构与版本；`pnpm verify` 全绿
-- [ ] V6-2 被动采集器 + 有界爬取 — 登录后枚举同源路由（上限 12～20），只读不提交；采集 DOM/表单/网络/WS/SSE；失败不阻塞
+- [x] V6-2 被动采集器 + 有界爬取 — `packages/detect/src/collector.ts` + `signals.ts`；登录后枚举同源路由（上限 12），只读不提交；采集 DOM/表单/网络/WS/SSE；隐式 submit/cancel 与 destructive 名称有安全回归；`collector.test.ts` / `signals.test.ts`；`pnpm verify` 全绿（2026-11-08）
 - [ ] V6-3 能力分类规则 v1 — CRUD/Auth/Workflow/Upload/Search/Realtime/Agent/Rich content 的确定性打分、置信度与证据引用；正负测试
 - [ ] V6-4 LLM 歧义归类 — 低置信度/规则冲突时才调用；输入紧凑 digest，输出 enum + evidence ids；schema 校验、缓存、token 预算、无证据丢弃
 - [ ] V6-5 系统画像与 API — 探测报告/能力图谱/未知项/重跑；复用 session 目录 `kind: "detect"`；控制台「系统画像」页与创建页能力提示
@@ -559,6 +559,7 @@ pnpm --filter @testpilot/test-management exec playwright install chromium
 - 无能力探测（Detect）与 `SystemProfile`；需求仍走 `planFromIntake` 规则模板（V0.6）。
 - 无 WebSocket/SSE 帧证据、无多 browser context/多账号执行；实时消息与富媒体机制尚未接入（V0.7）。
 - Agent 断言目前只读 OTel trace；无幻觉 rubric、无独立 semantic suite（V0.8）。
+- SPA 视图已采集信号，但 `SystemProfile.surfaces` 目前只记录 URL 路由；V6-5 控制台需要按视图展示时再补。
 - 无 PostgreSQL 持久化 / 多项目 / RBAC / 远程 CI（V0.5 完整版暂缓）。
 
 ### 11.4 证据要求

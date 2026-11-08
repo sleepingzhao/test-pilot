@@ -157,7 +157,7 @@ Console 的断言编辑器需要支持：
 | V0.4 可重复回归（已完成） | 显式批次与并行、flake 统计与看板、运行详情页、证据保留/清理、试点成功用例业务化、连续 3 批基线 | Provider 扩展、GitLab/CI、PostgreSQL、RBAC、调度 |
 | V0.5-lite 需求→自动测试（已完成） | 一句话/PRD → 草稿 → 自动试跑 → 一键入回归；LLM 用量与降级可见 | 自动批准、CI、团队平台 |
 | V0.6 能力探测底座（已完成） | Detect、SystemProfile、能力分类 v1、系统画像、LLM 能力分析与测试建议 | 新执行器、实时/Agent 断言 |
-| V0.7 实时与媒体机制（下一阶段） | WebSocket/SSE 证据、多账号执行、realtime-messaging、file-media 机制包 | Agent 语义判断 |
+| V0.7 接口直连与实时机制（下一阶段） | 业务接口直连、WebSocket/SSE 证据、多账号执行、realtime-messaging、file-media 机制包 | Agent 语义判断 |
 | V0.8 Agent 机制 | 工具调用断言、幻觉/引用/多轮、LLM judge 独立 semantic suite | 自动批准、无证据 judge |
 | V0.9 机制扩展与漂移 | workflow/auth-rbac/search-filter 机制包、探测 diff、pack SDK | 平台化 |
 | V1.0 开源/多端 | Docker、文档、插件 SDK、Android/iOS/Harmony/Glass Adapter、基准 | 一次性完成所有端 |
@@ -404,14 +404,24 @@ interface MechanismPack {
 
 **V0.7 实时与媒体机制（约 2～3 周）**
 
-**第一批：文件/媒体（先跑通「能力 → 机制 → 证据断言」）**
+**第一目标：业务接口直连（V7-0，先做）**
+
+现有 `api` 断言只能匹配页面操作触发的真实请求，无法主动调用业务接口。先把「接口测试」变成一等能力，再做 UI/机制包。
+
+- [ ] V7-0a `request` 步骤 — `StepAction` 增加 `request`；IR schema/types/validator 支持 `method`/`path`/`headers`/`body`/`form`/`saveAs`；runner 用 `browserContext.request` 执行，自动复用已登录浏览器的 Cookie；仅允许同源（或白名单 origin），禁止任意 URL / SSRF；负向测试覆盖跨源、缺失 method/path
+- [ ] V7-0b 变量与模板 — `{{runId}}`、`{{var}}`、`{{env.KEY}}` 在 path/headers/body/form 中解析；`saveAs` + `saveFields` 从响应 JSON 提取变量供后续步骤使用；IR 只存 env key 名，不存密钥；缺变量/缺 env 必须步骤失败且报错清晰
+- [ ] V7-0c 请求证据接入 — `request` 步骤的请求/响应写入现有 network 证据（复用 `captured-http` 的 `requestRef` 断言与脱敏）；Authorization/Cookie 必须脱敏；证据可下载
+- [ ] V7-0d demo/试点验证 — demo 增加 API-only 用例（登录 → 直接 POST/GET → 状态码 + JSON 断言），覆盖 201/400/409；负向验证：返回 500/错误 JSON 时断言必须失败；`pnpm verify` 全绿
+- [ ] V7-0e 控制台接口用例 — 创建页支持“接口模式”：方法/路径/头/体/断言编辑 + 试跑；真实/试点仅在有明确授权时允许写接口（后续，先不做）
+
+**第二批：文件/媒体（接口直连验收后）**
 
 - [ ] V7-5a `upload` 步骤 — `StepAction` 增加 `upload`；IR schema/types/validator 支持；runner 用 Playwright `setInputFiles`，文件路径只从 `valueRef` → env 解析，限制在 `TESTPILOT_FIXTURE_DIR` 内；越界/缺失/目录路径必须有负向测试
 - [ ] V7-5b demo `/files` — `examples/demo-webapp/files.html` + multipart `POST /api/files`、`GET /api/files`、`GET /api/files/:id/content`、`DELETE /api/files/:id`；只收 image/png、image/jpeg、application/pdf，大小上限 1 MB（413/415）；内存存储，不落盘；故障注入开关（拒绝合法上传 / 接受非法类型）用于负向探针
 - [ ] V7-5c `packages/mechanisms` + file-media pack — `planFileMedia(profile, ctx)`：file-media 能力缺失时返回 `runnable: false` + 原因；否则生成可评审 IR（navigate → upload → 提交），断言上传请求 201 + 响应 JSON + 列表出现文件名；支持类型/大小负例场景
 - [ ] V7-5d 负向验证 — 故障注入「拒绝合法上传」时正向机制必须失败；「接受非法类型」时负例必须失败；`pnpm verify` 全绿
 
-**第二批：实时消息（V7-5 完成并验收后）**
+**第三批：实时消息（文件/媒体验收后）**
 
 - [ ] V7-1 WS/SSE 证据 — 采集 WebSocket frames（方向/URL/大小/前 N 条）与 SSE chunks；脱敏、截断、大小上限；证据可下载
 - [ ] V7-2 多账号执行 — IR 增加 `actors`，runner 支持多 browser context、`waitForEvent`；单账号回退必须显式标注
@@ -438,7 +448,7 @@ interface MechanismPack {
 ### 6.3.5 发布门槛与验收指标
 
 - V0.6：demo 识别 CRUD/上传/搜索；试点识别当前工单面；真实环境识别 IM/文件并发现 Agent 平台；每次探测 1 次 LLM 分析（digest 命中缓存时 0 次），所有 LLM 结论必须带证据；误判以问题呈现；0 条自动批准。
-- V0.7：demo 上 A→B 文本/图片真实送达；超长按不变量断言；重连不丢不重；阻断投递时断言必须失败。
+- V0.7：业务接口可主动调用（同源、复用登录 Cookie）并断言状态/JSON/头，返回 500 或错误 JSON 时断言必须失败；demo 上 A→B 文本/图片真实送达；超长按不变量断言；重连不丢不重；阻断投递时断言必须失败。
 - V0.8：工具调用可确定性断言；喂一个「编造答案」的 agent 时幻觉用例必须失败；LLM judge 无证据不得通过；成本可见。
 - V0.9：4 个以上机制包；探测 diff 能指出受影响的用例；不自动改批准。
 

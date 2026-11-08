@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import { snapshotPageContext } from "@testpilot/context-web";
 import { evaluateCapabilities } from "./rules.js";
 import {
@@ -210,7 +210,7 @@ function attachNetwork(page: Page): { records: NetworkObservation[]; detach: () 
     seen.add(key);
     records.push(item);
   };
-  const onResponse = (response: { url: () => string; status: () => number; headers: () => Record<string, string>; request: () => { method: () => string; resourceType: () => string } }) => {
+  const onResponse = (response: { url: () => string; status: () => number; headers: () => Record<string, string>; request: () => { method: () => string; resourceType: () => string; headers: () => Record<string, string> } }) => {
     try {
       const request = response.request();
       const resourceType = request.resourceType();
@@ -218,12 +218,19 @@ function attachNetwork(page: Page): { records: NetworkObservation[]; detach: () 
       const rawUrl = response.url();
       if (!/^(https?:|wss?:)/i.test(rawUrl)) return;
       const contentType = response.headers()["content-type"]?.split(";")[0]?.trim().toLowerCase();
+      let requestContentType: string | undefined;
+      try {
+        requestContentType = request.headers()["content-type"]?.split(";")[0]?.trim().toLowerCase();
+      } catch {
+        requestContentType = undefined;
+      }
       push({
         url: normalizeNetworkUrl(rawUrl),
         method: request.method(),
         status: response.status(),
         resourceType,
         contentType,
+        requestContentType,
         websocket: resourceType === "websocket",
       });
     } catch {
@@ -271,18 +278,18 @@ async function readOpenedForm(
   timing: { settleMs: number; routeTimeoutMs: number },
 ): Promise<{ dom: DomObservation[]; beforeUrl: string }> {
   const beforeUrl = page.url();
-  const candidate = before.find(isOpenTarget);
-  if (!candidate) return { dom: before, beforeUrl };
-  const clicked = await clickNamed(page, candidate);
-  if (!clicked) return { dom: before, beforeUrl };
-  await page.waitForTimeout(timing.settleMs);
-  if (!sameOrigin(beforeUrl, page.url())) {
-    await restore(page, beforeUrl, timing.routeTimeoutMs);
-    return { dom: before, beforeUrl };
+  for (const candidate of before.filter(isOpenTarget)) {
+    const clicked = await clickNamed(page, candidate);
+    if (!clicked) continue;
+    await page.waitForTimeout(timing.settleMs);
+    if (!samePlace(beforeUrl, page.url())) {
+      await restore(page, beforeUrl, timing.routeTimeoutMs);
+      return { dom: before, beforeUrl };
+    }
+    const after = await observeDom(page);
+    return { dom: withOpenedForm(before, after), beforeUrl };
   }
-  const after = await observeDom(page);
-  const dom = samePlace(beforeUrl, page.url()) ? withOpenedForm(before, after) : dedupeDom([...before, ...after]);
-  return { dom, beforeUrl };
+  return { dom: before, beforeUrl };
 }
 
 async function closeOpenedForm(page: Page, beforeUrl: string, timeout: number): Promise<void> {
@@ -292,7 +299,7 @@ async function closeOpenedForm(page: Page, beforeUrl: string, timeout: number): 
   }
   await page.keyboard.press("Escape").catch(() => undefined);
   const cancel = page.getByRole("button", { name: /^(取消|cancel)$/i }).filter({ visible: true }).first();
-  if (await cancel.isVisible().catch(() => false)) {
+  if ((await cancel.isVisible().catch(() => false)) && !(await isSubmitControl(cancel))) {
     await cancel.click({ timeout: 1500 }).catch(() => undefined);
   }
 }
@@ -307,8 +314,7 @@ async function clickNamed(page: Page, el: DomObservation): Promise<boolean> {
   ).filter({ visible: true }).first();
   try {
     if (!(await locator.isVisible().catch(() => false))) return false;
-    const type = (await locator.getAttribute("type"))?.toLowerCase();
-    if (type === "submit") return false;
+    if (await isSubmitControl(locator)) return false;
     const live = ((await locator.getAttribute("aria-label")) || (await locator.innerText()) || "").replace(/\s+/g, " ").trim();
     if (!isOpenTarget({ ...el, name: live })) return false;
     await locator.click({ timeout: 1500 });
@@ -327,6 +333,7 @@ async function clickSpa(page: Page, item: SpaTarget): Promise<boolean> {
     const button = page.getByRole("button", { name: item.name, exact: true }).filter({ visible: true }).first();
     const locator = item.testId || (await located.isVisible().catch(() => false)) ? located : button;
     if (!(await locator.isVisible().catch(() => false))) return false;
+    if (await isSubmitControl(locator)) return false;
     const href = (await locator.getAttribute("href")) ?? "";
     const live = ((await locator.getAttribute("aria-label")) || (await locator.innerText()) || item.name).replace(/\s+/g, " ").trim();
     if (isForbiddenName(live) || isLogout(href, live)) return false;
@@ -345,9 +352,35 @@ function isOpenTarget(el: DomObservation): boolean {
   return el.tag === "input" && (el.inputType ?? "").toLowerCase() === "button";
 }
 
+const DESTRUCTIVE_ANYWHERE = /删除|移除|清空|\bdelete\b|\bremove\b|\bclear\b/i;
+
 function isForbiddenName(name: string): boolean {
   const trimmed = name.trim();
-  return trimmed === "确认提交" || trimmed.includes("确认提交") || BLOCKED_NAME.test(trimmed);
+  if (trimmed.includes("确认提交")) return true;
+  if (BLOCKED_NAME.test(trimmed)) return true;
+  return DESTRUCTIVE_ANYWHERE.test(trimmed);
+}
+
+/** A button without an explicit type submits when it sits inside a form. */
+async function isSubmitControl(locator: Locator): Promise<boolean> {
+  type SubmitControlNode = {
+    tagName: string;
+    getAttribute(name: string): string | null;
+    closest(selector: string): unknown;
+  };
+  try {
+    return await locator.evaluate((node) => {
+      const el = node as unknown as SubmitControlNode;
+      const tag = el.tagName.toLowerCase();
+      const type = (el.getAttribute("type") ?? "").toLowerCase();
+      if (tag === "input") return type === "submit" || type === "image";
+      if (tag !== "button") return false;
+      if (type) return type === "submit";
+      return Boolean(el.closest("form"));
+    });
+  } catch {
+    return true;
+  }
 }
 
 function withOpenedForm(before: DomObservation[], after: DomObservation[]): DomObservation[] {

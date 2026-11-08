@@ -20,6 +20,7 @@ export type NetworkObservation = {
   status?: number;
   resourceType: string;
   contentType?: string;
+  requestContentType?: string;
   websocket?: boolean;
 };
 
@@ -314,6 +315,7 @@ function isApiTraffic(item: NetworkObservation): boolean {
 
 function isUploadRequest(item: NetworkObservation): boolean {
   if (!isApiTraffic(item)) return false;
+  if (mediaType(item.requestContentType).includes("multipart/form-data")) return true;
   if (mediaType(item.contentType).includes("multipart/form-data")) return true;
   const path = requestPath(item.url);
   if (path.includes("upload") || path.includes("attachment")) return true;

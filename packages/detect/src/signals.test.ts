@@ -153,6 +153,28 @@ test("network evidence drops query strings", () => {
   }
 });
 
+test("multipart request content type is an upload even without a keyword path", () => {
+  const route = "/api";
+  const signals = classifySignals({
+    route,
+    dom: [],
+    network: [
+      {
+        url: "https://api.example/v1/resources?token=secret",
+        method: "POST",
+        resourceType: "fetch",
+        requestContentType: "multipart/form-data; boundary=abc",
+      },
+    ],
+  });
+  const upload = signals.find((signal) => signal.id === "network.upload");
+  assert.ok(upload);
+  assertEvidence([upload], route);
+  for (const evidence of upload.evidence) {
+    assert.equal(evidence.summary.includes("token"), false);
+  }
+});
+
 test("remaining passive signals keep route and omit query", () => {
   const route = "/work";
   const signals = classifySignals({

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateCapabilities, LOW_CONFIDENCE } from "./rules.js";
-import type { RequirementId, Signal, SignalId } from "./types.js";
+import type { CapabilityId, RequirementId, Signal, SignalId } from "./types.js";
 
 function signal(id: SignalId, strength = 1): Signal {
   return {
@@ -14,7 +14,7 @@ function signal(id: SignalId, strength = 1): Signal {
 type Case = {
   name: string;
   signals: Signal[];
-  expected: "crud" | "realtime-messaging" | null;
+  expected: CapabilityId | null;
   minConfidence?: number;
   maxConfidence?: number;
   requires?: RequirementId[];
@@ -68,6 +68,85 @@ const cases: Case[] = [
     signals: [],
     expected: null,
     expectQuestion: false,
+  },
+  {
+    name: "login form classifies auth",
+    signals: [signal("dom.login-form")],
+    expected: "auth",
+    minConfidence: 0.9,
+  },
+  {
+    name: "role menu classifies auth and needs role accounts",
+    signals: [signal("dom.role-menu")],
+    expected: "auth",
+    minConfidence: 0.7,
+    requires: ["role-accounts"],
+  },
+  {
+    name: "status column plus approval actions classify workflow",
+    signals: [signal("dom.status-column"), signal("dom.approval-actions")],
+    expected: "workflow",
+    minConfidence: 0.8,
+    requires: ["mutation-allowed", "test-data"],
+  },
+  {
+    name: "file input classifies file media",
+    signals: [signal("dom.file-input")],
+    expected: "file-media",
+    minConfidence: 0.9,
+    requires: ["upload-fixture"],
+  },
+  {
+    name: "upload request classifies file media",
+    signals: [signal("network.upload")],
+    expected: "file-media",
+    minConfidence: 0.8,
+    requires: ["upload-fixture"],
+  },
+  {
+    name: "search and table classify search filter",
+    signals: [signal("dom.search-input"), signal("dom.table")],
+    expected: "search-filter",
+    minConfidence: 0.8,
+    requires: ["test-data"],
+  },
+  {
+    name: "pagination and table classify search filter",
+    signals: [signal("dom.pagination"), signal("dom.table")],
+    expected: "search-filter",
+    minConfidence: 0.75,
+  },
+  {
+    name: "agent chat plus completion request classifies agent",
+    signals: [signal("dom.agent-chat"), signal("network.chat-completion")],
+    expected: "agent",
+    minConfidence: 0.85,
+    requires: ["trace-source"],
+  },
+  {
+    name: "agent chat plus tool call block classifies agent",
+    signals: [signal("dom.agent-chat"), signal("dom.tool-call-block")],
+    expected: "agent",
+    minConfidence: 0.85,
+    requires: ["trace-source"],
+  },
+  {
+    name: "contenteditable classifies rich content",
+    signals: [signal("dom.contenteditable")],
+    expected: "rich-content",
+    minConfidence: 0.6,
+  },
+  {
+    name: "agent chat alone asks for confirmation",
+    signals: [signal("dom.agent-chat")],
+    expected: null,
+    expectQuestion: true,
+  },
+  {
+    name: "search input without a table asks for confirmation",
+    signals: [signal("dom.search-input")],
+    expected: null,
+    expectQuestion: true,
   },
 ];
 
@@ -125,4 +204,22 @@ test("unconfirmed partial matches carry the page route", () => {
   });
   assert.equal(result.capabilities.length, 0);
   assert.deepEqual(result.questions[0]?.routes, ["/users"]);
+});
+
+test("rules for the same capability merge evidence", () => {
+  const result = evaluateCapabilities({
+    signals: [signal("dom.file-input"), signal("network.upload")],
+  });
+  const capabilities = result.capabilities.filter((item) => item.id === "file-media");
+  assert.equal(capabilities.length, 1);
+  assert.ok(capabilities[0].confidence >= 0.9);
+  assert.ok(capabilities[0].evidenceIds.includes("ev-dom.file-input"));
+  assert.ok(capabilities[0].evidenceIds.includes("ev-network.upload"));
+  assert.ok(capabilities[0].requires.includes("upload-fixture"));
+});
+
+test("a status column alone does not claim workflow", () => {
+  const result = evaluateCapabilities({ signals: [signal("dom.status-column")] });
+  assert.equal(result.capabilities.some((item) => item.id === "workflow"), false);
+  assert.equal(result.questions.length, 0);
 });

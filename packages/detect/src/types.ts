@@ -12,6 +12,7 @@ export type CapabilityId =
 /** Prerequisites a capability needs before its mechanism pack can run honestly. */
 export type RequirementId =
   | "second-actor"
+  | "role-accounts"
   | "ws-observable"
   | "trace-source"
   | "upload-fixture"

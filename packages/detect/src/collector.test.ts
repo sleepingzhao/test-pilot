@@ -43,6 +43,10 @@ test("collects crud signals from a local page without mutating it", async () => 
     assert.ok(ids.has("dom.entity-actions"), [...ids].join(","));
     assert.ok(ids.has("dom.file-input"), [...ids].join(","));
     assert.ok(profile.capabilities.some((item) => item.id === "crud"));
+    assert.ok(
+      profile.capabilities.some((item) => item.id === "file-media"),
+      [...profile.capabilities.map((item) => item.id)].join(","),
+    );
     assert.ok(Array.isArray(profile.questions));
     assert.equal(profile.target.mode, "passive");
     assert.equal(profile.version, 1);

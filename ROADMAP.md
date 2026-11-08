@@ -397,7 +397,7 @@ interface MechanismPack {
 
 - [ ] V6-1 `SystemProfile` + `packages/detect` — 定义路由/页面/表单/网络/WS/SSE/上传/聊天/Agent 信号的数据结构与版本；`pnpm verify` 全绿
 - [x] V6-2 被动采集器 + 有界爬取 — `packages/detect/src/collector.ts` + `signals.ts`；登录后枚举同源路由（上限 12），只读不提交；采集 DOM/表单/网络/WS/SSE；隐式 submit/cancel 与 destructive 名称有安全回归；`collector.test.ts` / `signals.test.ts`；`pnpm verify` 全绿（2026-11-08）
-- [ ] V6-3 能力分类规则 v1 — CRUD/Auth/Workflow/Upload/Search/Realtime/Agent/Rich content 的确定性打分、置信度与证据引用；正负测试
+- [x] V6-3 能力分类规则 v1 — `packages/detect/src/rules.ts` 覆盖 CRUD/Realtime/Auth/Workflow/File-media/Search-filter/Agent/Rich content；每类正例 + 部分信号提问；`rules.test.ts` 表驱动；`pnpm verify` 全绿（2026-11-08）
 - [ ] V6-4 LLM 歧义归类 — 低置信度/规则冲突时才调用；输入紧凑 digest，输出 enum + evidence ids；schema 校验、缓存、token 预算、无证据丢弃
 - [ ] V6-5 系统画像与 API — 探测报告/能力图谱/未知项/重跑；复用 session 目录 `kind: "detect"`；控制台「系统画像」页与创建页能力提示
 - [ ] V6-6 demo/试点验证 — demo 识别 CRUD/上传/搜索；试点识别当前工单面；规则高置信时 LLM 调用为 0；误判以「待确认问题」呈现；`pnpm verify` 全绿

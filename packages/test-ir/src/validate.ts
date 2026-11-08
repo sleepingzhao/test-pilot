@@ -3,7 +3,7 @@ import addFormatsModule from "ajv-formats";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { TestIR, ValidationIssue, ValidationResult } from "./types.js";
+import type { RequestMethod, TestIR, ValidationIssue, ValidationResult } from "./types.js";
 
 const schemaPath = join(dirname(fileURLToPath(import.meta.url)), "../schema/test-ir.v1.schema.json");
 
@@ -46,6 +46,28 @@ export function validateTestIR(doc: unknown): ValidationResult {
   return cached(doc);
 }
 
+const REQUEST_METHODS = new Set<RequestMethod>(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
+
+/** Reject absolute request paths that can never be a same-origin http(s) call. */
+export function requestPathIssue(path: string): string | undefined {
+  const trimmed = path.trim();
+  if (!trimmed) return "request step requires path";
+  if (/[\u0000-\u001f\s]/.test(trimmed)) return "request path contains whitespace or control characters";
+  if (trimmed.startsWith("//")) return "request path must not be protocol-relative";
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return undefined;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return "request path is not a valid URL";
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return "request path must be http(s) or a path relative to baseUrl";
+  }
+  if (url.username || url.password) return "request path must not include credentials";
+  return undefined;
+}
+
 /** Semantic checks beyond JSON Schema (e.g. human-approved for high-risk UI). */
 export function validateSemantics(ir: TestIR): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
@@ -58,6 +80,41 @@ export function validateSemantics(ir: TestIR): ValidationIssue[] {
         path: `/assertions/${i}`,
         message: "ui assertion requires target and/or contains",
       });
+    }
+  }
+  let base: URL | undefined;
+  if (ir.baseUrl) {
+    try {
+      base = new URL(ir.baseUrl);
+    } catch {
+      issues.push({ path: "/baseUrl", message: "baseUrl is not a valid URL" });
+    }
+  }
+  for (const [i, step] of ir.steps.entries()) {
+    if (step.action !== "request") continue;
+    if (!step.method || !REQUEST_METHODS.has(step.method)) {
+      issues.push({
+        path: `/steps/${i}/method`,
+        message: "request step requires method GET, POST, PUT, PATCH, DELETE, or HEAD",
+      });
+    }
+    if (!step.path?.trim()) {
+      issues.push({ path: `/steps/${i}/path`, message: "request step requires path" });
+    } else {
+      const pathIssue = requestPathIssue(step.path);
+      if (pathIssue) issues.push({ path: `/steps/${i}/path`, message: pathIssue });
+      else if (base && /^[a-z][a-z0-9+.-]*:/i.test(step.path.trim())) {
+        const target = new URL(step.path);
+        if (target.origin !== base.origin) {
+          issues.push({
+            path: `/steps/${i}/path`,
+            message: `request path must be same-origin with baseUrl (${base.origin})`,
+          });
+        }
+      }
+    }
+    if (step.body !== undefined && step.form !== undefined) {
+      issues.push({ path: `/steps/${i}`, message: "request step accepts body or form, not both" });
     }
   }
   return issues;

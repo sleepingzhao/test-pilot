@@ -2,7 +2,9 @@ export type OracleSource = "human-approved" | "requirement" | "api-contract";
 
 export type Platform = "web";
 
-export type StepAction = "navigate" | "click" | "fill" | "press" | "wait" | "select" | "selectCascader";
+export type StepAction = "navigate" | "click" | "fill" | "press" | "wait" | "select" | "selectCascader" | "request";
+
+export type RequestMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
 
 export interface Locator {
   testId?: string;
@@ -23,6 +25,18 @@ export interface TestStep {
   key?: string;
   /** Ordered labels for each cascader level (province → street). */
   cascaderPath?: string[];
+  /** HTTP method for `action: "request"`. Same-origin with baseUrl only. */
+  method?: RequestMethod;
+  /** Request headers. Values may contain `{{var}}` templates (resolved at run time). */
+  headers?: Record<string, string>;
+  /** JSON object or raw string body. Mutually exclusive with `form`. No file upload. */
+  body?: string | Record<string, unknown>;
+  /** `application/x-www-form-urlencoded` fields. Mutually exclusive with `body`. */
+  form?: Record<string, string>;
+  /** Variable name that stores the raw response body for later steps. */
+  saveAs?: string;
+  /** Variable name → dot path into the JSON response body. */
+  saveFields?: Record<string, string>;
 }
 
 export interface TestAssertion {

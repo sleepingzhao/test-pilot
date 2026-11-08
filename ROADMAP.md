@@ -408,7 +408,7 @@ interface MechanismPack {
 
 现有 `api` 断言只能匹配页面操作触发的真实请求，无法主动调用业务接口。先把「接口测试」变成一等能力，再做 UI/机制包。
 
-- [ ] V7-0a `request` 步骤 — `StepAction` 增加 `request`；IR schema/types/validator 支持 `method`/`path`/`headers`/`body`/`form`/`saveAs`；runner 用 `browserContext.request` 执行，自动复用已登录浏览器的 Cookie；仅允许同源（或白名单 origin），禁止任意 URL / SSRF；负向测试覆盖跨源、缺失 method/path
+- [x] V7-0a `request` 步骤 — `StepAction` 增加 `request`；IR schema/types/validator 支持 `method`/`path`/`headers`/`body`/`form`/`saveAs`/`saveFields`；runner 用 `browserContext.request` 执行，自动复用已登录浏览器的 Cookie；仅允许同源，禁止任意 URL / SSRF（`maxRedirects: 0`）；schema 正反例 + demo `POST /api/users` 正例 + Cookie 复用 + 跨源/缺字段/跨源重定向负例（`request-step.test.ts`）（2026-11-08）
 - [ ] V7-0b 变量与模板 — `{{runId}}`、`{{var}}`、`{{env.KEY}}` 在 path/headers/body/form 中解析；`saveAs` + `saveFields` 从响应 JSON 提取变量供后续步骤使用；IR 只存 env key 名，不存密钥；缺变量/缺 env 必须步骤失败且报错清晰
 - [ ] V7-0c 请求证据接入 — `request` 步骤的请求/响应写入现有 network 证据（复用 `captured-http` 的 `requestRef` 断言与脱敏）；Authorization/Cookie 必须脱敏；证据可下载
 - [ ] V7-0d demo/试点验证 — demo 增加 API-only 用例（登录 → 直接 POST/GET → 状态码 + JSON 断言），覆盖 201/400/409；负向验证：返回 500/错误 JSON 时断言必须失败；`pnpm verify` 全绿

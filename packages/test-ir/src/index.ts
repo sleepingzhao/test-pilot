@@ -2,6 +2,7 @@ export * from "./types.js";
 export {
   createValidator,
   isWeakAssertionText,
+  requestPathIssue,
   validateTestIR,
   validateSemantics,
   weakAssertionIssues,

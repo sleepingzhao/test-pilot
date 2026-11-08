@@ -89,6 +89,84 @@ test("accepts select step with value", () => {
   assert.equal(result.ok, true);
 });
 
+test("accepts a same-origin request step", () => {
+  const result = validateTestIR({
+    id: "api-create",
+    version: 1,
+    platform: "web",
+    baseUrl: "http://127.0.0.1:4173",
+    steps: [
+      {
+        id: "create-user",
+        action: "request",
+        method: "POST",
+        path: "/api/users",
+        headers: { "content-type": "application/json" },
+        body: { email: "new@example.com" },
+        saveAs: "created",
+        saveFields: { userId: "id" },
+      },
+    ],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? {} : result.issues));
+  if (result.ok) assert.deepEqual(validateSemantics(result.value), []);
+});
+
+test("rejects a request step without method or path", () => {
+  const missingMethod = validateTestIR({
+    id: "api-create",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "create-user", action: "request", path: "/api/users" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(missingMethod.ok, false);
+  if (!missingMethod.ok) {
+    assert.ok(missingMethod.issues.some((issue) => issue.message.includes("method")));
+  }
+
+  const missingPath = validateTestIR({
+    id: "api-create",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "create-user", action: "request", method: "GET" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(missingPath.ok, false);
+  if (!missingPath.ok) {
+    assert.ok(missingPath.issues.some((issue) => issue.message.includes("path")));
+  }
+});
+
+test("rejects a request method outside the allow-list", () => {
+  const result = validateTestIR({
+    id: "api-create",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "create-user", action: "request", method: "OPTIONS", path: "/api/users" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, false);
+});
+
+test("rejects a cross-origin absolute request path when baseUrl is set", () => {
+  const result = validateTestIR({
+    id: "api-create",
+    version: 1,
+    platform: "web",
+    baseUrl: "http://127.0.0.1:4173",
+    steps: [{ id: "steal", action: "request", method: "GET", path: "https://evil.example/api/users" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    const issues = validateSemantics(result.value);
+    assert.equal(issues.length, 1);
+    assert.match(issues[0]!.message, /same-origin/);
+  }
+});
+
 test("flags short and generic page-wide UI assertions", () => {
   const base = {
     id: "weak",

@@ -1,11 +1,11 @@
-import type { Locator as TargetLocator, TestIR, TestStep } from "@testpilot/test-ir";
+import { requestPathIssue, type Locator as TargetLocator, type TestIR, type TestStep } from "@testpilot/test-ir";
 import { runAssertion, urlPathMatches } from "@testpilot/assertions";
 import type { RunArtifacts } from "@testpilot/evidence";
 import { classifyFailure, createEvidenceCollector, maxRunAttempts, redactForEvidence, redactStringBody, redactStrings, shouldRetryAfterFailure } from "@testpilot/evidence";
 import type { RunEnvironment } from "@testpilot/fixtures";
 import { buildReadonlyDbClient, buildAgentTraceClient, getDbConfigBundle, getAgentConfigBundle, resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveValueRefs } from "@testpilot/fixtures";
 import { executeSelectCascader } from "./select-cascader.js";
-import { chromium, type Browser, type Locator as PwLocator, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Locator as PwLocator, type Page } from "playwright";
 
 export type RunStatus = "passed" | "failed" | "error";
 
@@ -113,8 +113,41 @@ export function navTimeoutMs(): number {
   return Number.isFinite(raw) && raw >= 5_000 ? Math.min(raw, 120_000) : 45_000;
 }
 
+/** Resolve a request path against baseUrl and reject anything that is not that origin. */
+export function resolveSameOriginRequestUrl(path: string | undefined, baseUrl: string): URL {
+  if (!path?.trim()) throw new Error("request requires path");
+  const pathIssue = requestPathIssue(path);
+  if (pathIssue) throw new Error(pathIssue);
+  if (!baseUrl?.trim()) throw new Error("request requires baseUrl");
+  let base: URL;
+  try {
+    base = new URL(baseUrl);
+  } catch {
+    throw new Error("request baseUrl is not a valid URL");
+  }
+  if (base.protocol !== "http:" && base.protocol !== "https:") {
+    throw new Error("request blocked: baseUrl must be http or https");
+  }
+  if (base.username || base.password) throw new Error("request blocked: baseUrl must not include credentials");
+  let target: URL;
+  try {
+    target = new URL(path, base);
+  } catch {
+    throw new Error("request path is not a valid URL");
+  }
+  if (target.protocol !== "http:" && target.protocol !== "https:") {
+    throw new Error("request blocked: only http and https URLs are allowed");
+  }
+  if (target.username || target.password) throw new Error("request blocked: URL credentials are not allowed");
+  if (target.origin !== base.origin) {
+    throw new Error(`request blocked: cross-origin (target ${target.origin}, base ${base.origin})`);
+  }
+  return target;
+}
+
 async function executeStep(
   page: Page,
+  context: BrowserContext,
   step: TestStep,
   baseUrl: string,
   refs: Record<string, string>,
@@ -183,6 +216,24 @@ async function executeStep(
         });
         break;
       }
+      case "request": {
+        if (!step.method) throw new Error("request requires method");
+        if (step.body !== undefined && step.form !== undefined) {
+          throw new Error("request accepts body or form, not both");
+        }
+        const target = resolveSameOriginRequestUrl(step.path, baseUrl);
+        const response = await context.request.fetch(target.href, {
+          method: step.method,
+          headers: step.headers,
+          ...(step.body !== undefined ? { data: step.body } : {}),
+          ...(step.form !== undefined ? { form: step.form } : {}),
+          maxRedirects: 0,
+          failOnStatusCode: false,
+          timeout: 15_000,
+        });
+        await response.text().catch(() => "");
+        break;
+      }
       default:
         throw new Error(`unknown action: ${(step as TestStep).action}`);
     }
@@ -242,7 +293,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
     await evidence.attachPage(context, page);
 
     for (const step of ir.steps) {
-      const result = await executeStep(page, step, baseUrl, refs, runId);
+      const result = await executeStep(page, context, step, baseUrl, refs, runId);
       steps.push(result);
       if (result.status === "failed") {
         status = "failed";

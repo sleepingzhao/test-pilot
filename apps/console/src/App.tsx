@@ -11,6 +11,7 @@ import {
 import type { TestStep } from "@testpilot/test-ir/step-edit";
 import { StepEditorPanel } from "./StepEditorPanel";
 import { RequirementFlowView } from "./RequirementFlowView";
+import { SystemProfileView } from "./SystemProfileView";
 import { RunDetailView } from "./RunDetailView";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { failureKindLabel, failureScreenshotPath, summarizeAssertion } from "./stepSummary";
@@ -27,7 +28,7 @@ type IrAssertion = {
   oracle?: string;
 };
 
-type View = "home" | "tests" | "create" | "history" | "run" | "batch";
+type View = "home" | "tests" | "create" | "detect" | "history" | "run" | "batch";
 type TestEnvKey = "pilot" | "demo" | "custom";
 type TestFilter = "all" | "draft" | `env:${TestEnvKey}`;
 
@@ -1128,6 +1129,9 @@ export function App() {
           <button type="button" className={view === "create" ? "active" : ""} onClick={() => setView("create")}>
             创建
           </button>
+          <button type="button" className={view === "detect" ? "active" : ""} onClick={() => setView("detect")}>
+            系统画像
+          </button>
           <button type="button" className={view === "history" ? "active" : ""} onClick={() => setView("history")}>
             结果
           </button>
@@ -1462,6 +1466,7 @@ export function App() {
               onOpenReview={(testId) => {
                 void openReviewById(testId);
               }}
+              onOpenProfile={() => setView("detect")}
             />
             <details className="record-secondary">
               <summary>用录制创建（可选）</summary>
@@ -1501,6 +1506,15 @@ export function App() {
               </div>
             </details>
           </section>
+        )}
+
+        {view === "detect" && (
+          <SystemProfileView
+            demoUrl={demoUrl}
+            pilotIntakeUrl={pilotIntakeUrl}
+            demoReachable={demoOk}
+            pilotReachable={pilotOk}
+          />
         )}
 
         {view === "run" && selectedRunId && (

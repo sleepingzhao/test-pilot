@@ -74,6 +74,7 @@ export const DEFAULT_RULES: CapabilityRule[] = [
     capability: "search-filter",
     requiredSignals: ["dom.search-input", "dom.table"],
     anySignals: ["dom.pagination"],
+    partialQuestionSignals: ["dom.search-input"],
     confidence: 0.8,
     boostPerExtraSignal: 0.05,
     requires: ["test-data"],
@@ -83,6 +84,7 @@ export const DEFAULT_RULES: CapabilityRule[] = [
     id: "search-filter.table-pagination",
     capability: "search-filter",
     requiredSignals: ["dom.pagination", "dom.table"],
+    partialQuestionSignals: ["dom.pagination"],
     confidence: 0.75,
     requires: ["test-data"],
   },
@@ -164,6 +166,8 @@ export function evaluateCapabilities(
     if (required.length === 0) continue;
 
     if (required.length < rule.requiredSignals.length) {
+      const gates = rule.partialQuestionSignals;
+      if (gates && !required.some((signal) => gates.includes(signal.id))) continue;
       const missing = rule.requiredSignals.filter((id) => !bySignal.has(id));
       questions.push({
         id: `${rule.id}:partial`,

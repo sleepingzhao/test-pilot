@@ -1,6 +1,7 @@
-import { useState } from "react";
-import type { StoredRun, StoredTest } from "./api.js";
+import { useEffect, useState } from "react";
+import type { DetectionRecord, StoredRun, StoredTest } from "./api.js";
 import { api } from "./api.js";
+import { CAPABILITY_LABELS } from "./capabilityLabels";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { formatJsonBrief, listEvidenceRows } from "./runDetail.js";
 import { failureKindLabel, summarizeAssertion } from "./stepSummary.js";
@@ -29,6 +30,7 @@ type Props = {
   onRefresh: () => Promise<void>;
   onOpenRun: (runId: string) => void;
   onOpenReview: (testId: string) => void;
+  onOpenProfile: () => void;
 };
 
 export function RequirementFlowView({
@@ -39,11 +41,13 @@ export function RequirementFlowView({
   onRefresh,
   onOpenRun,
   onOpenReview,
+  onOpenProfile,
 }: Props) {
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [target, setTarget] = useState<Target>("demo");
   const [customUrl, setCustomUrl] = useState("");
+  const [detected, setDetected] = useState<DetectionRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -52,6 +56,22 @@ export function RequirementFlowView({
   const [approving, setApproving] = useState(false);
   const [approvedRun, setApprovedRun] = useState<StoredRun | null>(null);
   const [confirmApprove, setConfirmApprove] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDetected(null);
+    const params = new URLSearchParams({ target });
+    api<{ record: DetectionRecord | null }>(`/api/detect/latest?${params.toString()}`)
+      .then((res) => {
+        if (!cancelled) setDetected(res.record);
+      })
+      .catch(() => {
+        if (!cancelled) setDetected(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [target]);
 
   const runFlow = async () => {
     setLoading(true);
@@ -205,6 +225,33 @@ export function RequirementFlowView({
             />
           ) : null}
         </fieldset>
+        <div className="detected-capabilities">
+          <span className="stat-label">环境能力</span>
+          {detected ? (
+            <>
+              {detected.profile.capabilities.length > 0 ? (
+                detected.profile.capabilities.slice(0, 6).map((capability) => (
+                  <span className="badge" key={capability.id}>
+                    {CAPABILITY_LABELS[capability.id] ?? capability.id} ·{" "}
+                    {Math.round(capability.confidence * 100)}%
+                  </span>
+                ))
+              ) : (
+                <span className="stat-note">未识别到明确能力</span>
+              )}
+              <button type="button" className="link-button" onClick={onOpenProfile}>
+                查看系统画像
+              </button>
+            </>
+          ) : (
+            <span className="stat-note">
+              尚未探测；
+              <button type="button" className="link-button" onClick={onOpenProfile}>
+                先做系统画像
+              </button>
+            </span>
+          )}
+        </div>
         <button
           type="button"
           className="btn btn-primary"

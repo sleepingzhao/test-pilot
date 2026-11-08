@@ -110,6 +110,8 @@ export type CapabilityRule = {
   capability: CapabilityId;
   requiredSignals: SignalId[];
   anySignals?: SignalId[];
+  /** Only ask a partial-match question when one of these signals is present. */
+  partialQuestionSignals?: SignalId[];
   confidence: number;
   boostPerExtraSignal?: number;
   requires?: RequirementId[];

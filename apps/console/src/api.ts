@@ -1,3 +1,26 @@
+import type { SystemProfile } from "@testpilot/detect";
+
+export type DetectionTarget = "demo" | "pilot" | "custom";
+
+export type DetectionRecord = {
+  id: string;
+  sessionId: string;
+  target: DetectionTarget;
+  url: string;
+  createdAt: string;
+  profile: SystemProfile;
+};
+
+export type DetectionJob = {
+  id: string;
+  status: "running" | "completed" | "failed";
+  stage: string;
+  startedAt: string;
+  completedAt?: string;
+  result?: DetectionRecord;
+  error?: string;
+};
+
 export type StoredTest = {
   id: string;
   projectId: string;

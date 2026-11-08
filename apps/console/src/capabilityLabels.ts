@@ -1,0 +1,46 @@
+export const CAPABILITY_LABELS: Record<string, string> = {
+  crud: "增删改查",
+  auth: "认证 / 权限",
+  workflow: "工作流",
+  "realtime-messaging": "实时消息",
+  "file-media": "文件 / 媒体",
+  "search-filter": "搜索 / 筛选",
+  agent: "Agent",
+  "rich-content": "富文本",
+};
+
+export const REQUIREMENT_LABELS: Record<string, string> = {
+  "second-actor": "第二账号",
+  "role-accounts": "多角色账号",
+  "ws-observable": "WebSocket 可观测",
+  "trace-source": "Agent trace 源",
+  "upload-fixture": "上传测试文件",
+  "test-data": "测试数据",
+  "mutation-allowed": "允许写操作",
+};
+
+export const SIGNAL_LABELS: Record<string, string> = {
+  "dom.table": "表格",
+  "dom.entity-actions": "实体操作",
+  "dom.form-dialog": "表单弹层",
+  "dom.login-form": "登录表单",
+  "dom.role-menu": "角色/租户菜单",
+  "dom.status-column": "状态列",
+  "dom.approval-actions": "审批操作",
+  "dom.message-list": "消息列表",
+  "dom.message-composer": "消息输入区",
+  "dom.file-input": "文件选择",
+  "dom.search-input": "搜索框",
+  "dom.pagination": "分页",
+  "dom.agent-chat": "Agent 聊天区",
+  "dom.streaming-output": "流式输出",
+  "dom.tool-call-block": "工具调用",
+  "dom.citation-block": "引用块",
+  "dom.contenteditable": "富文本",
+  "network.websocket": "WebSocket",
+  "network.sse": "SSE",
+  "network.upload": "上传请求",
+  "network.chat-completion": "对话补全请求",
+  "evidence.second-actor": "第二账号证据",
+  "evidence.trace-source": "Trace 源",
+};

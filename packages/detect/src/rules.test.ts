@@ -223,3 +223,11 @@ test("a status column alone does not claim workflow", () => {
   assert.equal(result.capabilities.some((item) => item.id === "workflow"), false);
   assert.equal(result.questions.length, 0);
 });
+
+test("a table alone does not ask search-filter questions", () => {
+  const result = evaluateCapabilities({ signals: [signal("dom.table")] });
+  assert.equal(
+    result.questions.some((question) => question.capability === "search-filter"),
+    false,
+  );
+});

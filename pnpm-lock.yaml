@@ -23,6 +23,9 @@ importers:
 
   apps/console:
     dependencies:
+      '@testpilot/detect':
+        specifier: workspace:*
+        version: link:../../packages/detect
       '@testpilot/test-ir':
         specifier: workspace:*
         version: link:../../packages/test-ir
@@ -264,6 +267,9 @@ importers:
       '@testpilot/context-web':
         specifier: workspace:*
         version: link:../../packages/context-web
+      '@testpilot/detect':
+        specifier: workspace:*
+        version: link:../../packages/detect
       '@testpilot/evidence':
         specifier: workspace:*
         version: link:../../packages/evidence

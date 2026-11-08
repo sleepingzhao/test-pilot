@@ -77,6 +77,14 @@ import {
   isPilotIntakeUrl,
   looksLikeLoginPageContext,
 } from "./pilot-intake-snapshot.js";
+import {
+  latestDetection,
+  listDetections,
+  readDetection,
+  runDetection,
+  type DetectionJob,
+  type DetectionTarget,
+} from "./detection.js";
 
 const recordJobs = new Map<string, RecordJob>();
 let recordLock = false;
@@ -1088,6 +1096,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     error?: string;
   };
   const requirementJobs = new Map<string, RequirementJob>();
+  const detectionJobs = new Map<string, DetectionJob>();
 
   app.post("/api/requirement-flow", async (req, reply) => {
     const out = await executeRequirementFlow(
@@ -1139,6 +1148,85 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const job = requirementJobs.get(jobId);
     if (!job) return reply.notFound("job not found");
     return job;
+  });
+
+  app.post("/api/detect/jobs", async (req, reply) => {
+    const body = (req.body ?? {}) as { target?: DetectionTarget; customUrl?: string };
+    const target: DetectionTarget =
+      body.target === "pilot" || body.target === "custom" ? body.target : "demo";
+    if (target === "custom" && !body.customUrl?.trim()) {
+      return reply.code(400).send({ error: "自定义环境需要填写 URL" });
+    }
+    const pilotUrl = pilotBaseUrl();
+    const project = store.project();
+    const pilotIntakeUrl = pilotUrl ? await pilotIntakeDefaultUrl() : "";
+    const loginPath = (await loadPilotBaseline())?.loginPath;
+    const id = `detectjob_${Date.now().toString(36)}_${randomUUID().slice(0, 6)}`;
+    const job: DetectionJob = {
+      id,
+      status: "running",
+      stage: "排队中",
+      startedAt: new Date().toISOString(),
+    };
+    detectionJobs.set(id, job);
+    if (detectionJobs.size > 50) {
+      const oldest = detectionJobs.keys().next().value;
+      if (oldest) detectionJobs.delete(oldest);
+    }
+    void runDetection(
+      {
+        dataRoot,
+        target,
+        customUrl: target === "custom" ? body.customUrl?.trim() : undefined,
+        demoUrl: project.defaultBaseUrl,
+        pilotUrl: pilotUrl || undefined,
+        pilotIntakeUrl: pilotIntakeUrl || undefined,
+        loginPath,
+      },
+      (stage) => {
+        job.stage = stage;
+      },
+    )
+      .then((record) => {
+        job.status = "completed";
+        job.stage = "完成";
+        job.completedAt = new Date().toISOString();
+        job.result = record;
+        void autoPruneArtifacts({ artifactsRoot, dataRoot }).catch(() => undefined);
+      })
+      .catch((err) => {
+        job.status = "failed";
+        job.error = err instanceof Error ? err.message : String(err);
+        job.completedAt = new Date().toISOString();
+      });
+    return reply.code(202).send({ jobId: id });
+  });
+
+  app.get("/api/detect/jobs/:jobId", async (req, reply) => {
+    const { jobId } = req.params as { jobId: string };
+    if (!isSafeRunId(jobId)) return reply.notFound("job not found");
+    const job = detectionJobs.get(jobId);
+    if (!job) return reply.notFound("job not found");
+    return job;
+  });
+
+  app.get("/api/detect/latest", async (req) => {
+    const query = req.query as { target?: string; url?: string };
+    const target: DetectionTarget =
+      query.target === "pilot" || query.target === "custom" ? query.target : "demo";
+    const record = await latestDetection(dataRoot, target, query.url);
+    return { record: record ?? null };
+  });
+
+  app.get("/api/detect", async () => ({
+    detections: await listDetections(dataRoot, 20),
+  }));
+
+  app.get("/api/detect/:detectionId", async (req, reply) => {
+    const { detectionId } = req.params as { detectionId: string };
+    const record = await readDetection(dataRoot, detectionId);
+    if (!record) return reply.notFound("detection not found");
+    return record;
   });
 
   app.get("/api/environment", async () => {

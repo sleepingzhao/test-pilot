@@ -10,7 +10,7 @@ import { isSafeRunId } from "./security.js";
  * A session id is always `session_` + the batch/run id, so the folder kind is
  * explicit and batch/run folders can never collide.
  */
-export type SessionKind = "batch" | "trial";
+export type SessionKind = "batch" | "trial" | "detect";
 
 export type SessionMeta = {
   id: string;
@@ -26,6 +26,9 @@ export type SessionMeta = {
   repeatCount?: number;
   artifactBytesTotal?: number;
   error?: string;
+  /** Detection sessions only. */
+  target?: string;
+  url?: string;
 };
 
 export function sessionIdForBatch(batchId: string): string {
@@ -34,6 +37,10 @@ export function sessionIdForBatch(batchId: string): string {
 
 export function sessionIdForRun(runId: string): string {
   return `session_${runId}`;
+}
+
+export function sessionIdForDetect(detectionId: string): string {
+  return `session_${detectionId}`;
 }
 
 export function sessionsRoot(dataRoot: string): string {
@@ -54,6 +61,10 @@ export function sessionRunsDir(root: string, sessionId: string): string {
 
 export function sessionRunFilePath(root: string, sessionId: string, runId: string): string {
   return join(sessionRunsDir(root, sessionId), `${runId}.json`);
+}
+
+export function sessionProfilePath(root: string, sessionId: string): string {
+  return join(sessionDir(root, sessionId), "profile.json");
 }
 
 export function sessionArtifactsDir(artifactsRoot: string, sessionId: string): string {
@@ -97,7 +108,7 @@ export async function readSessionMeta(root: string, sessionId: string): Promise<
     if (!runs.length) return undefined;
     return {
       id: sessionId,
-      kind: sessionId.startsWith("session_batch_") ? "batch" : "trial",
+      kind: sessionKindFromId(sessionId),
       startedAt: "",
       status: "unknown",
       runIds: runs.map((name) => name.slice(0, -5)),
@@ -127,7 +138,7 @@ export async function listRunFiles(dataRoot: string): Promise<RunFileRef[]> {
   const refs: RunFileRef[] = [];
   for (const sessionId of await dirNames(sessionsRoot(dataRoot))) {
     if (!sessionId.startsWith("session_")) continue;
-    const kind: SessionKind = sessionId.startsWith("session_batch_") ? "batch" : "trial";
+    const kind: SessionKind = sessionKindFromId(sessionId);
     const runsDir = sessionRunsDir(dataRoot, sessionId);
     for (const file of await fileNames(runsDir)) {
       if (!file.endsWith(".json")) continue;
@@ -164,7 +175,7 @@ export async function findRunFile(dataRoot: string, runId: string): Promise<RunF
         runId,
         sessionId,
         path,
-        kind: sessionId.startsWith("session_batch_") ? "batch" : "trial",
+        kind: sessionKindFromId(sessionId),
       };
     }
   }
@@ -235,7 +246,7 @@ async function normalizeSessionFolder(
   if (!(await isFile(sessionMetaPath(dataRoot, sessionId)))) {
     const runs = (await fileNames(sessionRunsDir(dataRoot, sessionId))).filter((n) => n.endsWith(".json"));
     if (runs.length) {
-      const kind: SessionKind = sessionId.startsWith("session_batch_") ? "batch" : "trial";
+      const kind: SessionKind = sessionKindFromId(sessionId);
       await writeFile(
         sessionMetaPath(dataRoot, sessionId),
         JSON.stringify(
@@ -321,6 +332,12 @@ export async function migrateLegacyDataLayout(
 
 function legacySessionId(name: string): string {
   return name.startsWith("session_") ? name : `session_${name}`;
+}
+
+function sessionKindFromId(sessionId: string): SessionKind {
+  if (sessionId.startsWith("session_batch_")) return "batch";
+  if (sessionId.startsWith("session_detect_")) return "detect";
+  return "trial";
 }
 
 /**
@@ -410,7 +427,7 @@ export async function pruneSessions(opts: {
   for (const name of await dirNames(join(opts.artifactsRoot, "sessions"))) {
     if (name.startsWith("session_") && !known.has(name)) {
       metas.push({
-        meta: { id: name, kind: "trial", startedAt: "", status: "unknown", runIds: [] },
+        meta: { id: name, kind: sessionKindFromId(name), startedAt: "", status: "unknown", runIds: [] },
         startedAt: "",
       });
     }

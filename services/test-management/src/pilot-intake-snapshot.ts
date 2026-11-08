@@ -1,6 +1,6 @@
 import type { FormFieldHint, FormHint, PageContext } from "@testpilot/planner";
 import { snapshotPageContext } from "@testpilot/context-web";
-import { chromium, type Locator, type Page } from "playwright";
+import { chromium, type Browser, type Locator, type Page } from "playwright";
 import { pilotSecretsConfigured } from "./run-env.js";
 
 const OPTIONAL_FIELD = /可选|optional|服务人员|社区/;
@@ -180,13 +180,16 @@ async function exploreVisibleForm(page: Page): Promise<FormHint | undefined> {
 }
 
 /**
- * Log into pilot admin, navigate to target path, optionally open ticket UI, then snapshot.
+ * Log into pilot admin and land on the target page. The caller owns the browser
+ * and must close it; detection reuses the same authenticated page.
  */
-export async function capturePilotIntakeContext(
+export type PilotPageHandle = { browser: Browser; page: Page };
+
+export async function openPilotPage(
   pilotBase: string,
   targetUrl: string,
-  opts?: CapturePilotIntakeOptions,
-): Promise<PageContext> {
+  opts?: { loginPath?: string },
+): Promise<PilotPageHandle> {
   if (!pilotSecretsConfigured()) {
     throw new Error("试点 intake 需要 TESTPILOT_ENV_ADMIN_PHONE 与 TESTPILOT_ENV_ADMIN_PASSWORD");
   }
@@ -248,6 +251,24 @@ export async function capturePilotIntakeContext(
       await page.waitForTimeout(1_200);
     }
 
+    return { browser, page };
+  } catch (err) {
+    await browser.close().catch(() => undefined);
+    throw err;
+  }
+}
+
+/**
+ * Log into pilot admin, navigate to target path, optionally open ticket UI, then snapshot.
+ */
+export async function capturePilotIntakeContext(
+  pilotBase: string,
+  targetUrl: string,
+  opts?: CapturePilotIntakeOptions,
+): Promise<PageContext> {
+  const loginPath = opts?.loginPath?.trim() || "/admin/login";
+  const { browser, page } = await openPilotPage(pilotBase, targetUrl, { loginPath });
+  try {
     const intent = opts?.intentText ?? "";
     let form: FormHint | undefined;
     if (/工单|ticket/.test(intent)) {

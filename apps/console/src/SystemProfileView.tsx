@@ -119,6 +119,10 @@ export function SystemProfileView({
       signal.evidence.map((evidence) => [evidence.id, evidence] as const),
     ),
   );
+  const llmCapabilities = record?.profile.llmCapabilities ?? [];
+  const capabilityCount = (record?.profile.capabilities.length ?? 0) + llmCapabilities.length;
+  const llmQuestions = record?.profile.llmQuestions ?? [];
+  const questionCount = (record?.profile.questions.length ?? 0) + llmQuestions.length;
 
   return (
     <section className="requirement-flow profile-view">
@@ -229,10 +233,30 @@ export function SystemProfileView({
                   {record.url} · {new Date(record.createdAt).toLocaleString()}
                 </p>
               </div>
-              <span className="badge">{record.profile.capabilities.length} 项能力</span>
+              <span className="badge">{capabilityCount} 项能力</span>
             </div>
 
-            {record.profile.capabilities.length === 0 ? (
+            {record.profile.llmAnalysis ? (
+              record.profile.llmAnalysis.used ? (
+                <p className="profile-llm-note">
+                  LLM 参与分析
+                  {record.profile.llmAnalysis.model ? ` · ${record.profile.llmAnalysis.model}` : ""}
+                  {record.profile.llmAnalysis.tokensUsed
+                    ? ` · ${record.profile.llmAnalysis.tokensUsed} tokens`
+                    : ""}
+                </p>
+              ) : (
+                <p className="profile-llm-note muted">
+                  本次未使用 LLM：{record.profile.llmAnalysis.error ?? "未知原因"}
+                </p>
+              )
+            ) : null}
+
+            {record.profile.llmSummary ? (
+              <p className="profile-llm-summary">{record.profile.llmSummary}</p>
+            ) : null}
+
+            {capabilityCount === 0 ? (
               <p className="stat-note">
                 没有识别到明确能力。可以再探测一次，或在创建页直接按需求生成草稿。
               </p>
@@ -248,6 +272,11 @@ export function SystemProfileView({
                           {percent}%
                         </span>
                       </header>
+                      {capability.source ? (
+                        <span className={`capability-source ${capability.source}`}>
+                          {capability.source === "hybrid" ? "规则 + LLM" : capability.source}
+                        </span>
+                      ) : null}
                       <div className="confidence-track" aria-hidden="true">
                         <span style={{ width: `${percent}%` }} />
                       </div>
@@ -269,6 +298,16 @@ export function SystemProfileView({
                           {unknown}
                         </p>
                       ))}
+                      {capability.testIdeas && capability.testIdeas.length > 0 ? (
+                        <div className="capability-ideas">
+                          <span>建议测试</span>
+                          <ul>
+                            {capability.testIdeas.map((idea) => (
+                              <li key={idea}>{idea}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                       <details className="capability-evidence">
                         <summary>证据 {capability.evidenceIds.length}</summary>
                         <ul>
@@ -287,11 +326,59 @@ export function SystemProfileView({
                     </article>
                   );
                 })}
+                {llmCapabilities.map((capability) => {
+                  const percent = Math.round(capability.confidence * 100);
+                  return (
+                    <article className="capability-card llm" key={`llm-${capability.id}`}>
+                      <header>
+                        <strong>{capability.label}</strong>
+                        <span className={`confidence ${confidenceClass(capability.confidence)}`}>
+                          {percent}%
+                        </span>
+                      </header>
+                      <span className="capability-source llm">LLM</span>
+                      <div className="confidence-track" aria-hidden="true">
+                        <span style={{ width: `${percent}%` }} />
+                      </div>
+                      <p className="stat-note">
+                        <code>{capability.id}</code>
+                      </p>
+                      {capability.subCapabilities.length > 0 ? (
+                        <p className="stat-note">
+                          子能力：{capability.subCapabilities.join(" · ")}
+                        </p>
+                      ) : null}
+                      {capability.unknowns.map((unknown) => (
+                        <p className="capability-unknown" key={unknown}>
+                          {unknown}
+                        </p>
+                      ))}
+                      {capability.testIdeas.length > 0 ? (
+                        <div className="capability-ideas">
+                          <span>建议测试</span>
+                          <ul>
+                            {capability.testIdeas.map((idea) => (
+                              <li key={idea}>{idea}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      <details className="capability-evidence">
+                        <summary>证据 {capability.evidence.length}</summary>
+                        <ul>
+                          {capability.evidence.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    </article>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {record.profile.questions.length > 0 ? (
+          {questionCount > 0 ? (
             <div className="card-panel">
               <h3>待确认</h3>
               <ul className="profile-questions">
@@ -302,6 +389,11 @@ export function SystemProfileView({
                     {question.routes.length > 0 ? (
                       <span className="stat-note">（{question.routes.join(" · ")}）</span>
                     ) : null}
+                  </li>
+                ))}
+                {llmQuestions.map((question) => (
+                  <li key={`llm-${question}`}>
+                    <strong>LLM</strong>：{question}
                   </li>
                 ))}
               </ul>
@@ -328,7 +420,8 @@ export function SystemProfileView({
                   <li key={item.id}>
                     <button type="button" className="link-button" onClick={() => setRecord(item)}>
                       {TARGET_LABELS[item.target]} · {new Date(item.createdAt).toLocaleString()} ·{" "}
-                      {item.profile.capabilities.length} 项能力
+                      {(item.profile.capabilities.length + (item.profile.llmCapabilities?.length ?? 0))}{" "}
+                      项能力
                     </button>
                   </li>
                 ))}

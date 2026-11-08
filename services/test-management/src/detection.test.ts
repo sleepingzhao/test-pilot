@@ -42,10 +42,20 @@ const profile: SystemProfile = {
   questions: [],
 };
 
+const noLlm = async () => ({
+  used: false,
+  summary: "",
+  capabilities: [],
+  questions: [],
+  tokensUsed: 0,
+  error: "test",
+});
+
 function fakeDeps() {
   return {
     openPage: async () => ({ page: {} as never, close: async () => undefined }),
     collect: async () => profile,
+    analyze: noLlm,
   };
 }
 
@@ -131,6 +141,7 @@ test("real target strips page text from the stored profile", async () => {
       {
         openPage: async () => ({ page: {} as never, close: async () => undefined }),
         collect: async () => profileWithText,
+        analyze: noLlm,
       },
     );
     assert.equal(record.target, "real");
@@ -161,6 +172,84 @@ test("real target without a configured URL fails (negative)", async () => {
       ),
       /未配置真实环境地址/,
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("LLM capabilities are merged and the evidence digest is not persisted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-detect-llm-"));
+  const dataRoot = join(root, "data");
+  const collected: SystemProfile = {
+    ...profile,
+    capabilities: [
+      ...profile.capabilities,
+      {
+        id: "agent",
+        confidence: 0.5,
+        evidenceIds: ["ev-agent"],
+        signals: ["dom.agent-chat"],
+        requires: ["trace-source"],
+        unknowns: [],
+      },
+    ],
+    evidence: {
+      pages: [
+        {
+          route: "/mexusclaw",
+          text: "工具 技能 MCP",
+          elements: [{ role: "button", name: "小智" }],
+        },
+      ],
+      frames: [{ route: "/mexusclaw", text: "内置工具 64 技能 13", elements: [] }],
+      endpoints: [{ method: "GET", path: "/api/mexusclaw/tools", status: 200 }],
+    },
+  };
+  try {
+    const record = await runDetection(
+      { dataRoot, target: "demo", demoUrl: "http://127.0.0.1:4173" },
+      () => undefined,
+      {
+        openPage: async () => ({ page: {} as never, close: async () => undefined }),
+        collect: async () => collected,
+        analyze: async () => ({
+          used: true,
+          summary: "发现小智 Agent 平台",
+          capabilities: [
+            {
+              id: "agent",
+              label: "Agent",
+              confidence: 0.9,
+              evidence: ["/mexusclaw"],
+              subCapabilities: ["工具调用"],
+              testIdeas: ["调用计算工具"],
+              unknowns: [],
+            },
+            {
+              id: "agent-mcp",
+              label: "MCP",
+              confidence: 0.8,
+              evidence: ["/api/mexusclaw/mcp"],
+              subCapabilities: [],
+              testIdeas: ["验证 MCP 连接"],
+              unknowns: [],
+            },
+          ],
+          questions: ["是否允许启用 MCP？"],
+          tokensUsed: 123,
+          model: "test-model",
+        }),
+      },
+    );
+    const agent = record.profile.capabilities.find((item) => item.id === "agent");
+    assert.equal(agent?.source, "hybrid");
+    assert.ok(agent?.testIdeas?.includes("调用计算工具"));
+    assert.equal(record.profile.llmCapabilities?.[0]?.id, "agent-mcp");
+    assert.deepEqual(record.profile.llmQuestions, ["是否允许启用 MCP？"]);
+    assert.equal(record.profile.evidence, undefined);
+    assert.equal(record.profile.llmAnalysis?.tokensUsed, 123);
+    const stored = await readDetection(dataRoot, record.id);
+    assert.equal(stored?.profile.evidence, undefined);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

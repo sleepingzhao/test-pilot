@@ -1892,6 +1892,67 @@ button.status-chip {
   font-size: 12px;
 }
 
+.capability-source {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  background: var(--line);
+  color: var(--muted-strong);
+}
+
+.capability-source.hybrid {
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--blue);
+}
+
+.capability-source.llm {
+  background: rgba(124, 58, 237, 0.1);
+  color: #6d28d9;
+}
+
+.capability-card.llm {
+  border-color: rgba(124, 58, 237, 0.32);
+  background: #faf8ff;
+}
+
+.capability-ideas {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.capability-ideas > span {
+  color: var(--muted-strong);
+}
+
+.capability-ideas ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 3px;
+}
+
+.profile-llm-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted-strong);
+}
+
+.profile-llm-note.muted {
+  color: var(--amber);
+}
+
+.profile-llm-summary {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: #f6f4fd;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .capability-unknown {
   margin: 6px 0 0;
   font-size: 12px;

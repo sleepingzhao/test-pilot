@@ -66,18 +66,20 @@ function parseJsonObject<T>(raw: string): T {
   }
 }
 
-async function chatCompletionsJson<T>(
+export async function chatCompletionsJson<T>(
   config: LlmPlannerConfig,
   input: {
     system: string;
     user: string;
     timeoutMs?: number;
+    maxOutputTokens?: number;
   },
 ): Promise<{ parsed: T; tokensUsed: number }> {
   const timeoutMs = input.timeoutMs ?? config.timeoutMs;
   const cacheKey = `${config.baseUrl}|${config.model}`;
   const learned = learnedMaxTokens.get(cacheKey);
   let maxTokens = learned ? Math.min(config.maxTokens, learned) : config.maxTokens;
+  if (input.maxOutputTokens) maxTokens = Math.min(maxTokens, input.maxOutputTokens);
 
   let res = await postChatCompletion(config, input, maxTokens, timeoutMs);
   if (!res.ok && res.status === 400) {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
-import { enhanceDraftWithLlm } from "./llm-planner.js";
+import { enhanceDraftWithLlm, chatCompletionsJson } from "./llm-planner.js";
 import type { LlmPlannerConfig } from "./llm-config.js";
 
 test("retries with the provider's max_tokens limit instead of failing the call", async () => {
@@ -227,6 +227,46 @@ test("uses LLM steps and drops stale rule assertions when the goal does not ment
       false,
     );
     assert.ok(out.draft.sources.includes("llm-steps"));
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("maxOutputTokens bounds a caller that needs a smaller reply budget", async () => {
+  let seen = 0;
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      seen = (JSON.parse(raw) as { max_tokens: number }).max_tokens;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          usage: { total_tokens: 5 },
+          choices: [{ message: { content: JSON.stringify({ ok: true }) } }],
+        }),
+      );
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  const config: LlmPlannerConfig = {
+    provider: "custom",
+    apiKey: "test-key",
+    baseUrl: `http://127.0.0.1:${port}`,
+    model: "test-model",
+    temperature: 0.2,
+    maxTokens: 1_000_000,
+    timeoutMs: 5_000,
+  };
+  try {
+    const out = await chatCompletionsJson<{ ok: boolean }>(config, {
+      system: "s",
+      user: "u",
+      maxOutputTokens: 8_000,
+    });
+    assert.equal(seen, 8_000);
+    assert.equal(out.parsed.ok, true);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

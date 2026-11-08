@@ -5,6 +5,11 @@ import { redactStringBody } from "@testpilot/evidence";
 import { chromium, type Page } from "playwright";
 import { openPilotPage } from "./pilot-intake-snapshot.js";
 import { openRealPage } from "./real-login.js";
+import {
+  analyzeCapabilitiesWithLlm,
+  mergeLlmAnalysis,
+  type LlmDetectionResult,
+} from "./llm-detect.js";
 import { resolveRequirementTargetUrl, type RequirementTarget } from "./requirement-target.js";
 import { pilotSecretsConfigured } from "./run-env.js";
 import { isAllowedTargetUrl, isSafeRunId } from "./security.js";
@@ -60,6 +65,7 @@ type OpenPageInput = {
 export type DetectionDeps = {
   openPage?: (input: OpenPageInput) => Promise<{ page: Page; close: () => Promise<void> }>;
   collect?: (page: Page) => Promise<SystemProfile>;
+  analyze?: (profile: SystemProfile) => Promise<LlmDetectionResult>;
 };
 
 export async function runDetection(
@@ -94,11 +100,18 @@ export async function runDetection(
     onStage("采集页面与信号");
     const collectOptions =
       input.target === "real"
-        ? { maxRoutes: 6, settleMs: 2_500, routeTimeoutMs: 30_000, expandWaitMs: 5_000 }
+        ? { maxRoutes: 10, settleMs: 2_500, routeTimeoutMs: 30_000, expandWaitMs: 5_000 }
         : { maxRoutes: 12 };
     const collect =
       deps.collect ?? ((page: Page) => collectSystemProfile(page, collectOptions));
-    const profile = sanitizeProfile(await collect(handle.page), input.target === "real");
+    const collected = await collect(handle.page);
+
+    onStage("LLM 分析能力");
+    const analysis = await (deps.analyze ?? analyzeCapabilitiesWithLlm)(collected);
+    const enriched = mergeLlmAnalysis(collected, analysis);
+    const withoutEvidence = { ...enriched };
+    delete withoutEvidence.evidence;
+    const profile = sanitizeProfile(withoutEvidence, input.target === "real");
 
     onStage("保存系统画像");
     const id = `detect_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
@@ -146,8 +159,27 @@ async function openPage(input: OpenPageInput): Promise<{ page: Page; close: () =
  * text and titles so stored artifacts do not contain people or project names.
  */
 function sanitizeProfile(profile: SystemProfile, stripText: boolean): SystemProfile {
+  const llmCapabilities =
+    stripText && profile.llmCapabilities
+      ? profile.llmCapabilities.map((capability) => ({
+          ...capability,
+          label: redactStringBody(capability.label),
+          evidence: capability.evidence.map(redactStringBody),
+          subCapabilities: capability.subCapabilities.map(redactStringBody),
+          testIdeas: capability.testIdeas.map(redactStringBody),
+          unknowns: capability.unknowns.map(redactStringBody),
+        }))
+      : profile.llmCapabilities;
   return {
     ...profile,
+    capabilities: stripText
+      ? profile.capabilities.map((capability) => ({
+          ...capability,
+          ...(capability.testIdeas
+            ? { testIdeas: capability.testIdeas.map(redactStringBody) }
+            : {}),
+        }))
+      : profile.capabilities,
     surfaces: profile.surfaces.map((surface) => ({
       route: surface.route,
       elements: surface.elements.map((element) => ({
@@ -167,6 +199,13 @@ function sanitizeProfile(profile: SystemProfile, stripText: boolean): SystemProf
         summary: stripText ? signal.id : redactStringBody(evidence.summary),
       })),
     })),
+    ...(llmCapabilities ? { llmCapabilities } : {}),
+    ...(stripText && profile.llmSummary
+      ? { llmSummary: redactStringBody(profile.llmSummary) }
+      : {}),
+    ...(stripText && profile.llmQuestions
+      ? { llmQuestions: profile.llmQuestions.map(redactStringBody) }
+      : {}),
   };
 }
 

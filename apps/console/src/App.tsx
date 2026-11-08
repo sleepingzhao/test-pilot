@@ -1232,7 +1232,7 @@ export function App() {
               {llmInfo?.enabled ? (
                 <span className="link-quiet">
                   LLM：{llmInfo.provider}/{llmInfo.model} · 累计{" "}
-                  {(llmInfo.tokensTotal ?? 0).toLocaleString()} tokens / {llmInfo.callCount ?? 0} 次（仅草稿与诊断）
+                  {(llmInfo.tokensTotal ?? 0).toLocaleString()} tokens / {llmInfo.callCount ?? 0} 次（草稿 · 诊断 · 能力探测）
                 </span>
               ) : null}
             </div>

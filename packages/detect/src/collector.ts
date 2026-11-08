@@ -7,7 +7,13 @@ import {
   type DomObservation,
   type NetworkObservation,
 } from "./signals.js";
-import type { DetectionReport, Signal, SignalId, SurfaceSnapshot } from "./types.js";
+import type {
+  DetectionEvidence,
+  DetectionReport,
+  Signal,
+  SignalId,
+  SurfaceSnapshot,
+} from "./types.js";
 
 /** Passive profile. Same shape as the v1 detection report; the collector does not extend it. */
 export type SystemProfile = DetectionReport;
@@ -43,6 +49,11 @@ type Sample = {
   signals: Signal[];
   routes: string[];
   spa: SpaTarget[];
+  evidence: {
+    page: DetectionEvidence["pages"][number];
+    frames: DetectionEvidence["frames"];
+    endpoints: DetectionEvidence["endpoints"];
+  };
 };
 
 const OPEN_FORM =
@@ -86,6 +97,7 @@ export async function collectSystemProfile(
   const entryUrl = page.url();
   const surfaces: SurfaceSnapshot[] = [];
   const found: Signal[] = [];
+  const evidence: DetectionEvidence = { pages: [], frames: [], endpoints: [] };
   const onDialog = (dialog: { dismiss: () => Promise<void> }) => {
     void dialog.dismiss().catch(() => undefined);
   };
@@ -97,6 +109,7 @@ export async function collectSystemProfile(
       if (sampled) {
         surfaces.push(sampled.surface);
         found.push(...sampled.signals);
+        mergeEvidence(evidence, sampled.evidence);
       }
     } else {
       const queue = [entryUrl];
@@ -122,6 +135,7 @@ export async function collectSystemProfile(
         if (!sampled) continue;
         surfaces.push(sampled.surface);
         found.push(...sampled.signals);
+        mergeEvidence(evidence, sampled.evidence);
         seen.add(pathOf(page.url()));
         for (const href of sampled.routes) {
           const path = pathOf(href);
@@ -137,7 +151,10 @@ export async function collectSystemProfile(
           spaClicks += 1;
           try {
             const extra = await collectSpaView(page, item, timing);
-            if (extra) found.push(...extra);
+            if (extra) {
+              found.push(...extra.signals);
+              mergeEvidence(evidence, extra.evidence);
+            }
           } catch {
             // One view switch must not abort the rest of the crawl.
           }
@@ -150,6 +167,9 @@ export async function collectSystemProfile(
 
   const signals = mergeSignals(found);
   const evaluated = evaluateCapabilities({ signals, surfaces });
+  evidence.pages = evidence.pages.slice(0, 8);
+  evidence.frames = evidence.frames.slice(0, 8);
+  evidence.endpoints = evidence.endpoints.slice(0, 150);
   return {
     version: 1,
     target: { url: entryUrl, mode: "passive" },
@@ -157,7 +177,40 @@ export async function collectSystemProfile(
     signals,
     capabilities: evaluated.capabilities,
     questions: evaluated.questions,
+    evidence,
   };
+}
+
+function mergeEvidence(
+  target: DetectionEvidence,
+  source: {
+    page: DetectionEvidence["pages"][number];
+    frames: DetectionEvidence["frames"];
+    endpoints: DetectionEvidence["endpoints"];
+  },
+): void {
+  const pageKey = `${source.page.route}\u0000${source.page.text.slice(0, 300)}`;
+  if (!target.pages.some((page) => `${page.route}\u0000${page.text.slice(0, 300)}` === pageKey)) {
+    target.pages.push(source.page);
+  }
+  for (const frame of source.frames) {
+    const key = `${frame.route}\u0000${frame.text.slice(0, 300)}`;
+    if (!target.frames.some((item) => `${item.route}\u0000${item.text.slice(0, 300)}` === key)) {
+      target.frames.push(frame);
+    }
+  }
+  for (const endpoint of source.endpoints) {
+    if (
+      !target.endpoints.some(
+        (item) =>
+          item.method === endpoint.method &&
+          item.path === endpoint.path &&
+          item.status === endpoint.status,
+      )
+    ) {
+      target.endpoints.push(endpoint);
+    }
+  }
 }
 
 async function samplePage(page: Page, timing: Timing): Promise<Sample | undefined> {
@@ -178,23 +231,48 @@ async function samplePage(page: Page, timing: Timing): Promise<Sample | undefine
     const baseDom = await observeDom(page);
     const opened = await readOpenedForm(page, baseDom, timing);
     const surface = await readSurface(page);
-    const frameSignals = await collectFrameSignals(page);
+    const frames = await collectFrames(page);
+    const pageText = await readPageText(page);
     await closeOpenedForm(page, opened.beforeUrl, timing.routeTimeoutMs);
     return {
       surface,
       signals: [
         ...classifySignals({ route: surface.route, dom: opened.dom, network: watch.records.slice() }),
-        ...frameSignals,
+        ...frames.signals,
       ],
       routes: discovered.routes,
       spa: discovered.spa,
+      evidence: {
+        page: {
+          route: surface.route,
+          title: surface.title,
+          text: pageText,
+          elements: surface.elements,
+        },
+        frames: frames.frames,
+        endpoints: endpointsFrom(watch.records),
+      },
     };
   } finally {
     watch.detach();
   }
 }
 
-async function collectSpaView(page: Page, item: SpaTarget, timing: Omit<Timing, "discover" | "reload" | "gotoUrl">): Promise<Signal[] | undefined> {
+async function collectSpaView(
+  page: Page,
+  item: SpaTarget,
+  timing: Omit<Timing, "discover" | "reload" | "gotoUrl">,
+): Promise<
+  | {
+      signals: Signal[];
+      evidence: {
+        page: DetectionEvidence["pages"][number];
+        frames: DetectionEvidence["frames"];
+        endpoints: DetectionEvidence["endpoints"];
+      };
+    }
+  | undefined
+> {
   if (isForbiddenName(item.name)) return undefined;
   const before = page.url();
   const watch = attachNetwork(page);
@@ -210,13 +288,28 @@ async function collectSpaView(page: Page, item: SpaTarget, timing: Omit<Timing, 
     const baseDom = await observeDom(page);
     const opened = await readOpenedForm(page, baseDom, timing);
     const route = pathOf(page.url());
+    const frames = await collectFrames(page);
     const signals = [
       ...classifySignals({ route, dom: opened.dom, network: watch.records.slice() }),
-      ...(await collectFrameSignals(page)),
+      ...frames.signals,
     ];
+    const pageText = await readPageText(page);
+    const title = await page.title().catch(() => undefined);
     await closeOpenedForm(page, opened.beforeUrl, timing.routeTimeoutMs);
     if (!samePlace(before, page.url())) await restore(page, before, timing.routeTimeoutMs);
-    return signals;
+    return {
+      signals,
+      evidence: {
+        page: {
+          route,
+          title,
+          text: pageText,
+          elements: evidenceElements(opened.dom),
+        },
+        frames: frames.frames,
+        endpoints: endpointsFrom(watch.records),
+      },
+    };
   } catch {
     await restore(page, before, timing.routeTimeoutMs);
     return undefined;
@@ -621,8 +714,11 @@ async function observeDom(page: Page | Frame): Promise<DomObservation[]> {
   return observed.slice(0, 300);
 }
 
-async function collectFrameSignals(page: Page): Promise<Signal[]> {
-  const out: Signal[] = [];
+async function collectFrames(
+  page: Page,
+): Promise<{ signals: Signal[]; frames: DetectionEvidence["frames"] }> {
+  const signals: Signal[] = [];
+  const frames: DetectionEvidence["frames"] = [];
   const main = page.mainFrame();
   for (const frame of page.frames()) {
     if (frame === main) continue;
@@ -632,7 +728,34 @@ async function collectFrameSignals(page: Page): Promise<Signal[]> {
       })
       .catch(() => undefined);
     const dom = await observeDom(frame).catch(() => []);
-    out.push(...classifySignals({ route: pathOf(frame.url()), dom, network: [] }));
+    const route = pathOf(frame.url());
+    signals.push(...classifySignals({ route, dom, network: [] }));
+    const text = await readPageText(frame, 4_000);
+    if (text) frames.push({ route, text, elements: evidenceElements(dom) });
+  }
+  return { signals, frames };
+}
+
+async function readPageText(page: Page | Frame, limit = 4_000): Promise<string> {
+  const text = await page.locator("body").innerText().catch(() => "");
+  return text.replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function evidenceElements(
+  elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string }>,
+): Array<{ role?: string; name?: string; testId?: string; inputType?: string }> {
+  return elements.map(({ role, name, testId, inputType }) => ({ role, name, testId, inputType }));
+}
+
+function endpointsFrom(records: NetworkObservation[]): DetectionEvidence["endpoints"] {
+  const seen = new Set<string>();
+  const out: DetectionEvidence["endpoints"] = [];
+  for (const record of records) {
+    const path = pathOf(record.url);
+    const key = `${record.method} ${path} ${record.status ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ method: record.method, path, ...(record.status !== undefined ? { status: record.status } : {}) });
   }
   return out;
 }

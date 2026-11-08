@@ -48,7 +48,7 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 
 1. 在本地 `.env` 配置 `TESTPILOT_REAL_BASE_URL`、`TESTPILOT_ENV_REAL_ENTERPRISE_ID`、`TESTPILOT_ENV_REAL_USER_ID`、`TESTPILOT_ENV_REAL_PASSWORD`，并把 origin 加入 `TESTPILOT_ALLOWED_TARGETS`
 2. 重启 `pnpm dev`，在「系统画像」选择「真实环境」
-3. 只读探测；`profile.json` 会去掉页面文本和标题，不保留人名/项目名。真实环境暂不开放自动生成和试跑，避免自动写入业务数据
+3. 只读探测；LLM 会读取有界的页面/iframe 文本、控件与接口路径证据，识别规则库未覆盖的能力（如 Agent 工具市场、MCP、技能、记忆、设备控制）并给出测试建议；`profile.json` 只保留脱敏后的能力与证据编号，页面文本、标题、人名/项目名都不会落盘。真实环境暂不开放自动生成和试跑，避免自动写入业务数据
 
 生产式单端口（构建后 API 托管静态 Console）：
 
@@ -57,14 +57,14 @@ pnpm start
 # 打开 http://127.0.0.1:8787
 ```
 
-LLM（DeepSeek 等）是可选能力：目前只用于草稿与诊断，确定性回归 **零 LLM**。按 V0.6 路线，后续只增加低置信度能力归类和独立的 Agent 语义评测（见 [`ROADMAP.md`](ROADMAP.md) §6.3），不会让 LLM 直接写回归用例。密钥只写在 **`.env`** 的 `TESTPILOT_LLM_API_KEY`。默认 `deepseek` / `deepseek-chat` / 2048 tokens；provider 的 token 上限由服务端决定，错误会显示在控制台。完整变量见 `.env.example`。
+LLM（DeepSeek 等）是可选能力：**能力探测里 LLM 是一等分析器**，规则引擎负责采集、取证、校验和持久化，LLM 读取有界证据后给出能力、子能力、测试建议与待确认问题（真实环境只喂脱敏后的 digest，页面文本不落盘）。回归执行仍然 **零 LLM**，确定性断言不依赖模型。密钥只写在 **`.env`** 的 `TESTPILOT_LLM_API_KEY`。默认 `deepseek` / `deepseek-chat` / 2048 tokens；探测单次输出上限 8000 tokens、超时 180s，provider 的 token 上限由服务端决定，错误会显示在控制台。完整变量见 `.env.example`。
 
 Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](ROADMAP.md)，本地门禁见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)。
 
 ## 架构（与 design 图对齐）
 
 - **Interface**：Web Console（`apps/console`）· CLI 供脚本与高级用法
-- **Intelligence**：Planner / Context（迭代中）· Detect 能力探测（V0.6 骨架）· 确定性回归 **零 LLM**
+- **Intelligence**：Planner / Context（迭代中）· Detect 能力探测（规则 + LLM 分析，V0.6）· 回归执行 **零 LLM**
 - **Test IR + Assertions**：`packages/test-ir` · `packages/assertions`
 - **Platform**：Web 已可用 · Phone / Glass 见 `packages/platform` 路线图
 - **Execution + Evidence**：`packages/runner-web` · `packages/evidence`

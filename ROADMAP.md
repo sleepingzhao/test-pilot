@@ -2,7 +2,7 @@
 
 ## 从「能演示」到「能信任、能证明业务结果」，再到「能发现系统能力」
 
-**2026-11-08 · V0.6 能力探测与系统画像完成（V6-4 按需暂缓），V0.7 实时机制下一阶段 · Cursor 执行，Claude 定期把关**
+**2026-11-08 · V0.6 能力探测与系统画像完成（规则 + LLM 双引擎），V0.7 实时机制下一阶段 · Cursor 执行，Claude 定期把关**
 
 > **唯一执行计划。** 原 `docs/BACKLOG.md` 已合并到本文件；`design/` 下的 v0.2 路线 docx 已删除，仅保留架构/概念图。状态只在本文件维护，不要另建待办文件。
 
@@ -27,7 +27,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | Web recorder | 已验证（P-3） | 密码/手机号/PII → env/fixture ref；真实浏览器录制测试 `recorded-session.test.ts`；原生 select 录为 `select` 步骤；cascader 仍需手工补 `selectCascader` |
 | Console | 可用 | 步骤编辑/草稿试跑（试跑不计入回归指标）、Provider 审阅面板、审批身份与审计、删除草稿、弱断言门禁 |
 | Planner | 规则式 + 可选 LLM | 规则模板 + LLM 步骤（快照校验）；表单探索已能采集弹窗字段/下拉；尚无能力探测 |
-| 能力探测（Detect） | 可用（V0.6） | `packages/detect` 采集器 + 八类规则 + `/api/detect` + 系统画像；demo 识别 CRUD/文件/搜索，试点识别文件/工作流，真实环境（只读）识别文件/实时消息；实时与 Agent 执行在 V0.7/V0.8 |
+| 能力探测（Detect） | 可用（V0.6） | `packages/detect` 采集器 + 八类规则 + LLM 能力分析 + `/api/detect` + 系统画像；demo 识别 CRUD/文件/搜索，试点识别文件/工作流，真实环境识别实时消息/文件，并由 LLM 发现小智 Agent、工具市场、MCP、技能、记忆、设备控制；实时与 Agent 执行在 V0.7/V0.8 |
 | 实时/富媒体证据 | 未实现（V0.7） | 只抓 HTTP；无 WebSocket frame、SSE、多账号 |
 | Agent 语义断言 | 部分（V0.8） | OTel trace 工具调用断言已有；无幻觉 rubric / LLM judge |
 | 管理 API | 文件存储 | 安全边界已加固；本机无登录；无数据库 |
@@ -156,7 +156,7 @@ Console 的断言编辑器需要支持：
 | V0.3 可信试点（已完成） | 断言引擎 v2、真实业务断言、真实提交用例、负向验证、工作流正确性 | 多项目、RBAC、分布式调度 |
 | V0.4 可重复回归（已完成） | 显式批次与并行、flake 统计与看板、运行详情页、证据保留/清理、试点成功用例业务化、连续 3 批基线 | Provider 扩展、GitLab/CI、PostgreSQL、RBAC、调度 |
 | V0.5-lite 需求→自动测试（已完成） | 一句话/PRD → 草稿 → 自动试跑 → 一键入回归；LLM 用量与降级可见 | 自动批准、CI、团队平台 |
-| V0.6 能力探测底座（已完成，V6-4 按需） | Detect、SystemProfile、能力分类 v1、系统画像、LLM 仅做歧义归类 | 新执行器、实时/Agent 断言 |
+| V0.6 能力探测底座（已完成） | Detect、SystemProfile、能力分类 v1、系统画像、LLM 能力分析与测试建议 | 新执行器、实时/Agent 断言 |
 | V0.7 实时与媒体机制（下一阶段） | WebSocket/SSE 证据、多账号执行、realtime-messaging、file-media 机制包 | Agent 语义判断 |
 | V0.8 Agent 机制 | 工具调用断言、幻觉/引用/多轮、LLM judge 独立 semantic suite | 自动批准、无证据 judge |
 | V0.9 机制扩展与漂移 | workflow/auth-rbac/search-filter 机制包、探测 diff、pack SDK | 平台化 |
@@ -376,7 +376,7 @@ interface MechanismPack {
 
 | 环节 | 规则引擎 | LLM |
 |---|---|---|
-| 探测 | 采集、打分、分类、证据关联 | 低置信度/冲突时做歧义归类 |
+| 探测 | 采集、信号、打分、证据关联、schema/证据校验、缓存 | 读有界证据做能力归类（含规则未覆盖的新能力）、子能力、测试建议与待确认问题 |
 | 规划 | 选机制包、实例化场景、生成数据、构造断言 | 界面语义绑定、边界场景候选 |
 | 校验 | schema、元素绑定、证据引用、负向探针 | 无 |
 | 运行 | 确定性断言零 LLM | 仅 `semantic suite` |
@@ -384,8 +384,8 @@ interface MechanismPack {
 
 四个硬约束：
 
-1. LLM 输出必须是枚举 + JSON schema，不能自造能力分类。
-2. 每条结论必须引用 `evidenceId`，无证据的结论直接丢弃。
+1. LLM 输出必须是 JSON schema；优先落在固定能力枚举里，只有带证据时才能提出新的自定义能力 slug（如 `agent-mcp`），并作为补充能力展示，不覆盖规则结论。
+2. 每条结论必须引用证据（route / 可见标签 / 控件 / API 路径），无证据的结论直接丢弃。
 3. 按证据 hash 缓存，检测一次复用；每次会话有 token 预算，超了降级为规则 + 人工问题。
 4. LLM 不写回归用例，只做「候选/补全」，必须过规则校验和人工审批。
 
@@ -398,9 +398,9 @@ interface MechanismPack {
 - [ ] V6-1 `SystemProfile` + `packages/detect` — 定义路由/页面/表单/网络/WS/SSE/上传/聊天/Agent 信号的数据结构与版本；`pnpm verify` 全绿
 - [x] V6-2 被动采集器 + 有界爬取 — `packages/detect/src/collector.ts` + `signals.ts`；登录后枚举同源路由（上限 12），只读不提交；采集 DOM/表单/网络/WS/SSE；隐式 submit/cancel 与 destructive 名称有安全回归；`collector.test.ts` / `signals.test.ts`；`pnpm verify` 全绿（2026-11-08）
 - [x] V6-3 能力分类规则 v1 — `packages/detect/src/rules.ts` 覆盖 CRUD/Realtime/Auth/Workflow/File-media/Search-filter/Agent/Rich content；每类正例 + 部分信号提问；`rules.test.ts` 表驱动；`pnpm verify` 全绿（2026-11-08）
-- [ ] V6-4 LLM 歧义归类 — 按需暂缓：当前规则在 demo/试点均为高置信且 0 待确认；出现低置信度案例再做。输入紧凑 digest，输出 enum + evidence ids；schema 校验、缓存、token 预算、无证据丢弃
+- [x] V6-4 LLM 能力分析 — `services/test-management/src/llm-detect.ts`：有界脱敏 digest（页面/iframe/接口/规则结论）→ 能力、子能力、测试建议、待确认问题；schema 校验、无证据丢弃、置信度钳制、token/输出/超时预算、按 digest hash 缓存；规则能力标 `hybrid`，规则未覆盖的能力进 `llmCapabilities`；真实画像不落页面文本；`llm-detect.test.ts` + 探测并行测试；真实环境一次调用发现小智 Agent / 工具市场 / MCP / 技能 / 记忆 / 设备控制（12,003 tokens）（2026-11-08）
 - [x] V6-5 系统画像与 API — `services/test-management/src/detection.ts` + `/api/detect` jobs/profiles；复用 session 目录 `kind: "detect"` 与 20 个会话保留；控制台「系统画像」页与创建页能力提示；`detection.test.ts`；demo 实测 CRUD/文件/媒体，`pnpm verify` 全绿（2026-11-08）
-- [x] V6-6 demo/试点验证 — demo 识别 CRUD 0.86 / 文件 0.90 / 搜索 0.72；试点识别文件 0.90 / 工作流 0.65，0 条待确认；另接入真实环境 `target=real`（仅系统画像，不开放生成/试跑），稳定识别实时消息，文件/媒体随加载视图出现；页面文本/标题已脱敏；三次探测 LLM 调用增量 0；`pnpm detect:validate -- --target all|real` + `artifacts/detect/validate-last.json`；`pnpm verify` 全绿（2026-11-08）
+- [x] V6-6 demo/试点/真实环境验证 — demo 识别 CRUD 0.86 / 文件 0.90 / 搜索 0.72；试点识别文件 0.90 / 工作流 0.65；真实环境识别文件 0.90 / CRUD 0.82 / 搜索 0.72 / 实时消息 0.66（均含 LLM 测试建议），并补充 8 项 LLM 能力：小智 Agent、工具市场、MCP、技能、记忆/知识图谱、设备控制、认证、SOP；页面文本/标题/人名不落盘；`pnpm detect:validate -- --target all|real` + `artifacts/detect/validate-last.json`；`pnpm verify` 全绿（2026-11-08）
 
 **V0.7 实时与媒体机制（约 2～3 周）**
 
@@ -429,7 +429,7 @@ interface MechanismPack {
 
 ### 6.3.5 发布门槛与验收指标
 
-- V0.6：demo 识别 CRUD/上传/搜索；试点识别当前工单面；规则高置信时 LLM 调用为 0；误判以问题呈现；0 条自动批准。
+- V0.6：demo 识别 CRUD/上传/搜索；试点识别当前工单面；真实环境识别 IM/文件并发现 Agent 平台；每次探测 1 次 LLM 分析（digest 命中缓存时 0 次），所有 LLM 结论必须带证据；误判以问题呈现；0 条自动批准。
 - V0.7：demo 上 A→B 文本/图片真实送达；超长按不变量断言；重连不丢不重；阻断投递时断言必须失败。
 - V0.8：工具调用可确定性断言；喂一个「编造答案」的 agent 时幻觉用例必须失败；LLM judge 无证据不得通过；成本可见。
 - V0.9：4 个以上机制包；探测 diff 能指出受影响的用例；不自动改批准。
@@ -439,7 +439,7 @@ interface MechanismPack {
 | 能力识别 precision/recall | 标注 fixture 上 ≥90% | 探测报告 vs 人工标注 |
 | 需求 → 机制路由准确率 | ≥90% | 固定需求集回放 |
 | 新断言类型负向探针 | 100% | `pnpm negative-probes` |
-| 每次探测 LLM 调用 | 规则高置信时为 0 | `data/llm-usage.json` / 探测报告 |
+| 每次探测 LLM 调用 | ≤1 次（缓存命中 0 次） | `data/llm-usage.json` / 探测报告 |
 | 假绿事故 | 0 | 评审 + 负向探针 |
 | 回归 flake | <5% | flake 统计 |
 

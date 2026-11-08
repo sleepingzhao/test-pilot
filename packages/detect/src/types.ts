@@ -84,6 +84,10 @@ export type CapabilityAssessment = {
   signals: SignalId[];
   requires: RequirementId[];
   unknowns: string[];
+  /** Rule engine, LLM analysis, or both. */
+  source?: "rule" | "llm" | "hybrid";
+  /** Concrete test ideas proposed by the LLM; still require evidence + approval. */
+  testIdeas?: string[];
 };
 
 export type DetectionQuestion = {
@@ -94,6 +98,39 @@ export type DetectionQuestion = {
   routes: string[];
 };
 
+/** Bounded evidence digest for LLM analysis. Not persisted for real targets. */
+export type DetectionEvidence = {
+  pages: Array<{
+    route: string;
+    title?: string;
+    text: string;
+    elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string }>;
+  }>;
+  frames: Array<{
+    route: string;
+    text: string;
+    elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string }>;
+  }>;
+  endpoints: Array<{ method: string; path: string; status?: number }>;
+};
+
+export type LlmCapabilityAssessment = {
+  id: string;
+  label: string;
+  confidence: number;
+  evidence: string[];
+  subCapabilities: string[];
+  testIdeas: string[];
+  unknowns: string[];
+};
+
+export type LlmAnalysisMeta = {
+  used: boolean;
+  model?: string;
+  tokensUsed?: number;
+  error?: string;
+};
+
 export type DetectionReport = {
   version: 1;
   target: { url: string; mode: "passive" | "probe" | "mutating" };
@@ -101,6 +138,13 @@ export type DetectionReport = {
   signals: Signal[];
   capabilities: CapabilityAssessment[];
   questions: DetectionQuestion[];
+  /** Transient LLM evidence; stripped before saving. */
+  evidence?: DetectionEvidence;
+  /** Capabilities the LLM discovered beyond the fixed taxonomy. */
+  llmCapabilities?: LlmCapabilityAssessment[];
+  llmSummary?: string;
+  llmQuestions?: string[];
+  llmAnalysis?: LlmAnalysisMeta;
 };
 
 /**

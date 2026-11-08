@@ -404,12 +404,20 @@ interface MechanismPack {
 
 **V0.7 实时与媒体机制（约 2～3 周）**
 
+**第一批：文件/媒体（先跑通「能力 → 机制 → 证据断言」）**
+
+- [ ] V7-5a `upload` 步骤 — `StepAction` 增加 `upload`；IR schema/types/validator 支持；runner 用 Playwright `setInputFiles`，文件路径只从 `valueRef` → env 解析，限制在 `TESTPILOT_FIXTURE_DIR` 内；越界/缺失/目录路径必须有负向测试
+- [ ] V7-5b demo `/files` — `examples/demo-webapp/files.html` + multipart `POST /api/files`、`GET /api/files`、`GET /api/files/:id/content`、`DELETE /api/files/:id`；只收 image/png、image/jpeg、application/pdf，大小上限 1 MB（413/415）；内存存储，不落盘；故障注入开关（拒绝合法上传 / 接受非法类型）用于负向探针
+- [ ] V7-5c `packages/mechanisms` + file-media pack — `planFileMedia(profile, ctx)`：file-media 能力缺失时返回 `runnable: false` + 原因；否则生成可评审 IR（navigate → upload → 提交），断言上传请求 201 + 响应 JSON + 列表出现文件名；支持类型/大小负例场景
+- [ ] V7-5d 负向验证 — 故障注入「拒绝合法上传」时正向机制必须失败；「接受非法类型」时负例必须失败；`pnpm verify` 全绿
+
+**第二批：实时消息（V7-5 完成并验收后）**
+
 - [ ] V7-1 WS/SSE 证据 — 采集 WebSocket frames（方向/URL/大小/前 N 条）与 SSE chunks；脱敏、截断、大小上限；证据可下载
-- [ ] V7-2 多账号执行 — IR 增加 `actors`，runner 支持多 browser context、`uploadFile`、`waitForEvent`；单账号回退必须显式标注
+- [ ] V7-2 多账号执行 — IR 增加 `actors`，runner 支持多 browser context、`waitForEvent`；单账号回退必须显式标注
 - [ ] V7-3 `ws` 断言 Provider — 连接/方向/JSON path/contains/regex/minCount/timeout；负向探针（阻断投递必须失败）
 - [ ] V7-4 realtime-messaging 机制包 — 文本送达（出站 WS + 入站 WS + 对方 DOM）、图片、超长、重连、顺序、去重
-- [ ] V7-5 file-media 机制包 — 类型、大小、损坏、预览、下载完整性；负向探针
-- [ ] V7-6 demo fixture 与控制台 — `examples/demo-webapp` 加 `/chat`、`/files`；控制台选 pack、看 WS 证据；`pnpm verify` 全绿
+- [ ] V7-6 demo `/chat` 与控制台 — `examples/demo-webapp` 加 `/chat`；控制台选 pack、看 WS 证据；`pnpm verify` 全绿
 
 **V0.8 Agent 机制（约 2～3 周）**
 

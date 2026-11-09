@@ -1,4 +1,5 @@
 import type { Page } from "playwright";
+import type { WsFrame } from "@testpilot/evidence";
 import type { AgentConfigBundle, DbConfigBundle, ReadonlyDbClient, TraceClient } from "@testpilot/fixtures";
 
 export type CapturedNetworkEntry = {
@@ -38,6 +39,8 @@ export type AssertionContext = {
   page: Page;
   runId?: string;
   network?: CapturedNetworkEntry[];
+  wsFrames?: WsFrame[];
+  waitForWsFrames?: (predicate: (frame: WsFrame) => boolean, timeoutMs: number) => Promise<boolean>;
   resolveRequestRef?: (ref: string) => RequestRefSpec | undefined;
   resolveRef?: (ref: string) => unknown;
   db?: ReadonlyDbClient;

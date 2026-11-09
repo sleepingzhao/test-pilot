@@ -7,6 +7,7 @@ import {
   validatePostgresReadonlyAssertion,
 } from "./postgres-readonly.js";
 import { runOtelTraceAssertion, validateOtelTraceAssertion } from "./otel-trace.js";
+import { runWsAssertion, validateWsAssertion } from "./ws.js";
 import {
   getAssertionProvider,
   registerAssertionProvider,
@@ -28,6 +29,7 @@ export {
   validatePostgresReadonlyAssertion,
 } from "./postgres-readonly.js";
 export { runOtelTraceAssertion, validateOtelTraceAssertion } from "./otel-trace.js";
+export { runWsAssertion, validateWsAssertion } from "./ws.js";
 export type { AssertionProvider } from "./providers.js";
 
 export {
@@ -237,4 +239,11 @@ registerAssertionProvider({
   validate: (assertion) =>
     validateOtelTraceAssertion(assertion, (ref) => getAgentConfigBundle(ref)),
   run: runOtelTraceAssertion,
+});
+
+registerAssertionProvider({
+  id: "ws",
+  kind: "event",
+  validate: validateWsAssertion,
+  run: runWsAssertion,
 });

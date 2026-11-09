@@ -415,6 +415,12 @@ interface MechanismPack {
 - [x] V7-0d demo 验证 — demo API-only 用例：登录页 → `POST /api/users`，断言 201 + email、409 重复邮箱、400 缺邮箱（`api-user-create.json`、`api-duplicate-email.json`、`api-missing-email.json`）；`requestRef` 由 `env.requestRefs` 映射到 url/method；故障注入返回 500 或错误 JSON 时原断言以 `PRODUCT_DEFECT` 失败（`api-direct-demo.test.ts`）；`pnpm verify` 全绿（2026-11-09）。试点/真实接口未验证，等 V7-0e 明确授权后再接
 - [x] V7-0e 控制台接口用例 — 创建页新增「接口测试」模式：方法/路径/请求头/请求体、状态码/响应文本/响应 JSON 断言、环境选择与自定义 URL；提交后自动保存为**草稿**并试跑，不自动批准；审阅面板识别 `sourceChannel: "api"`，不再注入整页 UI 断言，步骤编辑器可查看/编辑 `request` 步骤；试点/真实环境在界面层拒绝，需后续明确授权；`api-test-draft.test.ts` + `api-test-route.test.ts` + 浏览器实跑（2026-11-09）
 
+**API 体验增强（backlog，不阻塞机制包）**
+
+- [ ] V7-0f 命名 API 环境与鉴权头 — 本地 `api-envs.json`（示例入库、真实配置 gitignore）：id/label/baseUrl/headers（值可写 `{{env.token}}`）/`allowWrite`；控制台环境选择器直接选；`allowWrite: false` 时只允许 GET/HEAD；配置不含密钥
+- [ ] V7-0g 接口用例编辑 — 用例列表对 `sourceChannel: "api"` 提供「编辑接口」，表单回填并保存为新版本，而不是只能改 JSON
+- [ ] V7-0h cURL 导入 — 粘贴 cURL 自动解析 method/path/headers/body，预填接口表单；解析失败给出明确提示
+
 **第二批：文件/媒体（接口直连验收后）**
 
 - [ ] V7-5a `upload` 步骤 — `StepAction` 增加 `upload`；IR schema/types/validator 支持；runner 用 Playwright `setInputFiles`，文件路径只从 `valueRef` → env 解析，限制在 `TESTPILOT_FIXTURE_DIR` 内；越界/缺失/目录路径必须有负向测试

@@ -1,0 +1,29 @@
+{
+  "id": "api-duplicate-email",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open-login", "action": "navigate", "path": "/practice-login.html" },
+    {
+      "id": "create-duplicate",
+      "action": "request",
+      "method": "POST",
+      "path": "/api/users",
+      "body": { "email": "duplicate@example.com" }
+    }
+  ],
+  "assertions": [
+    {
+      "id": "duplicate",
+      "type": "api",
+      "provider": "captured-http",
+      "requestRef": "api-users-create",
+      "expect": {
+        "statusCode": 409,
+        "responseJsonBody": { "error": "duplicate", "email": "duplicate@example.com" }
+      },
+      "oracle": "api-contract"
+    }
+  ],
+  "policy": { "screenshots": "on-failure" }
+}

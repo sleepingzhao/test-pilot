@@ -38,6 +38,9 @@ const tests = [
   "examples/demo-webapp/tests/demo-ticket-submit-success.json",
   "examples/demo-webapp/tests/demo-duplicate-email.json",
   "examples/demo-webapp/tests/demo-create-user-success.json",
+  "examples/demo-webapp/tests/api-user-create.json",
+  "examples/demo-webapp/tests/api-duplicate-email.json",
+  "examples/demo-webapp/tests/api-missing-email.json",
 ];
 
 const demo = spawn("node", ["server.mjs"], {

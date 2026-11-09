@@ -1,0 +1,29 @@
+{
+  "id": "api-missing-email",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open-login", "action": "navigate", "path": "/practice-login.html" },
+    {
+      "id": "create-empty",
+      "action": "request",
+      "method": "POST",
+      "path": "/api/users",
+      "body": { "email": "" }
+    }
+  ],
+  "assertions": [
+    {
+      "id": "missing-email",
+      "type": "api",
+      "provider": "captured-http",
+      "requestRef": "api-users-create",
+      "expect": {
+        "statusCode": 400,
+        "responseJsonBody": { "error": "missing_email" }
+      },
+      "oracle": "api-contract"
+    }
+  ],
+  "policy": { "screenshots": "on-failure" }
+}

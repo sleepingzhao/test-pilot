@@ -1,0 +1,30 @@
+{
+  "id": "api-user-create",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open-login", "action": "navigate", "path": "/practice-login.html" },
+    {
+      "id": "create-user",
+      "action": "request",
+      "method": "POST",
+      "path": "/api/users",
+      "body": { "email": "api-user-{{runId}}@example.com" }
+    }
+  ],
+  "assertions": [
+    {
+      "id": "created",
+      "type": "api",
+      "provider": "captured-http",
+      "requestRef": "api-users-create",
+      "expect": {
+        "statusCode": 201,
+        "responseJsonBody": { "ok": true },
+        "responseBodyContains": "@example.com"
+      },
+      "oracle": "api-contract"
+    }
+  ],
+  "policy": { "screenshots": "on-failure" }
+}

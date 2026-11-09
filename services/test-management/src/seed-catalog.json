@@ -1,6 +1,9 @@
 [
   { "file": "examples/demo-webapp/tests/demo-duplicate-email.json", "title": "重复邮箱被拒绝" },
   { "file": "examples/demo-webapp/tests/demo-create-user-success.json", "title": "创建用户成功" },
+  { "file": "examples/demo-webapp/tests/api-user-create.json", "title": "接口创建用户（201 + email）" },
+  { "file": "examples/demo-webapp/tests/api-duplicate-email.json", "title": "接口重复邮箱（409）" },
+  { "file": "examples/demo-webapp/tests/api-missing-email.json", "title": "接口缺少邮箱（400）" },
   { "file": "examples/demo-webapp/tests/demo-users-smoke.json", "title": "用户管理页加载（不测添加按钮）" },
   { "file": "examples/demo-webapp/tests/demo-form-validation.json", "title": "空邮箱校验" },
   { "file": "examples/demo-webapp/tests/demo-open-add-panel.json", "title": "点击「添加用户」展开表单" },

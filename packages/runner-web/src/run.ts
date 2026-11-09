@@ -120,6 +120,16 @@ export function navTimeoutMs(): number {
   return Number.isFinite(raw) && raw >= 5_000 ? Math.min(raw, 120_000) : 45_000;
 }
 
+function redactSecretHeaderValues(
+  headers: Record<string, string> | undefined,
+  secrets: readonly string[],
+): Record<string, string> | undefined {
+  if (!headers) return undefined;
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key, redactSecretValues(value, secrets)]),
+  );
+}
+
 /** Resolve a request path against baseUrl and reject anything that is not that origin. */
 export function resolveSameOriginRequestUrl(path: string | undefined, baseUrl: string): URL {
   if (!path?.trim()) throw new Error("request requires path");
@@ -248,14 +258,15 @@ async function executeStep(
           timeout: 15_000,
         });
         const responseText = await response.text();
+        const requestBody = requestBodyForEvidence(rendered);
         recordNetworkEntry({
-          url: target.href,
+          url: redactSecretValues(target.href, secrets),
           method: step.method,
           status: response.status(),
-          requestHeaders: rendered.headers,
-          requestBody: requestBodyForEvidence(rendered),
-          responseHeaders: response.headers(),
-          responseBody: responseText,
+          requestHeaders: redactSecretHeaderValues(rendered.headers, secrets),
+          requestBody: requestBody === undefined ? undefined : redactSecretValues(requestBody, secrets),
+          responseHeaders: redactSecretHeaderValues(response.headers(), secrets),
+          responseBody: redactSecretValues(responseText, secrets),
         });
         assignResponseVariables(step, responseText, vars);
         break;

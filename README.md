@@ -75,6 +75,14 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 - 控制台：**创建 → 接口测试**，填写方法/路径/请求头/请求体与断言后「生成草稿并试跑」；草稿需人工审阅批准，批准后才进入回归。
 - 示例：`examples/demo-webapp/tests/api-*.json`，已加入 `pnpm smoke:demo`。
 
+### 文件/媒体机制（V7-5）
+
+- `upload` 步骤用 Playwright `setInputFiles` 选择文件；IR 里只写 `valueRef`，文件路径运行时从 env 解析：
+  `fixture.samplePng` → `TESTPILOT_FIXTURE_SAMPLEPNG=sample.png`。
+- 路径必须位于 `TESTPILOT_FIXTURE_DIR`（默认 `examples/fixtures`）内；`..`、目录、缺失文件和符号链接逃逸（包括中间目录）都会被拒绝。
+- demo 练习环境新增 `/files`：支持 PNG / JPEG / PDF、单文件 1 MB；内存存储，不落盘；`DEMO_FILES_REJECT_VALID=1` / `DEMO_FILES_ACCEPT_INVALID=1` 仅用于负向验证。
+- `packages/mechanisms` 的 `planFileMedia(profile, ctx)` 只在画像识别到 `file-media`（置信度 ≥ 0.6）时生成可评审 IR：正常上传 + 可选类型/大小负例；不调用 LLM。
+
 ### 业务试点（P0-1）
 
 1. 复制凭据：`cp .env.example .env` 并填写 `TESTPILOT_ENV_ADMIN_*`（勿提交 Git）

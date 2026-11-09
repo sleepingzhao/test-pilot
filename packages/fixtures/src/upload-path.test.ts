@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { lstatSync } from "node:fs";
+import { lstatSync, realpathSync } from "node:fs";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,7 +42,7 @@ test("resolves a valueRef to a file inside the fixture dir and ignores paths in 
     process.env[envKey] = "sample.txt";
     try {
       const resolved = resolveUploadFixturePath(valueRef, {}, env);
-      assert.equal(resolved, join(fixtureDir, "sample.txt"));
+      assert.equal(resolved, realpathSync(join(fixtureDir, "sample.txt")));
       assert.equal(lstatSync(resolved).isFile(), true);
     } finally {
       delete process.env[envKey];
@@ -81,6 +81,9 @@ test("directory, outside path, and symlink escape fail without reading the file"
   await symlink(fifo, join(fixtureDir, "escape-fifo.txt"));
   await symlink(secret, join(fixtureDir, "escape.txt"));
   await symlink(join(fixtureDir, "sample.txt"), join(fixtureDir, "alias.txt"));
+  // A symlinked intermediate directory is the easy-to-miss escape: the final
+  // component is a regular file, but its real path is outside the fixture dir.
+  await symlink(parent, join(fixtureDir, "outside-dir"));
   try {
     assert.throws(
       () => resolveUploadFixturePath("fixture.dir", { "fixture.dir": "subdir" }, env),
@@ -115,6 +118,10 @@ test("directory, outside path, and symlink escape fail without reading the file"
       () => resolveUploadFixturePath("fixture.fifo", { "fixture.fifo": "escape-fifo.txt" }, env),
       /upload path escapes fixture directory/,
     );
+    assert.throws(
+      () => resolveUploadFixturePath("fixture.mid", { "fixture.mid": "outside-dir/secret.txt" }, env),
+      /upload path escapes fixture directory/,
+    );
     assert.ok(Date.now() - started < 1000, "symlink escape must not block on the target");
 
     assert.throws(
@@ -123,7 +130,7 @@ test("directory, outside path, and symlink escape fail without reading the file"
     );
 
     const alias = resolveUploadFixturePath("fixture.alias", { "fixture.alias": "alias.txt" }, env);
-    assert.equal(alias, join(fixtureDir, "sample.txt"));
+    assert.equal(alias, realpathSync(join(fixtureDir, "sample.txt")));
   } finally {
     await rm(parent, { recursive: true, force: true });
   }

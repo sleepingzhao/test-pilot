@@ -1,4 +1,4 @@
-import { lstatSync, readlinkSync, realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { TestIR } from "@testpilot/test-ir";
@@ -83,10 +83,6 @@ function errnoCode(err: unknown): string | undefined {
   return err && typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code) : undefined;
 }
 
-function isContained(rootResolved: string, rootReal: string, target: string): boolean {
-  return !isOutside(rootResolved, target) || !isOutside(rootReal, target);
-}
-
 /**
  * Resolve an upload `valueRef` to a real file inside the fixture directory.
  * The IR stores only the ref. `..`, absolute paths outside the directory,
@@ -116,36 +112,24 @@ export function resolveUploadFixturePath(
     if (errnoCode(err) === "ENOENT") throw new Error("fixture directory is missing");
     throw new Error("fixture directory is not a directory");
   }
-  if (!lstatSync(rootReal).isDirectory()) throw new Error("fixture directory is not a directory");
+  if (!statSync(rootReal).isDirectory()) throw new Error("fixture directory is not a directory");
 
-  let current = candidate;
-  const seen = new Set<string>();
-  for (let hop = 0; hop < 32; hop++) {
-    if (!isContained(rootResolved, rootReal, current)) {
-      throw new Error("upload path escapes fixture directory");
-    }
-    let stat;
-    try {
-      stat = lstatSync(current);
-    } catch (err) {
-      if (errnoCode(err) === "ENOENT") throw new Error(`upload fixture file is missing: ${valueRef}`);
-      throw new Error(`upload fixture path is invalid: ${valueRef}`);
-    }
-    if (stat.isSymbolicLink()) {
-      if (seen.has(current)) throw new Error("upload path escapes fixture directory");
-      seen.add(current);
-      const next = resolve(dirname(current), readlinkSync(current));
-      if (!isContained(rootResolved, rootReal, next)) {
-        throw new Error("upload path escapes fixture directory");
-      }
-      current = next;
-      continue;
-    }
-    if (stat.isDirectory()) throw new Error("upload path must be a file, not a directory");
-    if (!stat.isFile()) throw new Error("upload path must be a regular file");
-    return current;
+  // realpath resolves every intermediate symlink, not just the final component.
+  let real: string;
+  try {
+    real = realpathSync(candidate);
+  } catch (err) {
+    const code = errnoCode(err);
+    if (code === "ENOENT") throw new Error(`upload fixture file is missing: ${valueRef}`);
+    if (code === "ELOOP") throw new Error("upload path escapes fixture directory");
+    throw new Error(`upload fixture path is invalid: ${valueRef}`);
   }
-  throw new Error("upload path escapes fixture directory");
+  if (isOutside(rootReal, real)) throw new Error("upload path escapes fixture directory");
+
+  const stat = statSync(real);
+  if (stat.isDirectory()) throw new Error("upload path must be a file, not a directory");
+  if (!stat.isFile()) throw new Error("upload path must be a regular file");
+  return real;
 }
 
 export function resolveBaseUrl(ir: TestIR, env: RunEnvironment): string {

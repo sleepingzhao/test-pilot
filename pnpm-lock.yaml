@@ -175,6 +175,22 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/mechanisms:
+    dependencies:
+      '@testpilot/test-ir':
+        specifier: workspace:*
+        version: link:../test-ir
+    devDependencies:
+      '@testpilot/assertions':
+        specifier: workspace:*
+        version: link:../assertions
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.15
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   packages/planner:
     dependencies:
       '@testpilot/test-ir':

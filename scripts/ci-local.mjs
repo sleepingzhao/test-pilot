@@ -44,6 +44,7 @@ runIn("packages/fixtures", "pnpm", ["test"]);
 runIn("packages/recorder-web", "pnpm", ["test"]);
 runIn("packages/runner-web", "pnpm", ["test"]);
 runIn("services/test-management", "pnpm", ["test"]);
+runIn("examples/demo-webapp", "pnpm", ["test"]);
 
 console.log("ci-local: smoke:demo");
 run("pnpm", ["smoke:demo"]);

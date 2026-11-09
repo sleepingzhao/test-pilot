@@ -430,11 +430,18 @@ interface MechanismPack {
 
 **第三批：实时消息（文件/媒体验收后）**
 
-- [ ] V7-1 WS/SSE 证据 — 采集 WebSocket frames（方向/URL/大小/前 N 条）与 SSE chunks；脱敏、截断、大小上限；证据可下载
+**第一波：WS 管道（先做，单页面即可验证）**
+
+- [ ] V7-1a WS 帧证据 — 用 Playwright `page.on("websocket")` 采集 framesent/framereceived：方向、URL、大小、前 N 条 payload；单条截断、总数上限；`ws.json` 可下载；Authorization/Cookie 等敏感内容按现有规则脱敏
+- [ ] V7-3a `ws` 断言 Provider — `type: "event"` + `provider: "ws"`；expect 支持 `urlIncludes`、`direction`、`contains`、`regex`、`jsonPath` + `equals`、`minCount`、`absent`、`timeoutMs`；负向探针：阻断广播时断言必须失败
+- [ ] V7-6a demo `/chat` + 集成验证 — `examples/demo-webapp` 加 `/chat`（消息列表/输入框/发送按钮）与 `/ws/chat` 广播；`DEMO_CHAT_DROP=1` 只丢弃广播用于负向验证；runner 集成：发送 → 出站帧 + 入站帧 + 页面文案；drop 时断言失败；`pnpm verify` 全绿
+
+**第二波：多账号与 realtime 机制包（WS 管道验收后）**
+
+- [ ] V7-1b SSE 证据 — 采集 SSE chunks；与 WS 共用脱敏/截断；证据可下载
 - [ ] V7-2 多账号执行 — IR 增加 `actors`，runner 支持多 browser context、`waitForEvent`；单账号回退必须显式标注
-- [ ] V7-3 `ws` 断言 Provider — 连接/方向/JSON path/contains/regex/minCount/timeout；负向探针（阻断投递必须失败）
 - [ ] V7-4 realtime-messaging 机制包 — 文本送达（出站 WS + 入站 WS + 对方 DOM）、图片、超长、重连、顺序、去重
-- [ ] V7-6 demo `/chat` 与控制台 — `examples/demo-webapp` 加 `/chat`；控制台选 pack、看 WS 证据；`pnpm verify` 全绿
+- [ ] V7-6b 控制台 — 控制台选 pack、看 WS 证据；`pnpm verify` 全绿
 
 **V0.8 Agent 机制（约 2～3 周）**
 

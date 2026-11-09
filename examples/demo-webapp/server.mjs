@@ -9,6 +9,7 @@ import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import Busboy from "busboy";
+import { WebSocketServer } from "ws";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -140,11 +141,74 @@ function fileSummary(stored) {
   };
 }
 
+function chatDropRequested(reqUrl) {
+  if (envFlag("DEMO_CHAT_DROP")) return true;
+  try {
+    return new URL(reqUrl ?? "/", "http://127.0.0.1").searchParams.get("drop") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function attachChatSocket(server) {
+  const wss = new WebSocketServer({ noServer: true });
+  /** @type {Set<import("ws").WebSocket>} */
+  const clients = new Set();
+
+  server.on("upgrade", (req, socket, head) => {
+    let pathname = "/";
+    try {
+      pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    } catch {
+      socket.destroy();
+      return;
+    }
+    if (pathname !== "/ws/chat") {
+      socket.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      clients.add(ws);
+      const drop = chatDropRequested(req.url);
+      ws.on("message", (data, isBinary) => {
+        if (isBinary) return;
+        let parsed;
+        try {
+          parsed = JSON.parse(data.toString());
+        } catch {
+          return;
+        }
+        if (!parsed || parsed.type !== "message" || typeof parsed.user !== "string" || typeof parsed.text !== "string") {
+          return;
+        }
+        if (drop) return;
+        const outbound = JSON.stringify({
+          type: "message",
+          id: randomUUID(),
+          user: parsed.user,
+          text: parsed.text,
+          at: new Date().toISOString(),
+        });
+        for (const client of clients) {
+          if (client.readyState === 1) client.send(outbound);
+        }
+      });
+      ws.on("close", () => clients.delete(ws));
+    });
+  });
+
+  server.on("close", () => {
+    for (const client of clients) client.terminate();
+    wss.close();
+  });
+}
+
 export function createDemoServer() {
   const knownEmails = new Set(["duplicate@example.com", "admin@example.com"]);
   const files = new Map();
 
-  return createServer(async (req, res) => {
+  const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
 
     if (req.method === "POST" && url.pathname === "/api/tickets") {
@@ -241,6 +305,7 @@ export function createDemoServer() {
 
     let path = url.pathname === "/" ? "/index.html" : url.pathname;
     if (path === "/files" || path === "/files/") path = "/files.html";
+    if (path === "/chat" || path === "/chat/") path = "/chat.html";
     const filePath = join(root, path);
     try {
       const body = await readFile(filePath);
@@ -252,6 +317,8 @@ export function createDemoServer() {
       res.end("Not found");
     }
   });
+  attachChatSocket(server);
+  return server;
 }
 
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

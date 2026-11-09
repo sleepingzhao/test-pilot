@@ -1,0 +1,31 @@
+{
+  "id": "probe-ws",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open-chat", "action": "navigate", "path": "/chat?drop=1" },
+    { "id": "wait-status", "action": "wait", "target": { "testId": "chat-status" } },
+    {
+      "id": "fill-message",
+      "action": "fill",
+      "target": { "testId": "chat-composer" },
+      "value": "probe-ws-not-delivered"
+    },
+    { "id": "send-message", "action": "click", "target": { "testId": "chat-send" } }
+  ],
+  "assertions": [
+    {
+      "id": "ws-received",
+      "type": "event",
+      "provider": "ws",
+      "expect": {
+        "direction": "received",
+        "contains": "probe-ws-not-delivered",
+        "urlIncludes": "/ws/chat",
+        "timeoutMs": 2000
+      },
+      "oracle": "human-approved"
+    }
+  ],
+  "policy": { "screenshots": "never" }
+}

@@ -1,6 +1,6 @@
 import { requestPathIssue, type Locator as TargetLocator, type TestIR, type TestStep } from "@testpilot/test-ir";
-import { runAssertion, urlPathMatches } from "@testpilot/assertions";
-import type { DirectNetworkInput, RunArtifacts } from "@testpilot/evidence";
+import { runAssertion, urlPathMatches, type AssertionContext } from "@testpilot/assertions";
+import type { DirectNetworkInput, RunArtifacts, WsFrame } from "@testpilot/evidence";
 import { classifyFailure, createEvidenceCollector, maxRunAttempts, redactForEvidence, redactStringBody, redactStrings, shouldRetryAfterFailure } from "@testpilot/evidence";
 import type { RunEnvironment } from "@testpilot/fixtures";
 import { buildReadonlyDbClient, buildAgentTraceClient, getDbConfigBundle, getAgentConfigBundle, resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveUploadFixturePath, resolveValueRefs } from "@testpilot/fixtures";
@@ -389,10 +389,19 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
       finalSignals = await captureFinalSignals(page);
       const dbClient = buildReadonlyDbClient(options.env);
       const traceClient = buildAgentTraceClient(options.env);
-      const assertionCtx = {
+      const assertionCtx: AssertionContext = {
         page,
         runId,
         network: networkLog,
+        wsFrames: evidence.getWebSocketFrames(),
+        waitForWsFrames: async (predicate: (frame: WsFrame) => boolean, timeoutMs: number) => {
+          const ok = await evidence.waitForWebSocketFrame((frame) => {
+            assertionCtx.wsFrames = evidence.getWebSocketFrames();
+            return predicate(frame);
+          }, timeoutMs);
+          assertionCtx.wsFrames = evidence.getWebSocketFrames();
+          return ok;
+        },
         resolveRequestRef: (ref: string) => resolveRequestRef(ref, options.env),
         db: dbClient,
         resolveDbConfig: (ref: string) => getDbConfigBundle(ref),

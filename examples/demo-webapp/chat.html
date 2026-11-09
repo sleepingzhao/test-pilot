@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>示例控制台 — 聊天</title>
+    <style>
+      :root {
+        --bg: #fbfbfd;
+        --text: #1d1d1f;
+        --muted: #6e6e73;
+        --line: #d2d2d7;
+        --blue: #0071e3;
+        --card: #fff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.47;
+      }
+      .banner {
+        background: #f5f5f7;
+        border-bottom: 1px solid var(--line);
+        padding: 10px 24px;
+        font-size: 13px;
+        color: var(--muted);
+        text-align: center;
+      }
+      main { max-width: 720px; margin: 0 auto; padding: 32px 22px 64px; }
+      h1 { font-size: 32px; font-weight: 600; margin: 0 0 8px; }
+      .lede { color: var(--muted); margin: 0 0 24px; }
+      [data-testid="chat-status"] { margin: 0 0 16px; color: var(--muted); }
+      [data-testid="chat-list"] {
+        list-style: none;
+        margin: 0 0 20px;
+        padding: 12px 16px;
+        min-height: 160px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+      }
+      [data-testid="chat-list"] li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+      [data-testid="chat-list"] li:last-child { border-bottom: none; }
+      .composer { display: flex; gap: 12px; }
+      input {
+        flex: 1;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 12px;
+        font: inherit;
+      }
+      button {
+        appearance: none;
+        border: none;
+        border-radius: 980px;
+        padding: 10px 20px;
+        font: inherit;
+        font-weight: 500;
+        cursor: pointer;
+        background: var(--blue);
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="banner">TestPilot 练习环境 · 消息只存在于这个进程的内存里</div>
+    <main>
+      <h1>聊天</h1>
+      <p class="lede">发送一条文本，房间里的连接都会收到。</p>
+      <p data-testid="chat-status">未连接</p>
+      <ul data-testid="chat-list"></ul>
+      <div class="composer">
+        <input data-testid="chat-composer" type="text" aria-label="消息" />
+        <button data-testid="chat-send" type="button">发送</button>
+      </div>
+    </main>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const user = params.get("user") || "测试用户";
+      const socketQuery = params.get("drop") === "1" ? "?drop=1" : "";
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(proto + "://" + location.host + "/ws/chat" + socketQuery);
+      const status = document.querySelector('[data-testid="chat-status"]');
+      const list = document.querySelector('[data-testid="chat-list"]');
+      const composer = document.querySelector('[data-testid="chat-composer"]');
+      const pending = [];
+
+      function flush() {
+        while (pending.length && ws.readyState === WebSocket.OPEN) ws.send(pending.shift());
+      }
+
+      ws.addEventListener("open", () => {
+        status.textContent = "已连接";
+        flush();
+      });
+      ws.addEventListener("close", () => {
+        status.textContent = "未连接";
+      });
+      ws.addEventListener("message", (event) => {
+        let msg;
+        try {
+          msg = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (!msg || msg.type !== "message" || typeof msg.text !== "string") return;
+        const item = document.createElement("li");
+        item.textContent = (typeof msg.user === "string" ? msg.user : user) + "：" + msg.text;
+        list.appendChild(item);
+      });
+
+      document.querySelector('[data-testid="chat-send"]').addEventListener("click", () => {
+        const text = composer.value;
+        if (!text) return;
+        pending.push(JSON.stringify({ type: "message", user, text }));
+        composer.value = "";
+        flush();
+      });
+    </script>
+  </body>
+</html>

@@ -23,6 +23,12 @@
       "provider": "otel-trace",
       "file": "examples/negative-probes/otel-trace-probe.json",
       "expectedAssertionId": "missing-tool"
+    },
+    {
+      "id": "probe-ws",
+      "provider": "ws",
+      "file": "examples/negative-probes/ws-probe.json",
+      "expectedAssertionId": "ws-received"
     }
   ]
 }

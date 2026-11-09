@@ -6,6 +6,7 @@
 - `captured-http` — 重复邮箱场景断言错误状态码
 - `postgres-readonly` — mock 返回 0 行，断言 `rowCount: 1`
 - `otel-trace` — mock trace 缺少指定工具调用
+- `ws` — `/chat?drop=1` 不广播，入站帧断言必须失败
 
 ```bash
 pnpm negative-probes

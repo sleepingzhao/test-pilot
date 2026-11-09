@@ -57,6 +57,9 @@ importers:
       busboy:
         specifier: ^1.6.0
         version: 1.6.0
+      ws:
+        specifier: ^8.22.2
+        version: 8.22.2
 
   packages/assertions:
     dependencies:

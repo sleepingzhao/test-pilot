@@ -423,7 +423,7 @@ interface MechanismPack {
 
 **第二批：文件/媒体（接口直连验收后）**
 
-- [ ] V7-5a `upload` 步骤 — `StepAction` 增加 `upload`；IR schema/types/validator 支持；runner 用 Playwright `setInputFiles`，文件路径只从 `valueRef` → env 解析，限制在 `TESTPILOT_FIXTURE_DIR` 内；越界/缺失/目录路径必须有负向测试
+- [x] V7-5a `upload` 步骤 — `StepAction` 增加 `upload`；IR schema/types/validator 支持；runner 用 Playwright `setInputFiles`，文件路径只从 `valueRef` → env 解析，限制在 `TESTPILOT_FIXTURE_DIR` 内；越界/缺失/目录路径必须有负向测试（`upload-path.test.ts`、`upload-step.test.ts`：正常上传通过；缺 env、目录、`..`/绝对路径、符号链接逃逸失败且不读文件；2026-11-09）
 - [ ] V7-5b demo `/files` — `examples/demo-webapp/files.html` + multipart `POST /api/files`、`GET /api/files`、`GET /api/files/:id/content`、`DELETE /api/files/:id`；只收 image/png、image/jpeg、application/pdf，大小上限 1 MB（413/415）；内存存储，不落盘；故障注入开关（拒绝合法上传 / 接受非法类型）用于负向探针
 - [ ] V7-5c `packages/mechanisms` + file-media pack — `planFileMedia(profile, ctx)`：file-media 能力缺失时返回 `runnable: false` + 原因；否则生成可评审 IR（navigate → upload → 提交），断言上传请求 201 + 响应 JSON + 列表出现文件名；支持类型/大小负例场景
 - [ ] V7-5d 负向验证 — 故障注入「拒绝合法上传」时正向机制必须失败；「接受非法类型」时负例必须失败；`pnpm verify` 全绿

@@ -1,3 +1,6 @@
+import { lstatSync, readlinkSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { TestIR } from "@testpilot/test-ir";
 import { loadAssertionAgentConfigs } from "./agent-config.js";
 import { loadAssertionDbConfigs, getDbConfigBundle, resolveConfigEnvRef } from "./db-config.js";
@@ -12,6 +15,11 @@ export type RunEnvironment = {
   requestRefs?: Record<string, { urlIncludes: string; method?: string }>;
   /** Fixture-scoped values; secrets via env, never in IR */
   fixtureValues?: Record<string, string>;
+  /**
+   * Directory upload paths must stay inside. Overrides `TESTPILOT_FIXTURE_DIR`.
+   * The file path itself still comes from `valueRef`, never from the IR.
+   */
+  fixtureDir?: string;
   commitSha?: string;
   /** Injected readonly DB client (tests) or built from assertion-db-config at run time. */
   readonlyDb?: import("./readonly-db-client.js").ReadonlyDbClient;
@@ -48,6 +56,96 @@ export function resolveValueRefs(ir: TestIR, env: RunEnvironment): Record<string
     }
   }
   return map;
+}
+
+function repoRoot(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "../../..");
+}
+
+/** `TESTPILOT_FIXTURE_DIR`, or `examples/fixtures` under the repo root. */
+export function resolveUploadFixtureDir(env: RunEnvironment): string {
+  const configured = env.fixtureDir?.trim() || process.env.TESTPILOT_FIXTURE_DIR?.trim();
+  if (!configured) return join(repoRoot(), "examples/fixtures");
+  return isAbsolute(configured) ? configured : resolve(repoRoot(), configured);
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  return value;
+}
+
+function isOutside(root: string, target: string): boolean {
+  const rel = relative(root, target);
+  return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+}
+
+function errnoCode(err: unknown): string | undefined {
+  return err && typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code) : undefined;
+}
+
+function isContained(rootResolved: string, rootReal: string, target: string): boolean {
+  return !isOutside(rootResolved, target) || !isOutside(rootReal, target);
+}
+
+/**
+ * Resolve an upload `valueRef` to a real file inside the fixture directory.
+ * The IR stores only the ref. `..`, absolute paths outside the directory,
+ * symlink escapes, directories, and missing files are rejected without reading bytes.
+ */
+export function resolveUploadFixturePath(
+  valueRef: string,
+  refs: Record<string, string>,
+  env: RunEnvironment,
+): string {
+  const raw =
+    nonEmpty(refs[valueRef]) ??
+    nonEmpty(env.fixtureValues?.[valueRef]) ??
+    nonEmpty(process.env[resolveValueRefEnvKey(valueRef)]);
+  if (raw === undefined) throw new Error(`upload valueRef is not set: ${valueRef}`);
+  if (raw.includes("\0")) throw new Error("upload path is invalid");
+  if (/(?:^|[/\\])\.\.(?:[/\\]|$)/.test(raw)) throw new Error("upload path must not contain ..");
+
+  const rootResolved = resolve(resolveUploadFixtureDir(env));
+  const candidate = resolve(rootResolved, raw);
+  if (isOutside(rootResolved, candidate)) throw new Error("upload path escapes fixture directory");
+
+  let rootReal: string;
+  try {
+    rootReal = realpathSync(rootResolved);
+  } catch (err) {
+    if (errnoCode(err) === "ENOENT") throw new Error("fixture directory is missing");
+    throw new Error("fixture directory is not a directory");
+  }
+  if (!lstatSync(rootReal).isDirectory()) throw new Error("fixture directory is not a directory");
+
+  let current = candidate;
+  const seen = new Set<string>();
+  for (let hop = 0; hop < 32; hop++) {
+    if (!isContained(rootResolved, rootReal, current)) {
+      throw new Error("upload path escapes fixture directory");
+    }
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch (err) {
+      if (errnoCode(err) === "ENOENT") throw new Error(`upload fixture file is missing: ${valueRef}`);
+      throw new Error(`upload fixture path is invalid: ${valueRef}`);
+    }
+    if (stat.isSymbolicLink()) {
+      if (seen.has(current)) throw new Error("upload path escapes fixture directory");
+      seen.add(current);
+      const next = resolve(dirname(current), readlinkSync(current));
+      if (!isContained(rootResolved, rootReal, next)) {
+        throw new Error("upload path escapes fixture directory");
+      }
+      current = next;
+      continue;
+    }
+    if (stat.isDirectory()) throw new Error("upload path must be a file, not a directory");
+    if (!stat.isFile()) throw new Error("upload path must be a regular file");
+    return current;
+  }
+  throw new Error("upload path escapes fixture directory");
 }
 
 export function resolveBaseUrl(ir: TestIR, env: RunEnvironment): string {

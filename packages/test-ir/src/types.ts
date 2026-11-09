@@ -2,7 +2,7 @@ export type OracleSource = "human-approved" | "requirement" | "api-contract";
 
 export type Platform = "web";
 
-export type StepAction = "navigate" | "click" | "fill" | "press" | "wait" | "select" | "selectCascader" | "request";
+export type StepAction = "navigate" | "click" | "fill" | "press" | "wait" | "select" | "selectCascader" | "request" | "upload";
 
 export type RequestMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
 
@@ -21,6 +21,7 @@ export interface TestStep {
   path?: string;
   target?: Locator;
   value?: string;
+  /** Env/fixture key. For `upload`, this is the only file path source; the path is not stored in the IR. */
   valueRef?: string;
   key?: string;
   /** Ordered labels for each cascader level (province → street). */

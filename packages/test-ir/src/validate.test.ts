@@ -258,3 +258,61 @@ test("stepRef must point at an existing request step and cannot pair with reques
   } as TestIR;
   assert.ok(validateSemantics(both).some((issue) => /二选一/.test(issue.message)));
 });
+
+test("accepts an upload step that names a target and valueRef", () => {
+  const doc = {
+    id: "upload-ok",
+    version: 1,
+    platform: "web",
+    steps: [
+      { id: "open", action: "navigate", path: "/files" },
+      { id: "up", action: "upload", target: { testId: "file-input" }, valueRef: "fixture.samplePng" },
+    ],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "selected file" }],
+  };
+  const result = validateTestIR(doc);
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? {} : result.issues));
+  if (result.ok) assert.deepEqual(validateSemantics(result.value), []);
+  assert.equal(JSON.stringify(doc.steps[1]).includes("valueRef"), true);
+  assert.equal("value" in (doc.steps[1] as object), false);
+});
+
+test("rejects an upload step without target or valueRef", () => {
+  const result = validateTestIR({
+    id: "upload-bad",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "up", action: "upload" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    const messages = result.issues.map((issue) => issue.message).join("\n");
+    assert.match(messages, /upload step requires target/);
+    assert.match(messages, /upload step requires valueRef/);
+  }
+});
+
+test("rejects an upload step that stores a file path in value", () => {
+  const result = validateTestIR({
+    id: "upload-path",
+    version: 1,
+    platform: "web",
+    steps: [
+      {
+        id: "up",
+        action: "upload",
+        target: { testId: "file-input" },
+        valueRef: "fixture.samplePng",
+        value: "/tmp/secret.png",
+      },
+    ],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    const issues = validateSemantics(result.value);
+    assert.equal(issues.length, 1);
+    assert.match(issues[0]!.message, /must not store a file path in value/);
+  }
+});

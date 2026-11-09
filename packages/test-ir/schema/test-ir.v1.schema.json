@@ -69,7 +69,7 @@
         },
         "action": {
           "type": "string",
-          "enum": ["navigate", "click", "fill", "press", "wait", "select", "selectCascader", "request"]
+          "enum": ["navigate", "click", "fill", "press", "wait", "select", "selectCascader", "request", "upload"]
         },
         "path": { "type": "string" },
         "target": { "$ref": "#/$defs/locator" },
@@ -145,6 +145,10 @@
         {
           "if": { "properties": { "action": { "const": "request" } } },
           "then": { "required": ["method", "path"] }
+        },
+        {
+          "if": { "properties": { "action": { "const": "upload" } } },
+          "then": { "required": ["target", "valueRef"] }
         }
       ]
     },

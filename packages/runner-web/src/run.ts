@@ -3,7 +3,7 @@ import { runAssertion, urlPathMatches } from "@testpilot/assertions";
 import type { DirectNetworkInput, RunArtifacts } from "@testpilot/evidence";
 import { classifyFailure, createEvidenceCollector, maxRunAttempts, redactForEvidence, redactStringBody, redactStrings, shouldRetryAfterFailure } from "@testpilot/evidence";
 import type { RunEnvironment } from "@testpilot/fixtures";
-import { buildReadonlyDbClient, buildAgentTraceClient, getDbConfigBundle, getAgentConfigBundle, resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveValueRefs } from "@testpilot/fixtures";
+import { buildReadonlyDbClient, buildAgentTraceClient, getDbConfigBundle, getAgentConfigBundle, resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveUploadFixturePath, resolveValueRefs } from "@testpilot/fixtures";
 import { executeSelectCascader } from "./select-cascader.js";
 import {
   assignResponseVariables,
@@ -168,6 +168,7 @@ async function executeStep(
   step: TestStep,
   baseUrl: string,
   refs: Record<string, string>,
+  env: RunEnvironment,
   runId: string,
   vars: Record<string, string>,
   secrets: string[],
@@ -234,6 +235,17 @@ async function executeStep(
           const loc = await resolveStepLocator(page, step.target!);
           await loc.click({ timeout: 15_000 });
         });
+        break;
+      }
+      case "upload": {
+        if (!step.target) throw new Error("upload step requires target");
+        if (!step.valueRef) throw new Error("upload step requires valueRef");
+        if (step.value !== undefined) {
+          throw new Error("upload step must not store a file path in value; resolve it from valueRef");
+        }
+        const filePath = resolveUploadFixturePath(step.valueRef, refs, env);
+        const loc = await resolveStepLocator(page, step.target);
+        await loc.setInputFiles(filePath, { timeout: 15_000 });
         break;
       }
       case "request": {
@@ -340,6 +352,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         step,
         baseUrl,
         refs,
+        options.env,
         runId,
         vars,
         templateSecrets,

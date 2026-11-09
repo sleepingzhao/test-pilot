@@ -3,13 +3,42 @@ import addFormatsModule from "ajv-formats";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { RequestMethod, TestIR, ValidationIssue, ValidationResult } from "./types.js";
+import type { Locator, RequestMethod, TestIR, ValidationIssue, ValidationResult } from "./types.js";
 
 const schemaPath = join(dirname(fileURLToPath(import.meta.url)), "../schema/test-ir.v1.schema.json");
 
-type AjvInstance = {
-  compile: (schema: object) => ((doc: unknown) => boolean) & { errors?: ValidationIssue[] };
+type SchemaError = {
+  instancePath?: string;
+  message?: string;
+  keyword?: string;
+  params?: { missingProperty?: string };
 };
+
+type AjvInstance = {
+  compile: (schema: object) => ((doc: unknown) => boolean) & { errors?: SchemaError[] };
+};
+
+function stepAt(doc: unknown, instancePath: string): { action?: string } | undefined {
+  const match = /^\/steps\/(\d+)$/.exec(instancePath);
+  if (!match) return undefined;
+  const steps = (doc as { steps?: unknown }).steps;
+  if (!Array.isArray(steps)) return undefined;
+  const step = steps[Number(match[1])];
+  if (!step || typeof step !== "object") return undefined;
+  return step as { action?: string };
+}
+
+function schemaIssue(doc: unknown, error: SchemaError): ValidationIssue {
+  const path = error.instancePath || "/";
+  const missing = error.params?.missingProperty;
+  if (error.keyword === "required" && (missing === "target" || missing === "valueRef")) {
+    const step = stepAt(doc, path);
+    if (step?.action === "upload") {
+      return { path, message: `upload step requires ${missing}` };
+    }
+  }
+  return { path, message: error.message ?? "invalid" };
+}
 
 function createAjv(): AjvInstance {
   const AjvCtor = (Ajv2020Module as { default?: unknown }).default ?? Ajv2020Module;
@@ -29,12 +58,7 @@ export function createValidator(): (doc: unknown) => ValidationResult {
     if (ok) {
       return { ok: true, value: doc as TestIR };
     }
-    const issues: ValidationIssue[] = (validate.errors ?? []).map(
-      (e: { instancePath?: string; message?: string }) => ({
-        path: e.instancePath || "/",
-        message: e.message ?? "invalid",
-      }),
-    );
+    const issues: ValidationIssue[] = (validate.errors ?? []).map((error) => schemaIssue(doc, error));
     return { ok: false, issues };
   };
 }
@@ -135,7 +159,27 @@ export function validateSemantics(ir: TestIR): ValidationIssue[] {
       issues.push({ path: `/steps/${i}`, message: "request step accepts body or form, not both" });
     }
   }
+  for (const [i, step] of ir.steps.entries()) {
+    if (step.action !== "upload") continue;
+    if (!locatorPresent(step.target)) {
+      issues.push({ path: `/steps/${i}/target`, message: "upload step requires target" });
+    }
+    if (!step.valueRef?.trim()) {
+      issues.push({ path: `/steps/${i}/valueRef`, message: "upload step requires valueRef" });
+    }
+    if (step.value !== undefined) {
+      issues.push({
+        path: `/steps/${i}/value`,
+        message: "upload step must not store a file path in value; resolve it from valueRef",
+      });
+    }
+  }
   return issues;
+}
+
+function locatorPresent(target: Locator | undefined): boolean {
+  if (!target) return false;
+  return Boolean(target.testId || target.role || target.name || target.label || target.placeholder || target.css);
 }
 
 const GENERIC_UI_TEXT = /^(成功|失败|确定|取消|保存|提交|工单|登录|首页|打开|返回|完成|密码|手机号)$/;

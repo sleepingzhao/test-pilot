@@ -593,6 +593,96 @@ button.status-chip {
   margin-top: 20px;
 }
 
+.mode-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 0 0 18px;
+  border-radius: 999px;
+  background: #eef1f5;
+}
+
+.mode-switch button {
+  border: none;
+  background: transparent;
+  padding: 7px 18px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--muted-strong);
+  cursor: pointer;
+}
+
+.mode-switch button.active {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.12);
+}
+
+.api-test .field input,
+.api-test .field textarea,
+.api-test .field select {
+  width: 100%;
+}
+
+.api-test .env-picker {
+  border: none;
+  margin: 16px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.api-test .custom-url {
+  margin-top: 8px;
+  width: 100%;
+  max-width: 480px;
+}
+
+.api-test-lead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.api-test-lead h3 {
+  margin: 0 0 4px;
+}
+
+.api-request-line {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 12px;
+}
+
+.api-assertions {
+  margin: 18px 0 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fbfcfd;
+}
+
+.api-assertions .stat-label {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.api-assertions .field + .field {
+  margin-top: 10px;
+}
+
+@media (max-width: 640px) {
+  .api-request-line {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (min-width: 960px) {
   .requirement-result {
     grid-template-columns: 1fr 1fr;

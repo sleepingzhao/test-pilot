@@ -42,7 +42,7 @@ export type StoredTest = {
   approvedBy?: string;
   weakAssertions?: Array<{ path: string; message: string }>;
   intentSummary?: string;
-  sourceChannel?: "intent" | "prd" | "record";
+  sourceChannel?: "intent" | "prd" | "record" | "api";
   plannerNotes?: string[];
   updatedAt: string;
 };

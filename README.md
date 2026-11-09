@@ -71,7 +71,8 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 - 响应：`saveAs` 保存原文，`saveFields` 按点路径提取字段供后续步骤使用。
 - 断言：沿用 `api` / `captured-http`；`stepRef` 直接绑定 `request` 步骤 id，无需额外映射；页面操作触发的请求继续用 `requestRef`（默认映射或运行环境 `requestRefs`）。
 - 证据：请求/响应写入 `network.json`，Authorization/Cookie 脱敏；请求体/响应体沿用 8 KB / 4 KB 截断。
-- 限制：仅同源（跨域接口需后续白名单）；暂不支持文件上传；控制台编辑器见 V7-0e。
+- 限制：仅同源（跨域接口需后续白名单）；暂不支持文件上传；试点/真实接口在控制台需后续明确授权。
+- 控制台：**创建 → 接口测试**，填写方法/路径/请求头/请求体与断言后「生成草稿并试跑」；草稿需人工审阅批准，批准后才进入回归。
 - 示例：`examples/demo-webapp/tests/api-*.json`，已加入 `pnpm smoke:demo`。
 
 ### 业务试点（P0-1）

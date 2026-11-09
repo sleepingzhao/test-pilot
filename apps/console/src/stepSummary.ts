@@ -1,6 +1,7 @@
 type StepLike = {
   action?: string;
   path?: string;
+  method?: string;
   target?: { role?: string; name?: string; label?: string; placeholder?: string; testId?: string };
   valueRef?: string;
   key?: string;
@@ -27,6 +28,8 @@ export function describeStep(step: StepLike, index: number): string {
       return `${n}. 按键 ${step.key ?? "?"}`;
     case "wait":
       return `${n}. 等待${step.target ? "元素出现" : "页面稳定"}`;
+    case "request":
+      return `${n}. ${step.method ?? "GET"} ${step.path ?? "/"}`;
     default:
       return `${n}. ${step.action ?? "步骤"}`;
   }
@@ -50,6 +53,7 @@ export type AssertionSummary = {
   type?: string;
   contains?: string;
   requestRef?: string;
+  stepRef?: string;
   expect?: Record<string, unknown>;
   target?: unknown;
   provider?: string;
@@ -60,11 +64,17 @@ export function summarizeAssertion(a: AssertionSummary, index: number): string {
   const label = a.id ?? `assertion-${index + 1}`;
   if (a.type === "api") {
     const parts: string[] = [];
+    if (a.stepRef) parts.push(`step=${a.stepRef}`);
     if (a.requestRef) parts.push(`ref=${a.requestRef}`);
     const exp = a.expect ?? {};
     if (typeof exp.statusCode === "number") parts.push(`HTTP ${exp.statusCode}`);
     if (exp.jsonBody) parts.push(`body≈${JSON.stringify(exp.jsonBody)}`);
     if (typeof exp.requestBodyContains === "string") parts.push(`body∋"${exp.requestBodyContains}"`);
+    if (typeof exp.responseBodyContains === "string") {
+      parts.push(`resp∋"${exp.responseBodyContains}"`);
+    }
+    if (exp.responseJsonBody) parts.push(`resp≈${JSON.stringify(exp.responseJsonBody)}`);
+    if (exp.responseJsonSchema) parts.push("resp schema");
     return `${label} [API] ${parts.join(" · ") || "（未配置 expect）"}`;
   }
   if (a.type === "db") {

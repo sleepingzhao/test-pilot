@@ -34,6 +34,7 @@ import {
   type RequirementTarget,
 } from "./requirement-target.js";
 import { pilotLoginSteps } from "./bootstrap-pilot-intakes.js";
+import { buildApiTestDraft } from "./api-test-draft.js";
 import { readNegativeProbeReport } from "./negative-probes.js";
 import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-identity.js";
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
@@ -246,6 +247,15 @@ async function checkTargetReachable(baseUrl: string): Promise<boolean> {
   try {
     const res = await fetch(baseUrl, { signal: AbortSignal.timeout(5000) });
     return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function sameOriginAs(url: string, configured: string): boolean {
+  if (!configured.trim()) return false;
+  try {
+    return new URL(url).origin === new URL(configured).origin;
   } catch {
     return false;
   }
@@ -614,6 +624,94 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       return { run, trial: true };
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post("/api/api-tests", async (req, reply) => {
+    const body = (req.body ?? {}) as {
+      title?: string;
+      target?: "demo" | "custom" | "pilot" | "real";
+      customUrl?: string;
+      method?: string;
+      path?: string;
+      headers?: Record<string, string>;
+      body?: string | Record<string, unknown>;
+      expectStatus?: number;
+      expectContains?: string;
+      expectJson?: Record<string, unknown>;
+    };
+    if (body.target === "pilot" || body.target === "real") {
+      return reply.code(400).send({
+        error: "试点/真实接口需要登录与明确授权，当前仅支持练习环境与自定义白名单环境",
+      });
+    }
+    const resolved = resolveRequirementTargetUrl({
+      target: body.target ?? "demo",
+      customUrl: body.customUrl,
+      demoUrl: DEMO_BASE_URL,
+    });
+    if (!resolved.ok) return reply.code(400).send({ error: resolved.error });
+    if (!isAllowedTargetUrl(resolved.url)) {
+      return reply.code(400).send({ error: "接口目标地址不在允许列表" });
+    }
+    if (sameOriginAs(resolved.url, realBaseUrl())) {
+      return reply.code(400).send({ error: "真实环境仅用于只读画像，不开放接口用例" });
+    }
+    if (sameOriginAs(resolved.url, pilotBaseUrl())) {
+      return reply.code(400).send({ error: "试点接口需要登录与明确授权，请先走需求生成或人工配置" });
+    }
+    const draft = buildApiTestDraft(body);
+    if (!draft.ok) return reply.code(400).send({ error: draft.errors.join("; "), issues: draft.errors });
+
+    const ir = { ...draft.draft.ir, baseUrl: resolved.url };
+    const validated = validateTestIR(ir);
+    if (!validated.ok) return reply.code(400).send({ issues: validated.issues });
+    const semantics = validateSemantics(validated.value);
+    if (semantics.length) {
+      return reply.code(400).send({ issues: semantics, error: semantics[0]?.message });
+    }
+    const providerIssues = validateAssertionProviders(validated.value);
+    if (providerIssues.length) {
+      return reply.code(400).send({ issues: providerIssues, error: "断言 Provider 校验失败" });
+    }
+    const missingSecrets = missingEnvRefs(validated.value);
+    if (missingSecrets.length) {
+      return reply.code(400).send({
+        error: `缺少接口所需环境变量：${missingSecrets.join(", ")}（见 .env.example）`,
+      });
+    }
+
+    const test = stampTestMeta({
+      id: draft.draft.id,
+      projectId: "default",
+      title: draft.draft.title,
+      ir: validated.value,
+      approvalStatus: "draft",
+      sourceChannel: "api",
+      intentSummary: `${ir.steps[0]?.method ?? "GET"} ${ir.steps[0]?.path ?? "/"}`,
+      updatedAt: new Date().toISOString(),
+    });
+    await store.saveTest(test);
+
+    if (!(await checkTargetReachable(resolved.url))) {
+      return { test: withWeakAssertions(test), trialError: `目标环境不可达: ${resolved.url}` };
+    }
+    try {
+      const run = await executeSingleIrRun(
+        store,
+        test,
+        validated.value,
+        resolved.url,
+        "default",
+        artifactsRoot,
+        dataRoot,
+      );
+      return { test: withWeakAssertions(test), trial: { run, trial: true } };
+    } catch (err) {
+      return {
+        test: withWeakAssertions(test),
+        trialError: err instanceof Error ? err.message : String(err),
+      };
     }
   });
 

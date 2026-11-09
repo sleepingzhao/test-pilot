@@ -7,7 +7,7 @@ type Props = {
   onChange: (steps: TestStep[]) => void;
 };
 
-type AddKind = "navigate" | "click" | "fill" | "select" | "wait";
+type AddKind = "navigate" | "click" | "fill" | "select" | "wait" | "request";
 
 function nextStepId(steps: TestStep[]): string {
   const max = steps.reduce((acc, step) => {
@@ -27,6 +27,8 @@ function templateFor(kind: AddKind, id: string): TestStep {
       return { id, action: "select", target: { label: "下拉框" }, value: "" };
     case "wait":
       return { id, action: "wait", target: { name: "可见文案" } };
+    case "request":
+      return { id, action: "request", method: "GET", path: "/api/…" };
     default:
       return { id, action: "navigate", path: "/" };
   }
@@ -90,6 +92,7 @@ export function StepEditorPanel({ steps, onChange }: Props) {
           <option value="fill">fill · 填写</option>
           <option value="select">select · 下拉选择</option>
           <option value="wait">wait · 等待元素</option>
+          <option value="request">request · 调用接口</option>
         </select>
         <button
           type="button"

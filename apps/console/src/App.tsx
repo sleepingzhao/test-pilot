@@ -11,6 +11,7 @@ import {
 import type { TestStep } from "@testpilot/test-ir/step-edit";
 import { StepEditorPanel } from "./StepEditorPanel";
 import { RequirementFlowView } from "./RequirementFlowView";
+import { ApiTestView } from "./ApiTestView";
 import { SystemProfileView } from "./SystemProfileView";
 import { RunDetailView } from "./RunDetailView";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -21,6 +22,7 @@ type IrAssertion = {
   type?: string;
   contains?: string;
   requestRef?: string;
+  stepRef?: string;
   expect?: Record<string, unknown>;
   target?: unknown;
   provider?: string;
@@ -107,6 +109,7 @@ export function App() {
   const [createText, setCreateText] = useState("");
   const [createTitle, setCreateTitle] = useState("");
   const [createUrl, setCreateUrl] = useState("");
+  const [createMode, setCreateMode] = useState<"requirement" | "api">("requirement");
   const [recordJob, setRecordJob] = useState<string | null>(null);
   const [summary, setSummary] = useState<{
     passRate: number;
@@ -435,6 +438,11 @@ export function App() {
   };
 
   const loadAssertionHints = async (t: StoredTest, token?: number) => {
+    if (t.sourceChannel === "api") {
+      setAssertionHelp("接口用例以 API 断言为准，不需要页面 UI 断言。");
+      setAssertionSuggestions([]);
+      return;
+    }
     const res = await api<{
       assertions: StoredTest["ir"]["assertions"];
       help?: string;
@@ -686,19 +694,21 @@ export function App() {
   const buildReviewIr = () => {
     if (!editTest) return null;
     const base = [...((editTest.ir.assertions ?? []) as IrAssertion[])];
-    const uiIdx = base.findIndex((a) => a.type === "ui");
-    if (assertionText.trim()) {
-      const uiPatch: IrAssertion = {
-        ...(uiIdx >= 0 ? base[uiIdx]! : { id: "review-assertion", type: "ui", oracle: "human-approved" }),
-        type: "ui",
-        contains: assertionText,
-        oracle: "human-approved",
-      };
-      if (uiIdx >= 0) base[uiIdx] = uiPatch;
-      else base.unshift(uiPatch);
-    } else {
-      for (let i = base.length - 1; i >= 0; i -= 1) {
-        if (base[i]!.type === "ui") base.splice(i, 1);
+    if (editTest.sourceChannel !== "api") {
+      const uiIdx = base.findIndex((a) => a.type === "ui");
+      if (assertionText.trim()) {
+        const uiPatch: IrAssertion = {
+          ...(uiIdx >= 0 ? base[uiIdx]! : { id: "review-assertion", type: "ui", oracle: "human-approved" }),
+          type: "ui",
+          contains: assertionText,
+          oracle: "human-approved",
+        };
+        if (uiIdx >= 0) base[uiIdx] = uiPatch;
+        else base.unshift(uiPatch);
+      } else {
+        for (let i = base.length - 1; i >= 0; i -= 1) {
+          if (base[i]!.type === "ui") base.splice(i, 1);
+        }
       }
     }
 
@@ -1463,21 +1473,56 @@ export function App() {
             <p className="section-lede">
               粘贴 PRD 或本次需求，选择环境；系统生成草案并自动试跑，通过后一键加入回归。需要精确操作时再用录制。
             </p>
-            <RequirementFlowView
-              demoUrl={demoUrl}
-              demoReachable={demoOk}
-              pilotReachable={pilotOk}
-              pilotIntakeUrl={pilotIntakeUrl}
-              onRefresh={refresh}
-              onOpenRun={(runId) => {
-                setSelectedRunId(runId);
-                setView("run");
-              }}
-              onOpenReview={(testId) => {
-                void openReviewById(testId);
-              }}
-              onOpenProfile={() => setView("detect")}
-            />
+            <div className="mode-switch" role="tablist" aria-label="创建方式">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={createMode === "requirement"}
+                className={createMode === "requirement" ? "active" : ""}
+                onClick={() => setCreateMode("requirement")}
+              >
+                按需求生成
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={createMode === "api"}
+                className={createMode === "api" ? "active" : ""}
+                onClick={() => setCreateMode("api")}
+              >
+                接口测试
+              </button>
+            </div>
+            {createMode === "requirement" ? (
+              <RequirementFlowView
+                demoUrl={demoUrl}
+                demoReachable={demoOk}
+                pilotReachable={pilotOk}
+                pilotIntakeUrl={pilotIntakeUrl}
+                onRefresh={refresh}
+                onOpenRun={(runId) => {
+                  setSelectedRunId(runId);
+                  setView("run");
+                }}
+                onOpenReview={(testId) => {
+                  void openReviewById(testId);
+                }}
+                onOpenProfile={() => setView("detect")}
+              />
+            ) : (
+              <ApiTestView
+                demoUrl={demoUrl}
+                demoReachable={demoOk}
+                onRefresh={refresh}
+                onOpenRun={(runId) => {
+                  setSelectedRunId(runId);
+                  setView("run");
+                }}
+                onOpenReview={(testId) => {
+                  void openReviewById(testId);
+                }}
+              />
+            )}
             <details className="record-secondary">
               <summary>用录制创建（可选）</summary>
               <div className="card-panel">
@@ -1670,40 +1715,48 @@ export function App() {
                 </div>
                 <div className="field">
                   <label>页面应包含（UI 断言）</label>
-                  <p className="hint-inline">
-                    {assertionHelp || "填写操作成功后页面上可见的稳定文案；留空则只保留 API / 业务断言。"}
-                  </p>
-                  <input
-                    value={assertionText}
-                    onChange={(e) => {
-                      setAssertionText(e.target.value);
-                      markReviewDirty();
-                    }}
-                  />
-                  {assertionSuggestions.length > 0 && (
-                    <div className="chips">
-                      {assertionSuggestions.map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          className="chip"
-                          onClick={() => {
-                            setAssertionText(s);
-                            markReviewDirty();
-                          }}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
+                  {editTest.sourceChannel === "api" ? (
+                    <p className="hint-inline">
+                      接口用例不添加整页 UI 断言；请在下方 API expect 里填写状态码、响应 JSON 或响应文本。
+                    </p>
+                  ) : (
+                    <>
+                      <p className="hint-inline">
+                        {assertionHelp || "填写操作成功后页面上可见的稳定文案；留空则只保留 API / 业务断言。"}
+                      </p>
+                      <input
+                        value={assertionText}
+                        onChange={(e) => {
+                          setAssertionText(e.target.value);
+                          markReviewDirty();
+                        }}
+                      />
+                      {assertionSuggestions.length > 0 && (
+                        <div className="chips">
+                          {assertionSuggestions.map((s) => (
+                            <button
+                              key={s}
+                              type="button"
+                              className="chip"
+                              onClick={() => {
+                                setAssertionText(s);
+                                markReviewDirty();
+                              }}
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
                 <div className="field field-last">
                   <label>API expect（JSON，可选）</label>
                   <p className="hint-inline">
-                    支持 <code>statusCode</code>、<code>jsonBody</code>（请求体字段）、
-                    <code>requestBodyContains</code>（子串）。例：{" "}
-                    {`{"statusCode":409,"jsonBody":{"error":"duplicate"}}`}
+                    支持 <code>statusCode</code>、<code>responseJsonBody</code>（响应 JSON）、
+                    <code>responseBodyContains</code>（响应子串）、<code>requestJsonBody</code>（请求体）。
+                    例：{`{"statusCode":201,"responseJsonBody":{"ok":true}}`}
                   </p>
                   <textarea
                     className="textarea"

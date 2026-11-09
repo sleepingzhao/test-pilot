@@ -41,6 +41,7 @@ runIn("packages/detect", "pnpm", ["test"]);
 runIn("packages/assertions", "pnpm", ["test"]);
 runIn("packages/evidence", "pnpm", ["test"]);
 runIn("packages/fixtures", "pnpm", ["test"]);
+runIn("packages/mechanisms", "pnpm", ["test"]);
 runIn("packages/recorder-web", "pnpm", ["test"]);
 runIn("packages/runner-web", "pnpm", ["test"]);
 runIn("services/test-management", "pnpm", ["test"]);

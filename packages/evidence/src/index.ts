@@ -1,9 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { BrowserContext, Page, Request, Response } from "playwright";
+import type { BrowserContext, Page, Request, Response, WebSocket } from "playwright";
 
 export type ArtifactRef = {
-  kind: "trace" | "screenshot" | "har" | "log" | "network";
+  kind: "trace" | "screenshot" | "har" | "log" | "network" | "ws";
   path: string;
 };
 
@@ -33,6 +33,17 @@ export type NetworkEntry = {
   requestHeaders?: Record<string, string>;
   responseHeaders?: Record<string, string>;
 };
+
+export type WsFrame = {
+  url: string;
+  direction: "sent" | "received";
+  size: number;
+  payload: string;
+  at: string;
+};
+
+const WS_FRAME_LIMIT = 200;
+const WS_PAYLOAD_LIMIT = 4000;
 
 export type DirectNetworkInput = {
   url: string;
@@ -68,6 +79,25 @@ export function createEvidenceCollector(options: EvidenceOptions) {
   const network: NetworkEntry[] = [];
   const networkPending: Promise<void>[] = [];
   const inFlight = new Set<Request>();
+  const wsFrames: WsFrame[] = [];
+  let wsDropped = 0;
+
+  function recordWsFrame(url: string, direction: WsFrame["direction"], raw: string | Buffer) {
+    if (wsFrames.length >= WS_FRAME_LIMIT) {
+      wsDropped += 1;
+      return;
+    }
+    const binary = Buffer.isBuffer(raw);
+    const size = binary ? raw.length : Buffer.byteLength(raw, "utf8");
+    const text = binary ? `base64:${raw.toString("base64")}` : raw;
+    wsFrames.push({
+      url: url.slice(0, 2000),
+      direction,
+      size,
+      payload: text.slice(0, WS_PAYLOAD_LIMIT),
+      at: new Date().toISOString(),
+    });
+  }
 
   /** Long-lived/streaming responses never finish their body; never block the run on them. */
   async function settleNetwork(timeoutMs = 8_000) {
@@ -98,9 +128,50 @@ export function createEvidenceCollector(options: EvidenceOptions) {
     }
   }
 
+  async function writeWsLog() {
+    const path = join(runDir, "ws.json");
+    const body: {
+      limit: number;
+      dropped: number;
+      note?: string;
+      frames: WsFrame[];
+    } = {
+      limit: WS_FRAME_LIMIT,
+      dropped: wsDropped,
+      frames: wsFrames.map((frame) => ({
+        ...frame,
+        url: redactUrl(frame.url),
+        payload: redactStringBody(frame.payload),
+      })),
+    };
+    if (wsDropped > 0) {
+      body.note = `dropped ${wsDropped} websocket frames beyond the limit of ${WS_FRAME_LIMIT}`;
+    }
+    await writeFile(path, JSON.stringify(body, null, 2));
+    if (!artifacts.some((a) => a.kind === "ws")) {
+      artifacts.push({ kind: "ws", path });
+    }
+  }
+
   return {
     getNetworkLog(): NetworkEntry[] {
       return [...network];
+    },
+
+    getWebSocketFrames(): WsFrame[] {
+      return [...wsFrames];
+    },
+
+    async waitForWebSocketFrame(
+      predicate: (frame: WsFrame) => boolean,
+      timeoutMs = 10_000,
+    ): Promise<boolean> {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        if (wsFrames.some(predicate)) return true;
+        if (Date.now() >= deadline) return false;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
     },
 
     /** Records a direct `request` step. Same truncation as page captures; redaction happens on write. */
@@ -155,6 +226,11 @@ export function createEvidenceCollector(options: EvidenceOptions) {
       };
       page.on("requestfinished", finish);
       page.on("requestfailed", finish);
+      page.on("websocket", (socket: WebSocket) => {
+        const url = socket.url();
+        socket.on("framesent", (event) => recordWsFrame(url, "sent", event.payload));
+        socket.on("framereceived", (event) => recordWsFrame(url, "received", event.payload));
+      });
       page.on("response", (res: Response) => {
         const req = res.request();
         if (network.length > 200) return;
@@ -212,6 +288,7 @@ export function createEvidenceCollector(options: EvidenceOptions) {
     async finalize(status: string): Promise<RunArtifacts> {
       await mkdir(runDir, { recursive: true });
       await writeNetworkLog();
+      await writeWsLog();
       if (context) {
         const tracePath = join(runDir, "trace.zip");
         await context.tracing.stop({ path: tracePath });

@@ -432,7 +432,7 @@ interface MechanismPack {
 
 **第一波：WS 管道（先做，单页面即可验证）**
 
-- [ ] V7-1a WS 帧证据 — 用 Playwright `page.on("websocket")` 采集 framesent/framereceived：方向、URL、大小、前 N 条 payload；单条截断、总数上限；`ws.json` 可下载；Authorization/Cookie 等敏感内容按现有规则脱敏
+- [x] V7-1a WS 帧证据 — 用 Playwright `page.on("websocket")` 采集 framesent/framereceived：方向、URL、大小、前 N 条 payload；单条截断、总数上限；`ws.json` 可下载；Authorization/Cookie 等敏感内容按现有规则脱敏（`ws-frames.test.ts`：收发方向、4500 截断到 4000、超过 200 帧丢弃并写入 note、token/email/password 不落盘；`network.json` 仍是数组；2026-11-10）
 - [ ] V7-3a `ws` 断言 Provider — `type: "event"` + `provider: "ws"`；expect 支持 `urlIncludes`、`direction`、`contains`、`regex`、`jsonPath` + `equals`、`minCount`、`absent`、`timeoutMs`；负向探针：阻断广播时断言必须失败
 - [ ] V7-6a demo `/chat` + 集成验证 — `examples/demo-webapp` 加 `/chat`（消息列表/输入框/发送按钮）与 `/ws/chat` 广播；`DEMO_CHAT_DROP=1` 只丢弃广播用于负向验证；runner 集成：发送 → 出站帧 + 入站帧 + 页面文案；drop 时断言失败；`pnpm verify` 全绿
 

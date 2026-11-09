@@ -194,3 +194,67 @@ test("flags short and generic page-wide UI assertions", () => {
   } as TestIR;
   assert.equal(weakAssertionIssues(targeted).length, 0);
 });
+
+test("stepRef binds an api assertion to a request step without requestRef", () => {
+  const ir = {
+    id: "step-ref",
+    version: 1,
+    platform: "web",
+    baseUrl: "http://127.0.0.1:4173",
+    steps: [{ id: "call", action: "request", method: "POST", path: "/api/users" }],
+    assertions: [
+      {
+        id: "created",
+        type: "api",
+        provider: "captured-http",
+        stepRef: "call",
+        expect: { statusCode: 201 },
+        oracle: "api-contract",
+      },
+    ],
+  };
+  const result = validateTestIR(ir);
+  assert.equal(result.ok, true);
+  assert.deepEqual(validateSemantics(ir as TestIR), []);
+});
+
+test("stepRef must point at an existing request step and cannot pair with requestRef (negative)", () => {
+  const base = {
+    id: "step-ref-bad",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+  };
+  const missing = {
+    ...base,
+    assertions: [
+      {
+        id: "a",
+        type: "api",
+        provider: "captured-http",
+        stepRef: "call",
+        expect: { statusCode: 200 },
+        oracle: "api-contract",
+      },
+    ],
+  } as TestIR;
+  const issues = validateSemantics(missing);
+  assert.ok(issues.some((issue) => /已有的 request 步骤/.test(issue.message)));
+
+  const both = {
+    ...base,
+    steps: [{ id: "call", action: "request", method: "GET", path: "/api/x" }],
+    assertions: [
+      {
+        id: "a",
+        type: "api",
+        provider: "captured-http",
+        requestRef: "x",
+        stepRef: "call",
+        expect: { statusCode: 200 },
+        oracle: "api-contract",
+      },
+    ],
+  } as TestIR;
+  assert.ok(validateSemantics(both).some((issue) => /二选一/.test(issue.message)));
+});

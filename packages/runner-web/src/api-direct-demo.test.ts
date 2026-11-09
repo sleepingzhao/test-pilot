@@ -16,10 +16,7 @@ const demoDir = join(root, "examples/demo-webapp");
 const API_USERS_CREATE = { urlIncludes: "/api/users", method: "POST" };
 
 function demoEnv(baseUrl: string): RunEnvironment {
-  return {
-    baseUrl,
-    requestRefs: { "api-users-create": API_USERS_CREATE },
-  };
+  return { baseUrl };
 }
 
 async function loadIr(name: string): Promise<TestIR> {
@@ -64,17 +61,15 @@ function faultServer(status: number, body: unknown): Server {
   });
 }
 
-test("demo API cases map requestRef through env.requestRefs", () => {
-  const env = demoEnv("http://127.0.0.1:4173");
-  assert.deepEqual(resolveRequestRef("api-users-create", env), API_USERS_CREATE);
-  assert.equal(resolveRequestRef("api-users-injected", env), undefined);
-  assert.deepEqual(resolveRequestRef("api-users-injected", {
-    ...env,
-    requestRefs: {
-      ...env.requestRefs,
-      "api-users-injected": API_USERS_CREATE,
-    },
-  }), API_USERS_CREATE);
+test("requestRef still resolves through env.requestRefs for UI-triggered calls", () => {
+  const base = { baseUrl: "http://127.0.0.1:4173" };
+  assert.deepEqual(resolveRequestRef("api-users-create", base), API_USERS_CREATE);
+  const env: RunEnvironment = {
+    ...base,
+    requestRefs: { "api-users-injected": API_USERS_CREATE },
+  };
+  assert.deepEqual(resolveRequestRef("api-users-injected", env), API_USERS_CREATE);
+  assert.equal(resolveRequestRef("api-users-missing", env), undefined);
 });
 
 test("demo login then POST /api/users asserts 201, 409, and 400", async () => {
@@ -111,15 +106,8 @@ test("demo login then POST /api/users asserts 201, 409, and 400", async () => {
 });
 
 test("api assertion fails when the server returns 500 or the wrong JSON", async () => {
-  const ir = await loadIr("api-user-create.json");
-  const faultIr: TestIR = {
-    ...ir,
-    assertions: ir.assertions.map((assertion) => ({ ...assertion, requestRef: "api-users-injected" })),
-  };
-  const envFor = (baseUrl: string): RunEnvironment => ({
-    baseUrl,
-    requestRefs: { "api-users-injected": API_USERS_CREATE },
-  });
+  const faultIr = await loadIr("api-user-create.json");
+  const envFor = (baseUrl: string): RunEnvironment => ({ baseUrl });
 
   const server500 = faultServer(500, { error: "injected" });
   const port500 = await listen(server500);

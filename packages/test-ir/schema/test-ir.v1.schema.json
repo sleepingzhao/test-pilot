@@ -163,6 +163,7 @@
         "target": { "$ref": "#/$defs/locator" },
         "contains": { "type": "string" },
         "requestRef": { "type": "string", "minLength": 1 },
+        "stepRef": { "type": "string", "minLength": 1 },
         "expect": { "type": "object" },
         "oracle": {
           "type": "string",

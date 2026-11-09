@@ -47,6 +47,8 @@ export interface TestAssertion {
   target?: Locator;
   contains?: string;
   requestRef?: string;
+  /** Match the response of a `request` step by its id; no requestRef map needed. */
+  stepRef?: string;
   expect?: Record<string, unknown>;
   oracle: OracleSource;
 }

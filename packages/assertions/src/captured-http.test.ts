@@ -463,3 +463,53 @@ test("validateCapturedHttpAssertion rejects absent false and requestCount non-ze
   });
   assert.ok(countOne.some((i) => i.path.includes("requestCount")));
 });
+
+test("captured-http: stepRef matches a request step without any requestRef map", async () => {
+  const outcome = await runCapturedHttpAssertion(
+    {
+      id: "created-by-step",
+      type: "api",
+      stepRef: "create-user",
+      expect: { statusCode: 201, responseJsonBody: { id: "u1", status: "ok" } },
+      oracle: "api-contract",
+    },
+    { page, network: [{ ...baseNetwork[0]!, stepId: "create-user" }] },
+  );
+  assert.equal(outcome.passed, true);
+});
+
+test("captured-http: stepRef does not match another step (negative)", async () => {
+  const outcome = await runCapturedHttpAssertion(
+    {
+      id: "created-by-step",
+      type: "api",
+      stepRef: "create-user",
+      expect: { statusCode: 201 },
+      oracle: "api-contract",
+    },
+    { page, network: [{ ...baseNetwork[0]!, stepId: "other-step" }] },
+  );
+  assert.equal(outcome.passed, false);
+  assert.equal(outcome.errorKind, "PRODUCT_DEFECT");
+  assert.match(outcome.message ?? "", /step create-user/);
+});
+
+test("validateCapturedHttpAssertion requires exactly one of requestRef and stepRef (negative)", () => {
+  const missing = validateCapturedHttpAssertion({
+    id: "a",
+    type: "api",
+    expect: { statusCode: 200 },
+    oracle: "api-contract",
+  });
+  assert.ok(missing.some((issue) => /requestRef 或 stepRef/.test(issue.message)));
+
+  const both = validateCapturedHttpAssertion({
+    id: "a",
+    type: "api",
+    requestRef: "users-create",
+    stepRef: "create-user",
+    expect: { statusCode: 200 },
+    oracle: "api-contract",
+  });
+  assert.ok(both.some((issue) => /二选一/.test(issue.message)));
+});

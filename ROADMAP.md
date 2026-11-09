@@ -411,7 +411,8 @@ interface MechanismPack {
 - [x] V7-0a `request` 步骤 — `StepAction` 增加 `request`；IR schema/types/validator 支持 `method`/`path`/`headers`/`body`/`form`/`saveAs`/`saveFields`；runner 用 `browserContext.request` 执行，自动复用已登录浏览器的 Cookie；仅允许同源，禁止任意 URL / SSRF（`maxRedirects: 0`）；schema 正反例 + demo `POST /api/users` 正例 + Cookie 复用 + 跨源/缺字段/跨源重定向负例（`request-step.test.ts`）（2026-11-08）
 - [x] V7-0b 变量与模板 — `{{runId}}`、`{{var}}`、`{{env.KEY}}` 在 path/headers/body/form 中解析（`env.KEY` → `TESTPILOT_ENV_*`，IR 只存 key 名）；`saveAs` + `saveFields` 点路径提取变量；缺变量/缺 env 步骤失败；解析后的 env 值不进步骤错误和证据文件（`request-template.test.ts`、`request-step.test.ts`）（2026-11-08）
 - [x] V7-0c 请求证据接入 — `recordNetworkEntry` 写入现有 network 日志并参与 `waitForNetworkEntry`；`captured-http` 的 `requestRef` 可断言 `request` 步骤（201 + JSON）；Authorization/Cookie/Set-Cookie 脱敏，请求体/响应体沿用 8000/4000 截断；`network.json` 可下载（`direct-request.test.ts`、`request-step.test.ts`）（2026-11-08）
-- [x] V7-0d demo/试点验证 — demo API-only 用例：登录页 → `POST /api/users`，断言 201 + email、409 重复邮箱、400 缺邮箱（`api-user-create.json`、`api-duplicate-email.json`、`api-missing-email.json`）；`requestRef` 由 `env.requestRefs` 映射到 url/method；故障注入返回 500 或错误 JSON 时原断言以 `PRODUCT_DEFECT` 失败（`api-direct-demo.test.ts`）；`pnpm verify` 全绿（2026-11-09）
+- [x] V7-0c2 断言按步骤绑定 — `TestAssertion.stepRef` 直接匹配 `request` 步骤（证据带 `stepId`），业务接口用例无需在代码或环境里维护 requestRef 映射；`requestRef` 与 `stepRef` 二选一，`stepRef` 必须指向已有 request 步骤；schema + 语义校验 + 正负测试（2026-11-09）
+- [x] V7-0d demo 验证 — demo API-only 用例：登录页 → `POST /api/users`，断言 201 + email、409 重复邮箱、400 缺邮箱（`api-user-create.json`、`api-duplicate-email.json`、`api-missing-email.json`）；`requestRef` 由 `env.requestRefs` 映射到 url/method；故障注入返回 500 或错误 JSON 时原断言以 `PRODUCT_DEFECT` 失败（`api-direct-demo.test.ts`）；`pnpm verify` 全绿（2026-11-09）。试点/真实接口未验证，等 V7-0e 明确授权后再接
 - [ ] V7-0e 控制台接口用例 — 创建页支持“接口模式”：方法/路径/头/体/断言编辑 + 试跑；真实/试点仅在有明确授权时允许写接口（后续，先不做）
 
 **第二批：文件/媒体（接口直连验收后）**

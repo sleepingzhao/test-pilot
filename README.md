@@ -36,6 +36,44 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 
 能力探测校验（需 API 与目标环境已启动）：`pnpm detect:validate -- --target demo`，真实试点用 `--target pilot`，两者一起用 `--target all`；真实环境用 `--target real`（只做画像，不自动生成/试跑；稳定检查实时消息，文件/媒体随加载视图出现）。报告写入 `artifacts/detect/validate-last.json`。
 
+### 接口直连测试（V7-0）
+
+已批准的 IR 可以直接调用与 `baseUrl` **同源**的业务接口，并自动复用浏览器登录后的 Cookie：
+
+```json
+{
+  "id": "api-user-create",
+  "steps": [
+    { "id": "open", "action": "navigate", "path": "/practice-login.html" },
+    {
+      "id": "create",
+      "action": "request",
+      "method": "POST",
+      "path": "/api/users",
+      "body": { "email": "api-{{runId}}@example.com" },
+      "saveFields": { "userId": "id" }
+    },
+    { "id": "load", "action": "request", "method": "GET", "path": "/api/users/{{userId}}" }
+  ],
+  "assertions": [
+    {
+      "id": "created",
+      "type": "api",
+      "stepRef": "create",
+      "expect": { "statusCode": 201, "responseJsonBody": { "ok": true } },
+      "oracle": "api-contract"
+    }
+  ]
+}
+```
+
+- 模板：`{{runId}}`、`{{变量}}`、`{{env.apiToken}}`（解析到进程变量 `TESTPILOT_ENV_API_TOKEN`）；IR 只存 env key 名。
+- 响应：`saveAs` 保存原文，`saveFields` 按点路径提取字段供后续步骤使用。
+- 断言：沿用 `api` / `captured-http`；`stepRef` 直接绑定 `request` 步骤 id，无需额外映射；页面操作触发的请求继续用 `requestRef`（默认映射或运行环境 `requestRefs`）。
+- 证据：请求/响应写入 `network.json`，Authorization/Cookie 脱敏；请求体/响应体沿用 8 KB / 4 KB 截断。
+- 限制：仅同源（跨域接口需后续白名单）；暂不支持文件上传；控制台编辑器见 V7-0e。
+- 示例：`examples/demo-webapp/tests/api-*.json`，已加入 `pnpm smoke:demo`。
+
 ### 业务试点（P0-1）
 
 1. 复制凭据：`cp .env.example .env` 并填写 `TESTPILOT_ENV_ADMIN_*`（勿提交 Git）

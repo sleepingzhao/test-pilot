@@ -263,6 +263,7 @@ async function executeStep(
           url: redactSecretValues(target.href, secrets),
           method: step.method,
           status: response.status(),
+          stepId: step.id,
           requestHeaders: redactSecretHeaderValues(rendered.headers, secrets),
           requestBody: requestBody === undefined ? undefined : redactSecretValues(requestBody, secrets),
           responseHeaders: redactSecretHeaderValues(response.headers(), secrets),

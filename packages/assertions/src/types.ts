@@ -6,6 +6,7 @@ export type CapturedNetworkEntry = {
   method: string;
   status?: number;
   resourceType?: string;
+  stepId?: string;
   requestBody?: string;
   responseBody?: string;
   responseHeaders?: Record<string, string>;

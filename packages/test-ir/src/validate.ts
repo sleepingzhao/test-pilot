@@ -90,6 +90,24 @@ export function validateSemantics(ir: TestIR): ValidationIssue[] {
       issues.push({ path: "/baseUrl", message: "baseUrl is not a valid URL" });
     }
   }
+  const requestStepIds = new Set(
+    ir.steps.filter((step) => step.action === "request").map((step) => step.id),
+  );
+  for (const [i, assertion] of ir.assertions.entries()) {
+    if (!assertion.stepRef) continue;
+    if (assertion.requestRef) {
+      issues.push({
+        path: `/assertions/${i}/stepRef`,
+        message: "requestRef 与 stepRef 只能二选一",
+      });
+    }
+    if (!requestStepIds.has(assertion.stepRef)) {
+      issues.push({
+        path: `/assertions/${i}/stepRef`,
+        message: `stepRef 必须指向已有的 request 步骤: ${assertion.stepRef}`,
+      });
+    }
+  }
   for (const [i, step] of ir.steps.entries()) {
     if (step.action !== "request") continue;
     if (!step.method || !REQUEST_METHODS.has(step.method)) {

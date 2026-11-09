@@ -25,6 +25,8 @@ export type NetworkEntry = {
   method: string;
   status?: number;
   resourceType: string;
+  /** Set for direct `request` steps so assertions can bind by step id. */
+  stepId?: string;
   /** Truncated POST/PUT body for api-contract assertions (secrets redacted). */
   requestBody?: string;
   responseBody?: string;
@@ -36,6 +38,7 @@ export type DirectNetworkInput = {
   url: string;
   method: string;
   status?: number;
+  stepId?: string;
   requestHeaders?: Record<string, string>;
   requestBody?: string;
   responseHeaders?: Record<string, string>;
@@ -108,6 +111,7 @@ export function createEvidenceCollector(options: EvidenceOptions) {
         method: input.method,
         status: input.status,
         resourceType: "fetch",
+        ...(input.stepId ? { stepId: input.stepId } : {}),
       };
       if (input.requestBody && input.requestBody.length > 0 && input.requestBody.length <= 8000) {
         entry.requestBody = input.requestBody.slice(0, 4000);

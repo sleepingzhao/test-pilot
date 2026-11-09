@@ -51,8 +51,11 @@ function withRedactedOutcome(outcome: AssertionOutcome): AssertionOutcome {
 export function validateCapturedHttpAssertion(assertion: TestAssertion): ValidationIssue[] {
   if (assertion.type !== "api") return [];
   const issues: ValidationIssue[] = [];
-  if (!assertion.requestRef) {
-    issues.push({ path: "requestRef", message: "HTTP 断言需要 requestRef" });
+  if (!assertion.requestRef && !assertion.stepRef) {
+    issues.push({ path: "requestRef", message: "HTTP 断言需要 requestRef 或 stepRef" });
+  }
+  if (assertion.requestRef && assertion.stepRef) {
+    issues.push({ path: "stepRef", message: "requestRef 与 stepRef 只能二选一" });
   }
   const expect = (assertion.expect ?? {}) as Record<string, unknown>;
   for (const issue of validateCapturedHttpExpectShape(expect)) {
@@ -92,24 +95,38 @@ export async function runCapturedHttpAssertion(
 
   const network = ctx.network ?? [];
   const ref = assertion.requestRef;
-  if (!ref) {
+  const stepRef = assertion.stepRef;
+  if (!ref && !stepRef) {
     return {
       assertionId: id,
       passed: false,
       errorKind: "ASSERTION_ORACLE",
-      message: "api assertion requires requestRef",
+      message: "api assertion requires requestRef or stepRef",
     };
   }
 
-  const spec = ctx.resolveRequestRef?.(ref);
-  if (!spec) {
-    return {
-      assertionId: id,
-      passed: false,
-      errorKind: "ASSERTION_ORACLE",
-      message: `unknown requestRef: ${ref}`,
-    };
+  let spec: RequestRefSpec;
+  let matched: CapturedNetworkEntry[];
+  let label: string;
+  if (stepRef) {
+    label = `step ${stepRef}`;
+    spec = { urlIncludes: label };
+    matched = network.filter((n) => n.stepId === stepRef);
+  } else {
+    const resolved = ctx.resolveRequestRef?.(ref!);
+    if (!resolved) {
+      return {
+        assertionId: id,
+        passed: false,
+        errorKind: "ASSERTION_ORACLE",
+        message: `unknown requestRef: ${ref}`,
+      };
+    }
+    spec = resolved;
+    label = `requestRef ${ref}`;
+    matched = matchNetwork(network, spec);
   }
+  const refLabel = stepRef ? { stepRef } : { requestRef: ref };
 
   const expect = (assertion.expect ?? {}) as Record<string, unknown>;
   const shapeIssues = validateCapturedHttpExpectShape(expect);
@@ -123,8 +140,6 @@ export async function runCapturedHttpAssertion(
     };
   }
 
-  const matched = matchNetwork(network, spec);
-
   const wantsNoRequest = expect.absent === true || expect.requestCount === 0;
   if (wantsNoRequest) {
     const pool =
@@ -135,16 +150,16 @@ export async function runCapturedHttpAssertion(
       return withRedactedOutcome({
         assertionId: id,
         passed: false,
-        expected: { requestRef: ref, ...expect },
+        expected: { ...refLabel, ...expect },
         actual: pool.slice(-3).map((n) => ({ url: n.url, status: n.status })),
         errorKind: "PRODUCT_DEFECT",
-        message: `expected no matching request for ${ref}`,
+        message: `expected no matching request for ${label}`,
       });
     }
     return withRedactedOutcome({
       assertionId: id,
       passed: true,
-      expected: { requestRef: ref, ...expect },
+      expected: { ...refLabel, ...expect },
       actual: { requestCount: 0 },
     });
   }
@@ -153,10 +168,10 @@ export async function runCapturedHttpAssertion(
     return withRedactedOutcome({
       assertionId: id,
       passed: false,
-      expected: spec,
+      expected: { ...refLabel },
       actual: [],
       errorKind: "PRODUCT_DEFECT",
-      message: `no network entry matched requestRef ${ref}`,
+      message: `no network entry matched ${label}`,
     });
   }
 
@@ -169,10 +184,10 @@ export async function runCapturedHttpAssertion(
     return withRedactedOutcome({
       assertionId: id,
       passed: false,
-      expected: { requestRef: ref, statusCode: expect.statusCode },
+      expected: { ...refLabel, statusCode: expect.statusCode },
       actual: matched.map((n) => ({ url: n.url, status: n.status })),
       errorKind: "PRODUCT_DEFECT",
-      message: `no ${spec.method ?? "request"} ${ref} with status ${expect.statusCode}`,
+      message: `no ${spec.method ?? "request"} ${label} with status ${expect.statusCode}`,
     });
   }
 
@@ -262,7 +277,7 @@ export async function runCapturedHttpAssertion(
     return withRedactedOutcome({
       assertionId: id,
       passed: false,
-      expected: { requestRef: ref, ...expect },
+      expected: { ...refLabel, ...expect },
       actual,
       errorKind: "PRODUCT_DEFECT",
       message: failures.join("; "),
@@ -275,7 +290,7 @@ export async function runCapturedHttpAssertion(
     return withRedactedOutcome({
       assertionId: id,
       passed: true,
-      expected: { requestRef: ref, ...expect },
+      expected: { ...refLabel, ...expect },
       actual: {
         url: primary.url,
         status: primary.status,
@@ -289,7 +304,7 @@ export async function runCapturedHttpAssertion(
     passed: false,
     errorKind: "ASSERTION_ORACLE",
     message: "HTTP 断言缺少受支持的 expect 字段，无法判定通过或失败",
-    expected: { requestRef: ref },
+    expected: { ...refLabel },
     actual: matched.slice(-3),
   });
 }

@@ -1,0 +1,38 @@
+{
+  "id": "api-items-cleanup",
+  "version": 1,
+  "platform": "web",
+  "steps": [
+    { "id": "open", "action": "navigate", "path": "/" },
+    {
+      "id": "create",
+      "action": "request",
+      "method": "POST",
+      "path": "/api/items",
+      "body": { "name": "cleanup-{{runId}}" },
+      "saveFields": { "createdId": "id" }
+    }
+  ],
+  "teardownSteps": [
+    {
+      "id": "delete-item",
+      "action": "request",
+      "method": "DELETE",
+      "path": "/api/items/{{createdId}}"
+    }
+  ],
+  "policy": { "cleanup": "always", "screenshots": "on-failure" },
+  "assertions": [
+    {
+      "id": "created",
+      "type": "api",
+      "provider": "captured-http",
+      "stepRef": "create",
+      "expect": {
+        "statusCode": 201,
+        "responseBodyContains": "cleanup-"
+      },
+      "oracle": "api-contract"
+    }
+  ]
+}

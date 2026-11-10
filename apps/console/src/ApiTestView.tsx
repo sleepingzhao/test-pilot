@@ -17,6 +17,7 @@ type ApiTestResult = {
   test: StoredTest;
   trial?: { run: StoredRun; trial?: boolean };
   trialError?: string;
+  warnings?: string[];
 };
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] as const;
@@ -61,6 +62,10 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
   const [expectStatus, setExpectStatus] = useState("200");
   const [expectContains, setExpectContains] = useState("");
   const [expectJsonText, setExpectJsonText] = useState("");
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleanupMethod, setCleanupMethod] = useState<(typeof METHODS)[number]>("DELETE");
+  const [cleanupPath, setCleanupPath] = useState("");
+  const [cleanupBodyText, setCleanupBodyText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ApiTestResult | null>(null);
@@ -102,6 +107,25 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
       return;
     }
 
+    let cleanup: { method?: string; path?: string; body?: string | Record<string, unknown> } | undefined;
+    const cleanupPathTrimmed = cleanupPath.trim();
+    if (cleanupPathTrimmed) {
+      cleanup = { method: cleanupMethod, path: cleanupPathTrimmed };
+      const rawCleanupBody = cleanupBodyText.trim();
+      if (rawCleanupBody) {
+        if (rawCleanupBody.startsWith("{") || rawCleanupBody.startsWith("[")) {
+          try {
+            cleanup.body = JSON.parse(rawCleanupBody) as Record<string, unknown>;
+          } catch {
+            setError("清理请求体看起来是 JSON，但解析失败");
+            return;
+          }
+        } else {
+          cleanup.body = rawCleanupBody;
+        }
+      }
+    }
+
     setLoading(true);
     try {
       const res = await api<ApiTestResult>("/api/api-tests", {
@@ -117,6 +141,7 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
           expectStatus: status,
           expectContains: expectContains.trim() || undefined,
           expectJson: jsonParse.value,
+          cleanup,
         }),
       });
       setResult(res);
@@ -245,6 +270,53 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
           />
         </div>
 
+        <details
+          className="api-cleanup-panel"
+          open={cleanupOpen}
+          onToggle={(e) => setCleanupOpen((e.currentTarget as HTMLDetailsElement).open)}
+        >
+          <summary>清理请求（可选）</summary>
+          <p className="hint-inline">
+            默认复用上方请求头（含鉴权）。路径可使用 {"{{createdId}}"}（从响应 id 字段保存）或 {"{{runId}}"}。
+          </p>
+          <div className="api-request-line">
+            <div className="field api-method">
+              <label htmlFor="api-cleanup-method">方法</label>
+              <select
+                id="api-cleanup-method"
+                value={cleanupMethod}
+                onChange={(e) => setCleanupMethod(e.target.value as (typeof METHODS)[number])}
+              >
+                {METHODS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field api-path">
+              <label htmlFor="api-cleanup-path">路径</label>
+              <input
+                id="api-cleanup-path"
+                value={cleanupPath}
+                onChange={(e) => setCleanupPath(e.target.value)}
+                placeholder="/api/items/{{createdId}}"
+                spellCheck={false}
+              />
+            </div>
+          </div>
+          <div className="field">
+            <label htmlFor="api-cleanup-body">请求体（可选）</label>
+            <textarea
+              id="api-cleanup-body"
+              rows={3}
+              value={cleanupBodyText}
+              onChange={(e) => setCleanupBodyText(e.target.value)}
+              spellCheck={false}
+            />
+          </div>
+        </details>
+
         <div className="api-assertions">
           <p className="stat-label">断言</p>
           <div className="field">
@@ -296,6 +368,13 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
               <span className="badge">草稿 · 未进入回归</span>
             </div>
             <p className="stat-note">审阅步骤和断言后批准，才会参与批量回归。</p>
+            {result.warnings && result.warnings.length > 0 ? (
+              <ul className="diagnose-list">
+                {result.warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            ) : null}
             <div className="flow-actions">
               <button
                 type="button"

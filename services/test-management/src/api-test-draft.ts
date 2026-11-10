@@ -1,6 +1,12 @@
 import type { RequestMethod, TestIR } from "@testpilot/test-ir";
 import { requestPathIssue } from "@testpilot/test-ir";
 
+export type ApiTestCleanupInput = {
+  method?: string;
+  path?: string;
+  body?: string | Record<string, unknown>;
+};
+
 export type ApiTestDraftInput = {
   title?: string;
   method?: string;
@@ -10,6 +16,7 @@ export type ApiTestDraftInput = {
   expectStatus?: number;
   expectContains?: string;
   expectJson?: Record<string, unknown>;
+  cleanup?: ApiTestCleanupInput;
 };
 
 export type ApiTestDraft = {
@@ -19,17 +26,22 @@ export type ApiTestDraft = {
 };
 
 export type ApiTestDraftResult =
-  | { ok: true; draft: ApiTestDraft }
+  | { ok: true; draft: ApiTestDraft; warnings: string[] }
   | { ok: false; errors: string[] };
 
 const METHODS = new Set<RequestMethod>(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
 const FORBIDDEN_HEADERS = new Set(["host", "content-length", "connection", "transfer-encoding"]);
 const MAX_BODY = 100_000;
+const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+const RUN_ID_HINT =
+  "写接口建议在 path/body 中使用 {{runId}} 标记，便于清理";
 
 /** Turns the console form into a reviewable draft. Never approves or runs it. */
 export function buildApiTestDraft(input: ApiTestDraftInput): ApiTestDraftResult {
   const errors: string[] = [];
+  const warnings: string[] = [];
   const method = String(input.method ?? "").trim().toUpperCase();
   if (!METHODS.has(method as RequestMethod)) {
     errors.push("method 必须是 GET/POST/PUT/PATCH/DELETE/HEAD");
@@ -90,23 +102,64 @@ export function buildApiTestDraft(input: ApiTestDraftInput): ApiTestDraftResult 
   }
 
   const title = (input.title?.trim() || `${method || "API"} ${path || "/"}`).slice(0, 80);
+
+  const cleanupPath = String(input.cleanup?.path ?? "").trim();
+  let cleanupMethod = String(input.cleanup?.method ?? "").trim().toUpperCase();
+  let cleanupBody: string | Record<string, unknown> | undefined;
+  if (cleanupPath) {
+    if (!cleanupMethod) cleanupMethod = "DELETE";
+    if (!METHODS.has(cleanupMethod as RequestMethod)) {
+      errors.push("清理 method 必须是 GET/POST/PUT/PATCH/DELETE/HEAD");
+    }
+    const cleanupPathIssue = requestPathIssue(cleanupPath);
+    if (cleanupPathIssue) errors.push(cleanupPathIssue);
+    if (input.cleanup?.body !== undefined) {
+      if (typeof input.cleanup.body === "string") {
+        if (input.cleanup.body.length > MAX_BODY) errors.push("清理 body 超过 100 KB");
+        else if (input.cleanup.body.trim()) cleanupBody = input.cleanup.body;
+      } else {
+        const serialized = JSON.stringify(input.cleanup.body);
+        if (serialized.length > MAX_BODY) errors.push("清理 body 超过 100 KB");
+        else cleanupBody = input.cleanup.body;
+      }
+    }
+  }
+
+  if (WRITE_METHODS.has(method)) {
+    const bodyText =
+      typeof body === "string" ? body : body !== undefined ? JSON.stringify(body) : "";
+    if (!path.includes("{{runId}}") && !bodyText.includes("{{runId}}")) {
+      warnings.push(RUN_ID_HINT);
+    }
+  }
+
   if (errors.length) return { ok: false, errors };
+
+  const callStep: TestIR["steps"][number] = {
+    id: "call",
+    action: "request",
+    method: method as RequestMethod,
+    path,
+    ...(Object.keys(headers).length ? { headers } : {}),
+    ...(body !== undefined ? { body } : {}),
+  };
+
+  if (cleanupPath && cleanupPath.includes("{{createdId}}")) {
+    const existing = (callStep as { saveFields?: Record<string, string> }).saveFields;
+    if (!existing?.createdId) {
+      (callStep as { saveFields?: Record<string, string> }).saveFields = {
+        ...existing,
+        createdId: "id",
+      };
+    }
+  }
 
   const id = draftId(title);
   const ir: TestIR = {
     id,
     version: 1,
     platform: "web",
-    steps: [
-      {
-        id: "call",
-        action: "request",
-        method: method as RequestMethod,
-        path,
-        ...(Object.keys(headers).length ? { headers } : {}),
-        ...(body !== undefined ? { body } : {}),
-      },
-    ],
+    steps: [callStep],
     assertions: [
       {
         id: "response",
@@ -123,7 +176,22 @@ export function buildApiTestDraft(input: ApiTestDraftInput): ApiTestDraftResult 
     ],
     policy: { screenshots: "on-failure" },
   };
-  return { ok: true, draft: { id, title, ir } };
+
+  if (cleanupPath) {
+    ir.teardownSteps = [
+      {
+        id: "cleanup",
+        action: "request",
+        method: cleanupMethod as RequestMethod,
+        path: cleanupPath,
+        ...(Object.keys(headers).length ? { headers } : {}),
+        ...(cleanupBody !== undefined ? { body: cleanupBody } : {}),
+      },
+    ];
+    ir.policy = { ...ir.policy, cleanup: "always" };
+  }
+
+  return { ok: true, draft: { id, title, ir }, warnings };
 }
 
 function draftId(title: string): string {

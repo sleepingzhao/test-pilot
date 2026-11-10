@@ -67,6 +67,17 @@ const ENV_LABELS: Record<TestEnvKey, string> = {
   custom: "自定义",
 };
 
+type CleanupPolicy = "none" | "on-success" | "always";
+
+function isWriteStep(step: TestStep): boolean {
+  if (step.action === "upload") return true;
+  if (step.action === "request") {
+    const method = String(step.method ?? "GET").toUpperCase();
+    return method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
+  }
+  return false;
+}
+
 export function App() {
   const [view, setView] = useState<View>("home");
   const [testFilter, setTestFilter] = useState<TestFilter>("all");
@@ -92,6 +103,8 @@ export function App() {
   const [assertionSuggestions, setAssertionSuggestions] = useState<string[]>([]);
   const [reviewIntent, setReviewIntent] = useState("");
   const [reviewSteps, setReviewSteps] = useState<TestStep[]>([]);
+  const [reviewTeardown, setReviewTeardown] = useState<TestStep[]>([]);
+  const [cleanupPolicy, setCleanupPolicy] = useState<CleanupPolicy>("none");
   const [reviewDirty, setReviewDirty] = useState(false);
   const [trialRunning, setTrialRunning] = useState(false);
   const [trialResult, setTrialResult] = useState<StoredRun | null>(null);
@@ -469,6 +482,11 @@ export function App() {
     const requestToken = ++reviewToken.current;
     setEditTest(t);
     setReviewSteps([...(t.ir.steps ?? [])] as TestStep[]);
+    setReviewTeardown([...(t.ir.teardownSteps ?? [])] as TestStep[]);
+    const policyCleanup = t.ir.policy?.cleanup;
+    setCleanupPolicy(
+      policyCleanup === "on-success" || policyCleanup === "always" ? policyCleanup : "none",
+    );
     setReviewDirty(false);
     setTrialResult(null);
     setReviewIntent(t.intentSummary ?? "");
@@ -691,6 +709,11 @@ export function App() {
     markReviewDirty();
   };
 
+  const updateReviewTeardown = (next: TestStep[]) => {
+    setReviewTeardown(next);
+    markReviewDirty();
+  };
+
   const buildReviewIr = () => {
     if (!editTest) return null;
     const base = [...((editTest.ir.assertions ?? []) as IrAssertion[])];
@@ -745,11 +768,51 @@ export function App() {
       }
     }
 
-    return { ...editTest.ir, assertions: base, steps: reviewSteps };
+    const policy: Record<string, unknown> = { ...(editTest.ir.policy ?? {}) };
+    if (cleanupPolicy === "none") delete policy.cleanup;
+    else policy.cleanup = cleanupPolicy;
+    const ir: StoredTest["ir"] = { ...editTest.ir, assertions: base, steps: reviewSteps };
+    if (Object.keys(policy).length > 0) ir.policy = policy;
+    else delete ir.policy;
+    if (reviewTeardown.length > 0) ir.teardownSteps = reviewTeardown;
+    else delete ir.teardownSteps;
+    return ir;
   };
+
+  const reviewIrIssue = (): string | null => {
+    if (cleanupPolicy !== "none" && reviewTeardown.length === 0) {
+      return "已启用清理策略，请至少添加一条 teardown 清理步骤";
+    }
+    if (cleanupPolicy === "none" && reviewTeardown.length > 0) {
+      return "清理策略为「不清理」时请删除 teardown 步骤，或改用 on-success / always";
+    }
+    if (apiExpectJson.trim()) {
+      try {
+        JSON.parse(apiExpectJson);
+      } catch {
+        return "API expect 不是合法 JSON";
+      }
+    }
+    if (providerDraft.enabled) {
+      const built = buildProviderAssertion(providerDraft);
+      if (!built.ok) return built.error ?? "Provider 断言无效";
+    }
+    const ir = buildReviewIr();
+    if (!ir || (ir.assertions?.length ?? 0) === 0) {
+      return "请填写 UI 断言、API expect，或合法的 Provider 断言";
+    }
+    return null;
+  };
+
+  const reviewIrValid = () => !reviewIrIssue();
 
   const trialRunReview = async () => {
     if (!editTest) return;
+    const issue = reviewIrIssue();
+    if (issue) {
+      notify(issue);
+      return;
+    }
     const ir = buildReviewIr();
     if (!ir) {
       notify("请修正 API expect / Provider 后再试跑");
@@ -863,27 +926,12 @@ export function App() {
     }
   };
 
-  const reviewIrValid = () => {
-    if (apiExpectJson.trim()) {
-      try {
-        JSON.parse(apiExpectJson);
-      } catch {
-        return false;
-      }
-    }
-    if (providerDraft.enabled) {
-      const built = buildProviderAssertion(providerDraft);
-      if (!built.ok) return false;
-    }
-    const ir = buildReviewIr();
-    return Boolean(ir && (ir.assertions?.length ?? 0) > 0);
-  };
-
   const saveDraft = async () => {
     if (!editTest) return;
+    const issue = reviewIrIssue();
     const ir = buildReviewIr();
-    if (!ir || !reviewIrValid()) {
-      notify("请填写 UI 断言、API expect，或合法的 Provider 断言");
+    if (!ir || issue) {
+      notify(issue ?? "请填写 UI 断言、API expect，或合法的 Provider 断言");
       return;
     }
     await api(`/api/tests/${editTest.id}`, {
@@ -898,9 +946,10 @@ export function App() {
 
   const saveAndApprove = async () => {
     if (!editTest) return;
+    const issue = reviewIrIssue();
     const ir = buildReviewIr();
-    if (!ir || !reviewIrValid()) {
-      notify("请填写 UI 断言、API expect，或合法的 Provider 断言");
+    if (!ir || issue) {
+      notify(issue ?? "请填写 UI 断言、API expect，或合法的 Provider 断言");
       return;
     }
     if (approvalInfo?.approvalTokenRequired) {
@@ -1676,6 +1725,43 @@ export function App() {
                 </ul>
               )}
               <StepEditorPanel steps={reviewSteps} onChange={updateReviewSteps} />
+
+              <section className="review-section">
+                <div className="review-section-head">
+                  <h3>测试数据清理</h3>
+                </div>
+                <p className="hint-inline">
+                  teardown 在试跑/回归结束后执行，用于删除或回滚测试写入的数据。策略 always 在断言失败时仍会清理；on-success
+                  仅在主流程通过后清理。
+                </p>
+                <div className="field">
+                  <label htmlFor="cleanup-policy">清理策略（policy.cleanup）</label>
+                  <select
+                    id="cleanup-policy"
+                    value={cleanupPolicy}
+                    onChange={(e) => {
+                      setCleanupPolicy(e.target.value as CleanupPolicy);
+                      markReviewDirty();
+                    }}
+                  >
+                    <option value="none">none · 不执行清理</option>
+                    <option value="on-success">on-success · 仅主流程通过时清理</option>
+                    <option value="always">always · 始终清理（含断言失败）</option>
+                  </select>
+                </div>
+                {cleanupPolicy === "none" && reviewSteps.some(isWriteStep) ? (
+                  <p className="hint-inline weak-assertion-box">
+                    该用例可能写入业务数据，建议配置 teardown 清理步骤
+                  </p>
+                ) : null}
+                <StepEditorPanel
+                  title="清理步骤（teardown）"
+                  description="在主步骤与断言之后执行；可使用 {{runId}}、saveFields 变量（如 {{createdId}}）定位测试数据。"
+                  steps={reviewTeardown}
+                  onChange={updateReviewTeardown}
+                  idPrefix="cleanup"
+                />
+              </section>
 
               <section className="review-section">
                 <div className="review-section-head">

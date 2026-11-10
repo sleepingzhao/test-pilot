@@ -166,6 +166,44 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
           </ul>
         </div>
 
+        {run.cleanup ? (
+          <div className="card-panel">
+            <h3>清理</h3>
+            <p className="run-detail-meta">
+              状态：
+              <strong>
+                {run.cleanup.status === "passed"
+                  ? "通过"
+                  : run.cleanup.status === "failed"
+                    ? "失败"
+                    : run.cleanup.steps.length === 0
+                      ? "未配置清理"
+                      : "已跳过"}
+              </strong>
+              {run.cleanup.errorKind ? ` · ${run.cleanup.errorKind}` : ""}
+            </p>
+            {run.cleanup.message ? <p className="diagnose-msg">{run.cleanup.message}</p> : null}
+            <ol className="run-step-timeline">
+              {run.cleanup.steps.map((s) => (
+                <li
+                  key={s.stepId}
+                  className={`run-step${s.status === "failed" ? " run-step-failed" : ""}`}
+                >
+                  <span className="run-step-id">{s.stepId}</span>
+                  <span className="run-step-status">{s.status}</span>
+                  {typeof s.durationMs === "number" ? (
+                    <span className="run-step-dur">{s.durationMs} ms</span>
+                  ) : null}
+                  {s.message ? <span className="run-step-msg">{s.message}</span> : null}
+                </li>
+              ))}
+              {run.cleanup.steps.length === 0 && run.cleanup.status === "skipped" ? (
+                <li className="run-step-muted">未配置清理</li>
+              ) : null}
+            </ol>
+          </div>
+        ) : null}
+
         <div className="card-panel run-detail-evidence">
           <h3>证据</h3>
           <ul className="evidence-links">

@@ -30,6 +30,8 @@ export type StoredTest = {
     version: number;
     assertions: unknown[];
     steps: unknown[];
+    teardownSteps?: unknown[];
+    policy?: { cleanup?: "none" | "on-success" | "always"; [key: string]: unknown };
     baseUrl?: string;
     baseUrlRef?: string;
   };
@@ -70,6 +72,12 @@ export type StoredRun = {
   artifacts: { dir: string; artifacts: Array<{ kind: string; path: string }> };
   /** Present files for this run, computed by the API (missing after cleanup). */
   artifactsPresent?: Record<string, boolean>;
+  cleanup?: {
+    status: "passed" | "failed" | "skipped";
+    steps: Array<{ stepId: string; status: string; durationMs?: number; message?: string }>;
+    message?: string;
+    errorKind?: string;
+  };
 };
 
 export type StoredBatch = {

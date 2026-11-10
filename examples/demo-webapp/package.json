@@ -6,7 +6,7 @@
     "start": "node server.mjs",
     "build": "echo 'static demo'",
     "typecheck": "echo 'n/a'",
-    "test": "node --test files.test.mjs chat.test.mjs",
+    "test": "node --test files.test.mjs chat.test.mjs items.test.mjs",
     "lint": "echo 'n/a'"
   },
   "dependencies": {

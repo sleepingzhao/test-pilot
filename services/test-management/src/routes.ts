@@ -639,6 +639,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       expectStatus?: number;
       expectContains?: string;
       expectJson?: Record<string, unknown>;
+      cleanup?: { method?: string; path?: string; body?: string | Record<string, unknown> };
     };
     if (body.target === "pilot" || body.target === "real") {
       return reply.code(400).send({
@@ -694,7 +695,11 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     await store.saveTest(test);
 
     if (!(await checkTargetReachable(resolved.url))) {
-      return { test: withWeakAssertions(test), trialError: `目标环境不可达: ${resolved.url}` };
+      return {
+        test: withWeakAssertions(test),
+        trialError: `目标环境不可达: ${resolved.url}`,
+        warnings: draft.warnings,
+      };
     }
     try {
       const run = await executeSingleIrRun(
@@ -706,11 +711,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         artifactsRoot,
         dataRoot,
       );
-      return { test: withWeakAssertions(test), trial: { run, trial: true } };
+      return { test: withWeakAssertions(test), trial: { run, trial: true }, warnings: draft.warnings };
     } catch (err) {
       return {
         test: withWeakAssertions(test),
         trialError: err instanceof Error ? err.message : String(err),
+        warnings: draft.warnings,
       };
     }
   });

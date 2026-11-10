@@ -5,16 +5,21 @@ import { describeStep } from "./stepSummary";
 type Props = {
   steps: TestStep[];
   onChange: (steps: TestStep[]) => void;
+  title?: string;
+  description?: string;
+  /** Prefix for newly added step ids, so teardown steps cannot collide with main steps. */
+  idPrefix?: string;
 };
 
 type AddKind = "navigate" | "click" | "fill" | "select" | "wait" | "request";
 
-function nextStepId(steps: TestStep[]): string {
+function nextStepId(steps: TestStep[], prefix: string): string {
+  const pattern = new RegExp(`^${prefix}-(\\d+)$`);
   const max = steps.reduce((acc, step) => {
-    const match = /^step-(\d+)$/.exec(step.id);
+    const match = pattern.exec(step.id);
     return match ? Math.max(acc, Number(match[1])) : acc;
   }, 0);
-  return `step-${max + 1}`;
+  return `${prefix}-${max + 1}`;
 }
 
 function templateFor(kind: AddKind, id: string): TestStep {
@@ -34,7 +39,13 @@ function templateFor(kind: AddKind, id: string): TestStep {
   }
 }
 
-export function StepEditorPanel({ steps, onChange }: Props) {
+export function StepEditorPanel({
+  steps,
+  onChange,
+  title = "1 · 步骤",
+  description = "按顺序执行。可上下移动、编辑 JSON 或删除；试跑与保存都使用此列表。",
+  idPrefix = "step",
+}: Props) {
   const [addKind, setAddKind] = useState<AddKind>("navigate");
 
   const editStepJson = (index: number) => {
@@ -53,10 +64,10 @@ export function StepEditorPanel({ steps, onChange }: Props) {
   return (
     <section className="review-section">
       <div className="review-section-head">
-        <h3>1 · 步骤</h3>
+        <h3>{title}</h3>
         <span className="review-count">{steps.length} 步</span>
       </div>
-      <p className="hint-inline">按顺序执行。可上下移动、编辑 JSON 或删除；试跑与保存都使用此列表。</p>
+      <p className="hint-inline">{description}</p>
       {steps.length === 0 && <p className="empty-note">暂无步骤。用下方「添加步骤」或从录制 / 一句话生成。</p>}
       <ul className="step-editor-list">
         {steps.map((step, i) => (
@@ -97,7 +108,7 @@ export function StepEditorPanel({ steps, onChange }: Props) {
         <button
           type="button"
           className="btn btn-tertiary btn-small"
-          onClick={() => onChange([...steps, templateFor(addKind, nextStepId(steps))])}
+          onClick={() => onChange([...steps, templateFor(addKind, nextStepId(steps, idPrefix))])}
         >
           添加步骤
         </button>

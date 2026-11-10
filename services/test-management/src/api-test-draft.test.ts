@@ -8,7 +8,7 @@ test("buildApiTestDraft creates a request step and a stepRef assertion", () => {
     method: "post",
     path: "/api/orders",
     headers: { "x-trace": "abc" },
-    body: { sku: "A-1", qty: 2 },
+    body: { sku: "A-1", qty: 2, ref: "{{runId}}" },
     expectStatus: 201,
     expectContains: "order-1",
     expectJson: { ok: true },
@@ -16,6 +16,7 @@ test("buildApiTestDraft creates a request step and a stepRef assertion", () => {
   assert.equal(result.ok, true);
   if (!result.ok) return;
   const { ir } = result.draft;
+  assert.deepEqual(result.warnings, []);
   assert.match(result.draft.id, /^api-[a-z0-9-]+$/);
   assert.deepEqual(ir.steps[0], {
     id: "call",
@@ -23,7 +24,7 @@ test("buildApiTestDraft creates a request step and a stepRef assertion", () => {
     method: "POST",
     path: "/api/orders",
     headers: { "x-trace": "abc" },
-    body: { sku: "A-1", qty: 2 },
+    body: { sku: "A-1", qty: 2, ref: "{{runId}}" },
   });
   assert.deepEqual(ir.assertions[0], {
     id: "response",
@@ -45,6 +46,54 @@ test("buildApiTestDraft defaults to 200 and a readable title", () => {
   if (!result.ok) return;
   assert.equal(result.draft.title, "GET /api/health");
   assert.deepEqual(result.draft.ir.assertions[0]?.expect, { statusCode: 200 });
+  assert.deepEqual(result.warnings, []);
+});
+
+test("buildApiTestDraft adds cleanup teardown with default DELETE and inherited headers", () => {
+  const result = buildApiTestDraft({
+    method: "POST",
+    path: "/api/items",
+    headers: { Authorization: "Bearer x" },
+    body: { name: "x-{{runId}}" },
+    expectStatus: 201,
+    cleanup: { path: "/api/items/{{createdId}}" },
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const { ir } = result.draft;
+  assert.equal(ir.policy?.cleanup, "always");
+  assert.deepEqual(ir.teardownSteps, [
+    {
+      id: "cleanup",
+      action: "request",
+      method: "DELETE",
+      path: "/api/items/{{createdId}}",
+      headers: { Authorization: "Bearer x" },
+    },
+  ]);
+  assert.deepEqual((ir.steps[0] as { saveFields?: Record<string, string> }).saveFields, {
+    createdId: "id",
+  });
+  assert.deepEqual(result.warnings, []);
+});
+
+test("buildApiTestDraft rejects unsafe cleanup path", () => {
+  const result = buildApiTestDraft({
+    method: "POST",
+    path: "/api/items",
+    body: { name: "n-{{runId}}" },
+    cleanup: { path: "//evil.example/x" },
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.ok(result.errors.some((e) => /protocol-relative/.test(e)));
+});
+
+test("buildApiTestDraft warns when write API omits runId marker", () => {
+  const result = buildApiTestDraft({ method: "POST", path: "/api/items", body: { name: "static" } });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.ok(result.warnings.some((w) => /runId/.test(w)));
 });
 
 test("buildApiTestDraft rejects unsafe or malformed input (negative)", () => {

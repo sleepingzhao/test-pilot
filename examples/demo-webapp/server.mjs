@@ -207,6 +207,8 @@ function attachChatSocket(server) {
 export function createDemoServer() {
   const knownEmails = new Set(["duplicate@example.com", "admin@example.com"]);
   const files = new Map();
+  /** @type {Map<string, { id: string, name: string }>} */
+  const items = new Map();
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
@@ -253,6 +255,51 @@ export function createDemoServer() {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/items") {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      let body = {};
+      try {
+        body = JSON.parse(raw || "{}");
+      } catch {
+        sendJson(res, 400, { error: "invalid_json" });
+        return;
+      }
+      const name = String(body.name ?? "").trim();
+      if (!name) {
+        sendJson(res, 400, { error: "missing_name" });
+        return;
+      }
+      const id = randomUUID();
+      const item = { id, name };
+      items.set(id, item);
+      sendJson(res, 201, item);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/items") {
+      sendJson(res, 200, { items: [...items.values()] });
+      return;
+    }
+
+    const itemMatch = /^\/api\/items\/([^/]+)$/.exec(url.pathname);
+    if (itemMatch && req.method === "DELETE") {
+      let id;
+      try {
+        id = decodeURIComponent(itemMatch[1]);
+      } catch {
+        sendJson(res, 400, { error: "invalid_id" });
+        return;
+      }
+      if (!items.delete(id)) {
+        sendJson(res, 404, { error: "not_found" });
+        return;
+      }
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/files") {
       await handleFileUpload(req, res, files);
       return;
@@ -285,11 +332,11 @@ export function createDemoServer() {
       return;
     }
 
-    const itemMatch = /^\/api\/files\/([^/]+)$/.exec(url.pathname);
-    if (itemMatch && req.method === "DELETE") {
+    const fileItemMatch = /^\/api\/files\/([^/]+)$/.exec(url.pathname);
+    if (fileItemMatch && req.method === "DELETE") {
       let id;
       try {
-        id = decodeURIComponent(itemMatch[1]);
+        id = decodeURIComponent(fileItemMatch[1]);
       } catch {
         sendJson(res, 400, { error: "invalid_id" });
         return;

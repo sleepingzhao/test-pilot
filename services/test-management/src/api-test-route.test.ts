@@ -8,6 +8,45 @@ import Fastify from "fastify";
 import { registerRoutes } from "./routes.js";
 import { FileStore } from "./store.js";
 
+test("POST /api/api-tests with cleanup saves teardown and policy", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-api-test-"));
+  const store = new FileStore(join(root, "data"));
+  await store.init();
+  const app = Fastify();
+  await app.register(sensible);
+  registerRoutes(app, store, join(root, "artifacts"), join(root, "data"));
+  await app.ready();
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/api-tests",
+      payload: {
+        title: "条目+清理",
+        target: "custom",
+        customUrl: "http://127.0.0.1:9",
+        method: "POST",
+        path: "/api/items",
+        body: { name: "x-{{runId}}" },
+        expectStatus: 201,
+        cleanup: { path: "/api/items/{{createdId}}" },
+      },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    const body = res.json() as {
+      test: { ir: { teardownSteps?: unknown[]; policy?: { cleanup?: string } } };
+      warnings?: string[];
+      trialError?: string;
+    };
+    assert.match(String(body.trialError), /不可达/);
+    assert.equal(body.test.ir.policy?.cleanup, "always");
+    assert.equal(body.test.ir.teardownSteps?.length, 1);
+    assert.deepEqual((body.test.ir.teardownSteps?.[0] as { id: string }).id, "cleanup");
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("POST /api/api-tests saves a draft and reports an unreachable target", async () => {
   const root = await mkdtemp(join(tmpdir(), "testpilot-api-test-"));
   const store = new FileStore(join(root, "data"));

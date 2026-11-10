@@ -405,6 +405,17 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
                     : ""}
                   · {trial.metrics?.durationMs ?? "—"} ms
                 </p>
+                {trial.cleanup ? (
+                  <p className="run-detail-meta">
+                    清理：
+                    {trial.cleanup.status === "passed"
+                      ? "通过"
+                      : trial.cleanup.status === "failed"
+                        ? "失败"
+                        : "未执行"}
+                    {trial.cleanup.message ? ` · ${trial.cleanup.message}` : ""}
+                  </p>
+                ) : null}
                 <ol className="run-step-timeline">
                   {trial.steps.map((step) => (
                     <li

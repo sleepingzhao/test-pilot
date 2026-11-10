@@ -363,3 +363,17 @@ test("rejects policy.cleanup always without teardownSteps", () => {
     assert.ok(issues.some((issue) => /at least one teardown step/.test(issue.message)));
   }
 });
+
+test("rejects duplicate step ids across steps and teardownSteps", () => {
+  const ir = {
+    id: "teardown-duplicate-id",
+    version: 1,
+    platform: "web",
+    policy: { cleanup: "always" },
+    steps: [{ id: "delete", action: "navigate", path: "/" }],
+    teardownSteps: [{ id: "delete", action: "request", method: "DELETE", path: "/api/item/1" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  } as TestIR;
+  const issues = validateSemantics(ir);
+  assert.ok(issues.some((issue) => /duplicate step id/.test(issue.message)));
+});

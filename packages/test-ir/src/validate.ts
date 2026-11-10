@@ -121,6 +121,22 @@ export function validateSemantics(ir: TestIR): ValidationIssue[] {
   );
   const cleanup = ir.policy?.cleanup;
   const teardown = ir.teardownSteps ?? [];
+  const stepIds = new Set<string>();
+  for (const [i, step] of ir.steps.entries()) {
+    if (stepIds.has(step.id)) {
+      issues.push({ path: `/steps/${i}/id`, message: `duplicate step id: ${step.id}` });
+    }
+    stepIds.add(step.id);
+  }
+  for (const [i, step] of teardown.entries()) {
+    if (stepIds.has(step.id)) {
+      issues.push({
+        path: `/teardownSteps/${i}/id`,
+        message: `duplicate step id across steps and teardownSteps: ${step.id}`,
+      });
+    }
+    stepIds.add(step.id);
+  }
   if (cleanup && cleanup !== "none" && teardown.length === 0) {
     issues.push({
       path: "/teardownSteps",

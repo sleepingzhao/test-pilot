@@ -143,6 +143,7 @@ test("illegal expect values are assertion oracle errors", async () => {
     { timeoutMs: 1000 },
     { direction: "both" },
     { contains: "x", minCount: -1 },
+    { contains: "x", minCount: 0 },
     { regex: "(" },
     { jsonPath: 12, equals: "x" },
     { jsonPath: "message.text" },

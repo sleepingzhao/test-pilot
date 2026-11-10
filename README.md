@@ -83,6 +83,13 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 - demo 练习环境新增 `/files`：支持 PNG / JPEG / PDF、单文件 1 MB；内存存储，不落盘；`DEMO_FILES_REJECT_VALID=1` / `DEMO_FILES_ACCEPT_INVALID=1` 仅用于负向验证。
 - `packages/mechanisms` 的 `planFileMedia(profile, ctx)` 只在画像识别到 `file-media`（置信度 ≥ 0.6）时生成可评审 IR：正常上传 + 可选类型/大小负例；不调用 LLM。
 
+### 实时消息（V7-1a / V7-3a）
+
+- 运行时采集 WebSocket 收发帧，写入 `ws.json`：方向、URL、大小、payload；单条截断 4000 字符、最多 200 帧，写入前按现有规则脱敏。
+- 断言使用 `type: "event"` + `provider: "ws"`，`expect` 支持 `urlIncludes`、`direction`、`contains`、`regex`、`jsonPath` + `equals`、`minCount`、`absent`、`timeoutMs`。匹配不到或超时按 `PRODUCT_DEFECT` 失败，不会弱通过。
+- demo 练习环境新增 `/chat` 与 `/ws/chat`；`/chat?drop=1` 或 `DEMO_CHAT_DROP=1` 只接收不广播，用于负向验证。`pnpm negative-probes` 现在覆盖 5 个 Provider。
+- 限制：当前是单页面链路；多账号 A→B、重连、顺序、去重和 realtime 机制包在第二波。
+
 ### 业务试点（P0-1）
 
 1. 复制凭据：`cp .env.example .env` 并填写 `TESTPILOT_ENV_ADMIN_*`（勿提交 Git）

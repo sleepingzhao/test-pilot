@@ -99,8 +99,8 @@ export function validateWsExpect(expect: Record<string, unknown>): ValidationIss
     const count = expect.minCount;
     if (typeof count !== "number" || !Number.isInteger(count)) {
       issues.push({ path: "expect/minCount", message: "minCount 必须是整数" });
-    } else if (count < 0) {
-      issues.push({ path: "expect/minCount", message: "minCount 不能为负" });
+    } else if (count < 1) {
+      issues.push({ path: "expect/minCount", message: "minCount 必须至少为 1" });
     }
   }
   if ("absent" in expect && expect.absent !== true) {

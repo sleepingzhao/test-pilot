@@ -240,3 +240,24 @@ test("on-success skips cleanup when primary failed", async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test("always cleanup runs when a later main step fails", async () => {
+  const store: RecordStore = { records: new Map(), deleteCalls: 0, failDelete: false };
+  const server = createRecordServer(store);
+  const port = await listen(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const ir = cleanupIr(baseUrl);
+    ir.steps = [
+      ...ir.steps,
+      { id: "broken", action: "request", method: "GET", path: "/api/records/{{missingVar}}" },
+    ];
+    const run = await runTestIR(ir, { env: { baseUrl }, headless: true });
+    assert.equal(run.status, "failed");
+    assert.equal(run.cleanup?.status, "passed");
+    assert.equal(store.records.size, 0);
+    assert.equal(store.deleteCalls, 1);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

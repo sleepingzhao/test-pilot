@@ -642,6 +642,18 @@ button.status-chip {
   max-width: 480px;
 }
 
+.api-curl-import {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: 6px;
+}
+
+.api-curl-import-warnings {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
 .api-test-lead {
   display: flex;
   justify-content: space-between;

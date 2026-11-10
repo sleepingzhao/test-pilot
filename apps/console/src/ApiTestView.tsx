@@ -1,3 +1,4 @@
+import { parseCurlCommand } from "@testpilot/test-ir/curl-import";
 import { useEffect, useState } from "react";
 import type { PublicApiEnv, StoredRun, StoredTest } from "./api";
 import { api } from "./api";
@@ -39,6 +40,14 @@ function parseHeaders(text: string): { headers: Record<string, string>; error?: 
   return { headers };
 }
 
+function urlOrigin(value: string): string | null {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
 function parseOptionalJson(text: string, label: string): { value?: Record<string, unknown>; error?: string } {
   const trimmed = text.trim();
   if (!trimmed) return {};
@@ -74,6 +83,9 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ApiTestResult | null>(null);
+  const [curlText, setCurlText] = useState("");
+  const [curlImportError, setCurlImportError] = useState<string | null>(null);
+  const [curlImportWarnings, setCurlImportWarnings] = useState<string[]>([]);
 
   useEffect(() => {
     void api<{ envs: PublicApiEnv[] }>("/api/api-envs")
@@ -91,6 +103,57 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
     if (WRITE_METHODS.has(method)) setMethod("GET");
     if (WRITE_METHODS.has(cleanupMethod)) setCleanupMethod("GET");
   }, [envReadOnly, method, cleanupMethod]);
+
+  const applyCurlImport = () => {
+    const parsed = parseCurlCommand(curlText);
+    if (!parsed.ok) {
+      setCurlImportError(parsed.error);
+      return;
+    }
+    setCurlImportError(null);
+
+    const importWarnings = [...parsed.warnings];
+    const allowedMethods = new Set<string>(METHODS);
+    let nextMethod = parsed.request.method.toUpperCase();
+    if (!allowedMethods.has(nextMethod)) {
+      nextMethod = "GET";
+    }
+
+    const requestUrl = new URL(parsed.request.url);
+    const pathPart = `${requestUrl.pathname}${requestUrl.search}` || "/";
+    const origin = requestUrl.origin;
+
+    const matchedEnv = configuredEnvs.find((item) => urlOrigin(item.baseUrl) === origin);
+    const demoOrigin = urlOrigin(demoUrl);
+
+    let envReadOnlyAfterImport = false;
+    if (matchedEnv) {
+      setTarget("configured");
+      setEnvId(matchedEnv.id);
+      envReadOnlyAfterImport = !matchedEnv.allowWrite;
+    } else if (demoOrigin && demoOrigin === origin) {
+      setTarget("demo");
+    } else {
+      setTarget("custom");
+      setCustomUrl(origin);
+    }
+
+    if (envReadOnlyAfterImport && WRITE_METHODS.has(nextMethod)) {
+      nextMethod = "GET";
+      importWarnings.push("该环境只读，已改用 GET");
+    }
+
+    setMethod(nextMethod as (typeof METHODS)[number]);
+    setPath(pathPart);
+    const headerLines = Object.entries(parsed.request.headers).map(
+      ([name, value]) => `${name}: ${value}`,
+    );
+    setHeadersText(headerLines.length ? headerLines.join("\n") : "");
+    setBodyText(parsed.request.body ?? "");
+    setCurlImportWarnings(importWarnings);
+    setError(null);
+    setResult(null);
+  };
 
   const submit = async () => {
     setError(null);
@@ -193,6 +256,35 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
             </p>
           </div>
         </div>
+
+        <details className="api-curl-import">
+          <summary>从 cURL 导入（可选）</summary>
+          <p className="hint-inline">
+            只在浏览器本地解析；鉴权头会被忽略，敏感值不会进入草稿。
+          </p>
+          <div className="field">
+            <label htmlFor="api-curl-import">cURL 命令</label>
+            <textarea
+              id="api-curl-import"
+              rows={4}
+              value={curlText}
+              onChange={(e) => setCurlText(e.target.value)}
+              placeholder="curl 'https://api.example.com/orders?page=1' -H 'Accept: application/json'"
+              spellCheck={false}
+            />
+          </div>
+          <button type="button" className="btn-small" onClick={applyCurlImport}>
+            解析并填入
+          </button>
+          {curlImportError ? <p className="diagnose-msg">{curlImportError}</p> : null}
+          {curlImportWarnings.length > 0 ? (
+            <ul className="stat-note api-curl-import-warnings">
+              {curlImportWarnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          ) : null}
+        </details>
 
         <div className="field-row">
           <div className="field">

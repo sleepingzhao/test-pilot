@@ -14,13 +14,17 @@
       "types": "./dist/step-edit.d.ts",
       "import": "./dist/step-edit.js"
     },
+    "./curl-import": {
+      "types": "./dist/curl-import.d.ts",
+      "import": "./dist/curl-import.js"
+    },
     "./schema": "./schema/test-ir.v1.schema.json"
   },
   "files": ["dist", "schema"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/validate.test.ts src/hash.test.ts src/step-edit.test.ts",
+    "test": "node --import tsx --test src/validate.test.ts src/hash.test.ts src/step-edit.test.ts src/curl-import.test.ts",
     "validate": "node dist/cli-validate.js",
     "lint": "echo 'no lint configured'"
   },

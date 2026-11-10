@@ -72,7 +72,7 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 - 断言：沿用 `api` / `captured-http`；`stepRef` 直接绑定 `request` 步骤 id，无需额外映射；页面操作触发的请求继续用 `requestRef`（默认映射或运行环境 `requestRefs`）。
 - 证据：请求/响应写入 `network.json`，Authorization/Cookie 脱敏；请求体/响应体沿用 8 KB / 4 KB 截断。
 - 限制：仅同源（跨域接口需后续白名单）；暂不支持文件上传；试点/真实接口在控制台需后续明确授权。
-- 控制台：**创建 → 接口测试**，填写方法/路径/请求头/请求体与断言后「生成草稿并试跑」；草稿需人工审阅批准，批准后才进入回归。
+- 控制台：**创建 → 接口测试**，可折叠「从 cURL 导入」在浏览器本地解析并预填表单（鉴权头会忽略，敏感值不进请求头草稿）；填写方法/路径/请求头/请求体与断言后「生成草稿并试跑」；草稿需人工审阅批准，批准后才进入回归。
 - 示例：`examples/demo-webapp/tests/api-*.json`，已加入 `pnpm smoke:demo`。
 
 ### 文件/媒体机制（V7-5）
@@ -149,7 +149,7 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 | Management API | `services/test-management` |
 | Demo + 种子用例 | `examples/demo-webapp` |
 
-当前进度见 [ROADMAP.md](ROADMAP.md) §0.1：能力探测（规则 + LLM）、业务接口直连、文件/媒体机制、WS 帧证据与断言、测试数据清理（V7-7）已完成；下一步是 **V7-0f 命名 API 环境与鉴权头**，随后 cURL/OpenAPI 导入、机制接线。
+当前进度见 [ROADMAP.md](ROADMAP.md) §0.1：业务接口直连、文件/媒体机制、WS 证据、测试数据清理（V7-7）、命名 API 环境（V7-0f）、**cURL 导入接口表单（V7-0h，浏览器本地解析）** 已完成；下一步 **V7-5e 机制接线**，随后 WS 证据入口与 OpenAPI 导入。
 
 高级用户仍可用 `pnpm cli run …`（见 `ROADMAP.md` 附录）。
 

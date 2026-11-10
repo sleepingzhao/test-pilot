@@ -22,7 +22,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 **当前方向：Web 业务系统优先。** 先把「测试人员安全接入一个业务系统 → 生成/审阅用例 → 跑出可信证据 → 清理测试数据」做通。移动端、CI、多项目/RBAC、平台化暂不投入；实时与 Agent 在业务接入闭环之后继续。
 
-**当前唯一开工任务：V7-0h cURL 导入。** V7-0f 已验收（2026-11-11）；在 V7-0h 验收前，不并行开 V7-5e / V7-6b / V7-0i。
+**当前唯一开工任务：V7-5e 机制接线。** V7-0h 已验收（2026-11-11）；在 V7-5e 验收前，不并行开 V7-6b / V7-0i（除非用户改序）。
 
 **本阶段要证明的事：** 一条业务系统的正常功能回归，可以被人审阅、能在失败时给出证据、能在通过后不留下脏数据。
 
@@ -62,7 +62,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 - [x] **V7-7 测试数据生命周期**（2026-11-11 完成）：teardown 步骤、失败也清理、清理结果入证据、审批绑定 teardown。
 - [x] 1. **V7-0f 命名 API 环境与鉴权头**（2026-11-11）：`api-envs.json` + `allowWrite` + `GET /api/api-envs` + 控制台选择器；`api-envs.ts` / `api-envs.test.ts` / `api-test-route.test.ts`；`pnpm verify` 全绿；浏览器：只读环境仅 GET/HEAD、无 header 值泄漏。
-- [ ] 2. **V7-0h cURL 导入**：粘贴 cURL 预填接口表单。
+- [x] 2. **V7-0h cURL 导入**（2026-11-11）：`@testpilot/test-ir/curl-import` 本地解析；控制台「从 cURL 导入」预填表单；鉴权头/` -u`/`--oauth2-bearer` 丢弃并警告；`curl-import.test.ts`；`pnpm verify` 全绿；Playwright 浏览器：`/api/items` + `Authorization: Bearer SECRET123` → 选 `local-demo-ro`、path `/api/items`、请求头仅 `Accept`、警告含 Authorization 名且无密钥；只读环境 POST→GET + 警告；非法输入 `看起来不是 cURL 命令` 且不改动表单。
 - [ ] 3. **V7-5e 机制接线**：画像 → `planFileMedia` → 控制台生成草稿；无能力时显示 blockers。
 - [ ] 4. **V7-6b WS 证据入口**：运行详情可打开 `ws.json`，显示收发帧摘要。
 - [ ] 5. **V7-0i OpenAPI 导入**：OpenAPI 3.x（JSON/YAML）选 operation → 预填接口用例。
@@ -482,7 +482,7 @@ interface MechanismPack {
 
 - [x] V7-7 测试数据生命周期（2026-11-11）— IR：`policy.cleanup: "none" | "on-success" | "always"` + `teardownSteps`，进入 schema/语义校验/IR hash，teardown id 不得与主步骤重复；runner：主步骤/断言失败后仍执行 teardown，`RunResult.cleanup` 记录状态/步骤/错误，主流程通过而清理失败标 `TEST_DATA`，主流程已失败时保留 `PRODUCT_DEFECT`；控制台：审阅显示清理策略与 teardown、运行详情显示清理结果、接口模式可填清理请求并复用主请求头/自动保存 `{{createdId}}`、写接口缺少 `{{runId}}` 警告；demo `/api/items` + `api-items-cleanup.json` 加入 smoke/种子；`cleanup.test.ts` 覆盖通过、断言失败、步骤失败、清理 500、`none`、`on-success`；浏览器实测创建条目→试跑→清理通过→`GET /api/items` 为空；`pnpm verify` 全绿
 - [x] V7-0f 命名 API 环境与鉴权头（2026-11-11）— `docs/api-envs.example.json` + gitignore `api-envs.json` + `TESTPILOT_API_ENVS_FILE`；`GET /api/api-envs` 仅返回 headerNames；`POST /api/api-tests` 支持 `envId`、头合并、`allowWrite` 写方法门禁（含 cleanup）；控制台环境选择与只读方法限制；`api-envs.test.ts` + 扩展 `api-test-route.test.ts`；Playwright 浏览器抽检；`pnpm verify` 全绿
-- [ ] V7-0h cURL 导入 — 粘贴 cURL 自动解析 method/path/headers/body，预填接口表单；解析失败给出明确提示
+- [x] V7-0h cURL 导入（2026-11-11）— `packages/test-ir/src/curl-import.ts` + subpath export；shell 风格 tokenizer；丢弃鉴权头/`-u`/`--oauth2-bearer`；`curl-import.test.ts` 正反例 + 安全断言；控制台 `ApiTestView` 折叠导入区 + 环境/只读方法联动；`pnpm --filter @testpilot/test-ir test` / `build`、`pnpm --filter @testpilot/console typecheck`、`pnpm verify` 全绿；Playwright 抽检见 §0.1 执行顺序项 2
 - [ ] V7-5e 机制接线 — `GET /api/detect/:id/mechanisms` 返回机制计划（先 file-media）与 blockers；`POST /api/mechanisms/file-media/draft` 生成草稿（可选试跑）；控制台系统画像显示「可测机制 / 缺什么」，不再只给能力百分比
 - [ ] V7-6b WS 证据入口 — 运行详情可打开 `ws.json`，显示收发帧摘要、方向、截断/丢弃数量；仍按现有脱敏规则
 - [ ] V7-0i OpenAPI 导入 — OpenAPI 3.x（JSON/YAML）选择 operation → 预填接口用例；只在本地解析，不上传外部；生成草稿，不自动批准

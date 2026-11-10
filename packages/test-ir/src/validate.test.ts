@@ -316,3 +316,50 @@ test("rejects an upload step that stores a file path in value", () => {
     assert.match(issues[0]!.message, /must not store a file path in value/);
   }
 });
+
+test("accepts teardownSteps with explicit policy.cleanup", () => {
+  const result = validateTestIR({
+    id: "teardown-ok",
+    version: 1,
+    platform: "web",
+    baseUrl: "http://127.0.0.1:3000",
+    policy: { cleanup: "always" },
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    teardownSteps: [{ id: "del", action: "request", method: "DELETE", path: "/api/item/1" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.deepEqual(validateSemantics(result.value), []);
+});
+
+test("rejects teardownSteps without explicit policy.cleanup", () => {
+  const result = validateTestIR({
+    id: "teardown-no-policy",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    teardownSteps: [{ id: "del", action: "request", method: "DELETE", path: "/api/item" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    const issues = validateSemantics(result.value);
+    assert.ok(issues.some((issue) => /explicit policy\.cleanup/.test(issue.message)));
+  }
+});
+
+test("rejects policy.cleanup always without teardownSteps", () => {
+  const result = validateTestIR({
+    id: "cleanup-no-steps",
+    version: 1,
+    platform: "web",
+    policy: { cleanup: "always" },
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    const issues = validateSemantics(result.value);
+    assert.ok(issues.some((issue) => /at least one teardown step/.test(issue.message)));
+  }
+});

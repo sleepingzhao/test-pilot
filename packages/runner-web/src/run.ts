@@ -23,6 +23,13 @@ export type StepResult = {
   message?: string;
 };
 
+export type CleanupResult = {
+  status: "passed" | "failed" | "skipped";
+  steps: StepResult[];
+  message?: string;
+  errorKind?: string;
+};
+
 export type RunResult = {
   runId: string;
   testId: string;
@@ -42,6 +49,7 @@ export type RunResult = {
   };
   /** Visible success/alerts right after the steps; used to derive a real success assertion. */
   finalSignals?: string[];
+  cleanup?: CleanupResult;
 };
 
 export type RunOptions = {
@@ -162,6 +170,10 @@ export function resolveSameOriginRequestUrl(path: string | undefined, baseUrl: s
   return target;
 }
 
+type ExecuteStepOptions = {
+  failOnHttpError?: boolean;
+};
+
 async function executeStep(
   page: Page,
   context: BrowserContext,
@@ -173,6 +185,7 @@ async function executeStep(
   vars: Record<string, string>,
   secrets: string[],
   recordNetworkEntry: (input: DirectNetworkInput) => void,
+  options?: ExecuteStepOptions,
 ) {
   const started = Date.now();
   try {
@@ -282,6 +295,15 @@ async function executeStep(
           responseBody: redactSecretValues(responseText, secrets),
         });
         assignResponseVariables(step, responseText, vars);
+        const statusCode = response.status();
+        if (options?.failOnHttpError && statusCode >= 400) {
+          return {
+            stepId: step.id,
+            status: "failed" as const,
+            durationMs: Date.now() - started,
+            message: redactSecretValues(`request failed with HTTP ${statusCode}`, secrets),
+          };
+        }
         break;
       }
       default:
@@ -297,6 +319,98 @@ async function executeStep(
       message: redactSecretValues(raw, secrets),
     };
   }
+}
+
+function browserUsable(browser: Browser | undefined, context: BrowserContext | undefined, page: Page | undefined): boolean {
+  try {
+    return Boolean(browser?.isConnected() && context && page && !page.isClosed());
+  } catch {
+    return false;
+  }
+}
+
+function shouldRunTeardown(ir: TestIR, primaryStatus: RunStatus): boolean {
+  const mode = ir.policy?.cleanup;
+  if (!mode || mode === "none") return false;
+  if (!ir.teardownSteps?.length) return false;
+  if (mode === "on-success") return primaryStatus === "passed";
+  return true;
+}
+
+function classifyCleanupFailure(messages: string[]): { errorKind: string; message: string } {
+  const combined = messages.filter(Boolean).join("; ") || "teardown step failed";
+  const kind = classifyFailure({ stepError: combined });
+  const errorKind = kind === "ENVIRONMENT" ? "ENVIRONMENT" : "TEST_DATA";
+  return { errorKind, message: `cleanup failed: ${combined}` };
+}
+
+function buildSkippedCleanup(ir: TestIR, primaryStatus: RunStatus): CleanupResult | undefined {
+  const mode = ir.policy?.cleanup;
+  if (!mode && !ir.teardownSteps?.length) return undefined;
+  if (mode === "none") {
+    return { status: "skipped", steps: [], message: "cleanup skipped: policy is none" };
+  }
+  if (mode === "on-success" && primaryStatus !== "passed") {
+    return { status: "skipped", steps: [], message: "cleanup skipped: run did not pass (on-success)" };
+  }
+  if (!ir.teardownSteps?.length) return undefined;
+  return undefined;
+}
+
+async function runTeardown(
+  ir: TestIR,
+  page: Page,
+  context: BrowserContext,
+  baseUrl: string,
+  refs: Record<string, string>,
+  env: RunEnvironment,
+  runId: string,
+  vars: Record<string, string>,
+  secrets: string[],
+  recordNetworkEntry: (input: DirectNetworkInput) => void,
+): Promise<CleanupResult> {
+  const steps: StepResult[] = [];
+  for (const step of ir.teardownSteps ?? []) {
+    const result = await executeStep(
+      page,
+      context,
+      step,
+      baseUrl,
+      refs,
+      env,
+      runId,
+      vars,
+      secrets,
+      recordNetworkEntry,
+      { failOnHttpError: true },
+    );
+    steps.push(result);
+  }
+  const failed = steps.filter((s) => s.status === "failed");
+  if (failed.length === 0) {
+    return { status: "passed", steps };
+  }
+  const { errorKind, message } = classifyCleanupFailure(failed.map((s) => s.message ?? s.stepId));
+  return { status: "failed", steps, message, errorKind };
+}
+
+function mergeFailureKind(
+  primaryStatus: RunStatus,
+  primaryKind: string | undefined,
+  cleanup: CleanupResult | undefined,
+): string | undefined {
+  if (primaryStatus === "passed" && cleanup?.status === "failed") {
+    return cleanup.errorKind ?? "TEST_DATA";
+  }
+  if (primaryStatus !== "passed") {
+    return primaryKind;
+  }
+  return undefined;
+}
+
+function mergeRunStatus(primaryStatus: RunStatus, cleanup: CleanupResult | undefined): RunStatus {
+  if (primaryStatus === "passed" && cleanup?.status === "failed") return "failed";
+  return primaryStatus;
 }
 
 export async function runTestIR(ir: TestIR, options: RunOptions): Promise<RunResult> {
@@ -332,18 +446,21 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
   });
 
   let browser: Browser | undefined;
+  let context: BrowserContext | undefined;
+  let page: Page | undefined;
   const steps: StepResult[] = [];
   const assertionResults: Awaited<ReturnType<typeof runAssertion>>[] = [];
   let finalSignals: string[] | undefined;
   let status: RunStatus = "passed";
+  let runNotes: string | undefined;
+  const vars: Record<string, string> = {};
+  const templateSecrets: string[] = [];
 
   try {
     browser = await chromium.launch({ headless: options.headless ?? true });
-    const context = await browser.newContext();
-    const page = await context.newPage();
+    context = await browser.newContext();
+    page = await context.newPage();
     await evidence.attachPage(context, page);
-    const vars: Record<string, string> = {};
-    const templateSecrets: string[] = [];
 
     for (const step of ir.steps) {
       const result = await executeStep(
@@ -375,7 +492,6 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
           if (!spec) continue;
           const expect = (assertion.expect ?? {}) as Record<string, unknown>;
           const expectsAbsence = expect.absent === true || expect.requestCount === 0;
-          // A click can dispatch its request after networkidle already settled.
           await evidence.waitForNetworkEntry(
             (entry) =>
               urlPathMatches(entry.url, spec.urlIncludes) &&
@@ -417,15 +533,54 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         }
       }
     }
+  } catch (err) {
+    status = "error";
+    runNotes = err instanceof Error ? err.message : String(err);
+  }
 
+  let cleanup: CleanupResult | undefined;
+  const primaryStatusBeforeCleanup = status;
+  if (shouldRunTeardown(ir, primaryStatusBeforeCleanup)) {
+    if (browserUsable(browser, context, page)) {
+      cleanup = await runTeardown(
+        ir,
+        page!,
+        context!,
+        baseUrl,
+        refs,
+        options.env,
+        runId,
+        vars,
+        templateSecrets,
+        evidence.recordNetworkEntry,
+      );
+    } else {
+      cleanup = {
+        status: "failed",
+        steps: [],
+        message: "cleanup failed: browser or page is not available",
+        errorKind: "ENVIRONMENT",
+      };
+    }
+  } else {
+    cleanup = buildSkippedCleanup(ir, primaryStatusBeforeCleanup);
+  }
+
+  status = mergeRunStatus(status, cleanup);
+  const failedAssertion = assertionResults.find((a) => !a.passed);
+  const failMsg = steps.find((s) => s.message)?.message ?? failedAssertion?.message;
+  const primaryFailureKind =
+    primaryStatusBeforeCleanup === "passed"
+      ? undefined
+      : failedAssertion?.errorKind ??
+        classifyFailure({
+          stepError: runNotes ?? failMsg,
+          assertionMessage: failedAssertion?.message ?? failMsg,
+        });
+  const failureKind = mergeFailureKind(primaryStatusBeforeCleanup, primaryFailureKind, cleanup);
+
+  try {
     const artifacts = await evidence.finalize(status);
-    const failedAssertion = assertionResults.find((a) => !a.passed);
-    const failMsg = steps.find((s) => s.message)?.message ?? failedAssertion?.message;
-    const failureKind =
-      status === "passed"
-        ? undefined
-        : failedAssertion?.errorKind ??
-          classifyFailure({ stepError: failMsg, assertionMessage: failedAssertion?.message ?? failMsg });
     return {
       runId,
       testId: ir.id,
@@ -435,7 +590,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
       completedAt: new Date().toISOString(),
       steps,
       assertions: assertionResults,
-      artifacts,
+      artifacts: runNotes ? { ...artifacts, notes: runNotes } : artifacts,
       metrics: {
         durationMs: Date.now() - wallStart,
         llmTokensUsed: 0,
@@ -443,30 +598,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         attemptCount: 1,
       },
       finalSignals,
-    };
-  } catch (err) {
-    status = "error";
-    const artifacts = await evidence.finalize(status);
-    const errMsg = err instanceof Error ? err.message : String(err);
-    return {
-      runId,
-      testId: ir.id,
-      testVersion: ir.version,
-      status,
-      startedAt,
-      completedAt: new Date().toISOString(),
-      steps,
-      assertions: assertionResults,
-      artifacts: {
-        ...artifacts,
-        notes: errMsg,
-      },
-      metrics: {
-        durationMs: Date.now() - wallStart,
-        llmTokensUsed: 0,
-        failureKind: classifyFailure({ stepError: errMsg }),
-        attemptCount: 1,
-      },
+      cleanup,
     };
   } finally {
     await browser?.close();

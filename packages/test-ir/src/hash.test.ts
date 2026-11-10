@@ -37,6 +37,24 @@ test("step order changes alter the hash", () => {
   assert.notEqual(computeIRHash(a), computeIRHash(b));
 });
 
+test("teardownSteps changes alter the hash", () => {
+  const a = baseIR();
+  const b = baseIR();
+  b.teardownSteps = [{ id: "close", action: "request", method: "DELETE", path: "/api/x" }];
+  b.policy = { cleanup: "always" };
+  assert.notEqual(computeIRHash(a), computeIRHash(b));
+});
+
+test("policy.cleanup changes alter the hash", () => {
+  const a = baseIR();
+  const b = baseIR();
+  a.teardownSteps = [{ id: "close", action: "request", method: "DELETE", path: "/api/x" }];
+  a.policy = { cleanup: "always" };
+  b.teardownSteps = a.teardownSteps;
+  b.policy = { cleanup: "on-success" };
+  assert.notEqual(computeIRHash(a), computeIRHash(b));
+});
+
 test("object key order does not change the hash", () => {
   const a = baseIR();
   const b: TestIR = {

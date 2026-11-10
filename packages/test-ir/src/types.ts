@@ -58,6 +58,7 @@ export interface TestPolicy {
   screenshots?: "never" | "on-failure" | "always";
   retry?: { attempts?: number; on?: string[] };
   dataIsolation?: "shared" | "per-run";
+  cleanup?: "none" | "on-success" | "always";
 }
 
 export interface TestIR {
@@ -68,6 +69,7 @@ export interface TestIR {
   baseUrlRef?: string;
   fixture?: string;
   steps: TestStep[];
+  teardownSteps?: TestStep[];
   assertions: TestAssertion[];
   policy?: TestPolicy;
 }

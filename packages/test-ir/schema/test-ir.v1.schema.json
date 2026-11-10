@@ -37,6 +37,11 @@
       "minItems": 1,
       "items": { "$ref": "#/$defs/step" }
     },
+    "teardownSteps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/step" }
+    },
     "assertions": {
       "type": "array",
       "items": { "$ref": "#/$defs/assertion" }
@@ -197,6 +202,10 @@
         "dataIsolation": {
           "type": "string",
           "enum": ["shared", "per-run"]
+        },
+        "cleanup": {
+          "type": "string",
+          "enum": ["none", "on-success", "always"]
         }
       }
     }

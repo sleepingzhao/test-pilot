@@ -115,8 +115,30 @@ export function validateSemantics(ir: TestIR): ValidationIssue[] {
     }
   }
   const requestStepIds = new Set(
-    ir.steps.filter((step) => step.action === "request").map((step) => step.id),
+    [...ir.steps, ...(ir.teardownSteps ?? [])]
+      .filter((step) => step.action === "request")
+      .map((step) => step.id),
   );
+  const cleanup = ir.policy?.cleanup;
+  const teardown = ir.teardownSteps ?? [];
+  if (cleanup && cleanup !== "none" && teardown.length === 0) {
+    issues.push({
+      path: "/teardownSteps",
+      message: "policy.cleanup requires at least one teardown step when not none",
+    });
+  }
+  if (teardown.length > 0 && cleanup === undefined) {
+    issues.push({
+      path: "/policy/cleanup",
+      message: "teardownSteps requires an explicit policy.cleanup (none, on-success, or always)",
+    });
+  }
+  if (teardown.length > 0 && cleanup === "none") {
+    issues.push({
+      path: "/policy/cleanup",
+      message: "teardownSteps cannot be used with policy.cleanup none",
+    });
+  }
   for (const [i, assertion] of ir.assertions.entries()) {
     if (!assertion.stepRef) continue;
     if (assertion.requestRef) {
@@ -132,49 +154,59 @@ export function validateSemantics(ir: TestIR): ValidationIssue[] {
       });
     }
   }
-  for (const [i, step] of ir.steps.entries()) {
+  appendStepSemanticsIssues(issues, ir.steps, "/steps", base);
+  appendStepSemanticsIssues(issues, teardown, "/teardownSteps", base);
+  return issues;
+}
+
+function appendStepSemanticsIssues(
+  issues: ValidationIssue[],
+  steps: TestIR["steps"],
+  pathPrefix: string,
+  base: URL | undefined,
+): void {
+  for (const [i, step] of steps.entries()) {
     if (step.action !== "request") continue;
     if (!step.method || !REQUEST_METHODS.has(step.method)) {
       issues.push({
-        path: `/steps/${i}/method`,
+        path: `${pathPrefix}/${i}/method`,
         message: "request step requires method GET, POST, PUT, PATCH, DELETE, or HEAD",
       });
     }
     if (!step.path?.trim()) {
-      issues.push({ path: `/steps/${i}/path`, message: "request step requires path" });
+      issues.push({ path: `${pathPrefix}/${i}/path`, message: "request step requires path" });
     } else {
       const pathIssue = requestPathIssue(step.path);
-      if (pathIssue) issues.push({ path: `/steps/${i}/path`, message: pathIssue });
+      if (pathIssue) issues.push({ path: `${pathPrefix}/${i}/path`, message: pathIssue });
       else if (base && /^[a-z][a-z0-9+.-]*:/i.test(step.path.trim())) {
         const target = new URL(step.path);
         if (target.origin !== base.origin) {
           issues.push({
-            path: `/steps/${i}/path`,
+            path: `${pathPrefix}/${i}/path`,
             message: `request path must be same-origin with baseUrl (${base.origin})`,
           });
         }
       }
     }
     if (step.body !== undefined && step.form !== undefined) {
-      issues.push({ path: `/steps/${i}`, message: "request step accepts body or form, not both" });
+      issues.push({ path: `${pathPrefix}/${i}`, message: "request step accepts body or form, not both" });
     }
   }
-  for (const [i, step] of ir.steps.entries()) {
+  for (const [i, step] of steps.entries()) {
     if (step.action !== "upload") continue;
     if (!locatorPresent(step.target)) {
-      issues.push({ path: `/steps/${i}/target`, message: "upload step requires target" });
+      issues.push({ path: `${pathPrefix}/${i}/target`, message: "upload step requires target" });
     }
     if (!step.valueRef?.trim()) {
-      issues.push({ path: `/steps/${i}/valueRef`, message: "upload step requires valueRef" });
+      issues.push({ path: `${pathPrefix}/${i}/valueRef`, message: "upload step requires valueRef" });
     }
     if (step.value !== undefined) {
       issues.push({
-        path: `/steps/${i}/value`,
+        path: `${pathPrefix}/${i}/value`,
         message: "upload step must not store a file path in value; resolve it from valueRef",
       });
     }
   }
-  return issues;
 }
 
 function locatorPresent(target: Locator | undefined): boolean {

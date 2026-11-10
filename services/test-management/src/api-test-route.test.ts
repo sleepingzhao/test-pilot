@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -127,6 +127,129 @@ test("POST /api/api-tests rejects pilot, unsafe headers, and bad status (negativ
     assert.equal((await store.listTests()).length, 0);
   } finally {
     await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+const API_ENVS_ENV = "TESTPILOT_API_ENVS_FILE";
+
+async function writeApiEnvs(root: string, entries: unknown[]): Promise<string> {
+  const file = join(root, "api-envs.json");
+  await writeFile(file, JSON.stringify(entries), "utf8");
+  return file;
+}
+
+test("GET /api/api-envs exposes names only", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-api-envs-route-"));
+  const prev = process.env[API_ENVS_ENV];
+  process.env[API_ENVS_ENV] = await writeApiEnvs(root, [
+    {
+      id: "local-ro",
+      label: "Local read-only",
+      baseUrl: "http://127.0.0.1:4173",
+      headers: { Authorization: "Bearer {{env.stagingToken}}" },
+      allowWrite: false,
+    },
+  ]);
+  const store = new FileStore(join(root, "data"));
+  await store.init();
+  const app = Fastify();
+  await app.register(sensible);
+  registerRoutes(app, store, join(root, "artifacts"), join(root, "data"));
+  await app.ready();
+  try {
+    const res = await app.inject({ method: "GET", url: "/api/api-envs" });
+    assert.equal(res.statusCode, 200, res.body);
+    const body = res.json() as { envs: Array<Record<string, unknown>> };
+    assert.equal(body.envs.length, 1);
+    assert.deepEqual(body.envs[0]?.headerNames, ["Authorization"]);
+    assert.equal(body.envs[0]?.headers, undefined);
+    assert.equal(JSON.stringify(body).includes("Bearer"), false);
+  } finally {
+    await app.close();
+    if (prev === undefined) delete process.env[API_ENVS_ENV];
+    else process.env[API_ENVS_ENV] = prev;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/api-tests resolves envId, merges headers, and enforces allowWrite", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-api-envs-route-"));
+  const prev = process.env[API_ENVS_ENV];
+  process.env[API_ENVS_ENV] = await writeApiEnvs(root, [
+    {
+      id: "local-ro",
+      label: "Local read-only",
+      baseUrl: "http://127.0.0.1:9",
+      headers: { Authorization: "Bearer {{env.roToken}}", "X-Env": "from-config" },
+      allowWrite: false,
+    },
+    {
+      id: "local-rw",
+      label: "Local writable",
+      baseUrl: "http://127.0.0.1:9",
+      headers: { Authorization: "Bearer {{env.rwToken}}" },
+      allowWrite: true,
+    },
+  ]);
+  const store = new FileStore(join(root, "data"));
+  await store.init();
+  const app = Fastify();
+  await app.register(sensible);
+  registerRoutes(app, store, join(root, "artifacts"), join(root, "data"));
+  await app.ready();
+  try {
+    const unknown = await app.inject({
+      method: "POST",
+      url: "/api/api-tests",
+      payload: { envId: "missing", method: "GET", path: "/api/x" },
+    });
+    assert.equal(unknown.statusCode, 400);
+    assert.match(unknown.body, /未知/);
+
+    const writeBlocked = await app.inject({
+      method: "POST",
+      url: "/api/api-tests",
+      payload: { envId: "local-ro", method: "POST", path: "/api/items" },
+    });
+    assert.equal(writeBlocked.statusCode, 400);
+    assert.match(writeBlocked.body, /只读/);
+
+    const getOk = await app.inject({
+      method: "POST",
+      url: "/api/api-tests",
+      payload: {
+        envId: "local-ro",
+        method: "GET",
+        path: "/api/health",
+        headers: { authorization: "Bearer override" },
+      },
+    });
+    assert.equal(getOk.statusCode, 200, getOk.body);
+    const getBody = getOk.json() as {
+      test: { ir: { baseUrl: string; steps: Array<{ headers?: Record<string, string> }> } };
+    };
+    assert.equal(getBody.test.ir.baseUrl, "http://127.0.0.1:9");
+    const stepHeaders = getBody.test.ir.steps[0]?.headers ?? {};
+    assert.equal(stepHeaders.authorization, "Bearer override");
+    assert.equal(stepHeaders["X-Env"], "from-config");
+    assert.equal(stepHeaders.Authorization, undefined);
+
+    const postAllowed = await app.inject({
+      method: "POST",
+      url: "/api/api-tests",
+      payload: {
+        envId: "local-rw",
+        method: "POST",
+        path: "/api/items",
+        body: { name: "x" },
+      },
+    });
+    assert.equal(postAllowed.statusCode, 200, postAllowed.body);
+  } finally {
+    await app.close();
+    if (prev === undefined) delete process.env[API_ENVS_ENV];
+    else process.env[API_ENVS_ENV] = prev;
     await rm(root, { recursive: true, force: true });
   }
 });

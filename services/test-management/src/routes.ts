@@ -35,6 +35,12 @@ import {
 } from "./requirement-target.js";
 import { pilotLoginSteps } from "./bootstrap-pilot-intakes.js";
 import { buildApiTestDraft } from "./api-test-draft.js";
+import {
+  getApiEnvById,
+  isWriteHttpMethod,
+  mergeApiEnvHeaders,
+  publicApiEnvs,
+} from "./api-envs.js";
 import { readNegativeProbeReport } from "./negative-probes.js";
 import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-identity.js";
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
@@ -627,11 +633,14 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
   });
 
+  app.get("/api/api-envs", async () => ({ envs: await publicApiEnvs() }));
+
   app.post("/api/api-tests", async (req, reply) => {
     const body = (req.body ?? {}) as {
       title?: string;
       target?: "demo" | "custom" | "pilot" | "real";
       customUrl?: string;
+      envId?: string;
       method?: string;
       path?: string;
       headers?: Record<string, string>;
@@ -641,30 +650,69 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       expectJson?: Record<string, unknown>;
       cleanup?: { method?: string; path?: string; body?: string | Record<string, unknown> };
     };
-    if (body.target === "pilot" || body.target === "real") {
-      return reply.code(400).send({
-        error: "试点/真实接口需要登录与明确授权，当前仅支持练习环境与自定义白名单环境",
-      });
+    const envId = body.envId?.trim();
+    if (envId && body.customUrl?.trim()) {
+      return reply.code(400).send({ error: "envId 与 customUrl 不能同时指定" });
     }
-    const resolved = resolveRequirementTargetUrl({
-      target: body.target ?? "demo",
-      customUrl: body.customUrl,
-      demoUrl: DEMO_BASE_URL,
-    });
-    if (!resolved.ok) return reply.code(400).send({ error: resolved.error });
-    if (!isAllowedTargetUrl(resolved.url)) {
+    let resolvedUrl: string;
+    let mergedHeaders: Record<string, string> | undefined;
+    let envAllowWrite = true;
+
+    if (envId) {
+      const env = await getApiEnvById(envId);
+      if (!env) return reply.code(400).send({ error: `未知 API 环境: ${envId}` });
+      resolvedUrl = env.baseUrl;
+      envAllowWrite = env.allowWrite;
+      mergedHeaders = mergeApiEnvHeaders(env.headers, body.headers);
+    } else {
+      if (body.target === "pilot" || body.target === "real") {
+        return reply.code(400).send({
+          error: "试点/真实接口需要登录与明确授权，当前仅支持练习环境与自定义白名单环境",
+        });
+      }
+      const resolved = resolveRequirementTargetUrl({
+        target: body.target ?? "demo",
+        customUrl: body.customUrl,
+        demoUrl: DEMO_BASE_URL,
+      });
+      if (!resolved.ok) return reply.code(400).send({ error: resolved.error });
+      resolvedUrl = resolved.url;
+      if (Object.keys(body.headers ?? {}).length) mergedHeaders = { ...body.headers };
+    }
+
+    if (!isAllowedTargetUrl(resolvedUrl)) {
       return reply.code(400).send({ error: "接口目标地址不在允许列表" });
     }
-    if (sameOriginAs(resolved.url, realBaseUrl())) {
+    if (sameOriginAs(resolvedUrl, realBaseUrl())) {
       return reply.code(400).send({ error: "真实环境仅用于只读画像，不开放接口用例" });
     }
-    if (sameOriginAs(resolved.url, pilotBaseUrl())) {
+    if (sameOriginAs(resolvedUrl, pilotBaseUrl())) {
       return reply.code(400).send({ error: "试点接口需要登录与明确授权，请先走需求生成或人工配置" });
     }
-    const draft = buildApiTestDraft(body);
+
+    const method = String(body.method ?? "").trim().toUpperCase();
+    if (envId && !envAllowWrite && isWriteHttpMethod(method)) {
+      return reply.code(400).send({
+        error: "当前 API 环境为只读，仅允许 GET/HEAD 请求",
+      });
+    }
+    const cleanupMethod = String(body.cleanup?.method ?? (body.cleanup?.path ? "DELETE" : ""))
+      .trim()
+      .toUpperCase();
+    if (envId && !envAllowWrite && body.cleanup?.path?.trim() && isWriteHttpMethod(cleanupMethod)) {
+      return reply.code(400).send({
+        error: "当前 API 环境为只读，清理请求不允许使用写方法",
+      });
+    }
+
+    const draftInput = {
+      ...body,
+      headers: mergedHeaders,
+    };
+    const draft = buildApiTestDraft(draftInput);
     if (!draft.ok) return reply.code(400).send({ error: draft.errors.join("; "), issues: draft.errors });
 
-    const ir = { ...draft.draft.ir, baseUrl: resolved.url };
+    const ir = { ...draft.draft.ir, baseUrl: resolvedUrl };
     const validated = validateTestIR(ir);
     if (!validated.ok) return reply.code(400).send({ issues: validated.issues });
     const semantics = validateSemantics(validated.value);
@@ -694,10 +742,10 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     });
     await store.saveTest(test);
 
-    if (!(await checkTargetReachable(resolved.url))) {
+    if (!(await checkTargetReachable(resolvedUrl))) {
       return {
         test: withWeakAssertions(test),
-        trialError: `目标环境不可达: ${resolved.url}`,
+        trialError: `目标环境不可达: ${resolvedUrl}`,
         warnings: draft.warnings,
       };
     }
@@ -706,7 +754,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         store,
         test,
         validated.value,
-        resolved.url,
+        resolvedUrl,
         "default",
         artifactsRoot,
         dataRoot,

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { StoredRun, StoredTest } from "./api";
+import { useEffect, useState } from "react";
+import type { PublicApiEnv, StoredRun, StoredTest } from "./api";
 import { api } from "./api";
 import { failureKindLabel, summarizeAssertion } from "./stepSummary";
 
@@ -11,7 +11,10 @@ type Props = {
   onOpenReview: (testId: string) => void;
 };
 
-type Target = "demo" | "custom";
+type Target = "demo" | "custom" | "configured";
+
+const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const READ_METHODS = ["GET", "HEAD"] as const;
 
 type ApiTestResult = {
   test: StoredTest;
@@ -54,6 +57,8 @@ function parseOptionalJson(text: string, label: string): { value?: Record<string
 export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOpenReview }: Props) {
   const [title, setTitle] = useState("");
   const [target, setTarget] = useState<Target>("demo");
+  const [configuredEnvs, setConfiguredEnvs] = useState<PublicApiEnv[]>([]);
+  const [envId, setEnvId] = useState("");
   const [customUrl, setCustomUrl] = useState("");
   const [method, setMethod] = useState<(typeof METHODS)[number]>("GET");
   const [path, setPath] = useState("");
@@ -69,6 +74,23 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ApiTestResult | null>(null);
+
+  useEffect(() => {
+    void api<{ envs: PublicApiEnv[] }>("/api/api-envs")
+      .then((res) => setConfiguredEnvs(res.envs))
+      .catch(() => setConfiguredEnvs([]));
+  }, []);
+
+  const selectedEnv = target === "configured" ? configuredEnvs.find((item) => item.id === envId) : undefined;
+  const envReadOnly = Boolean(selectedEnv && !selectedEnv.allowWrite);
+  const methodOptions = envReadOnly ? READ_METHODS : METHODS;
+  const cleanupMethodOptions = envReadOnly ? READ_METHODS : METHODS;
+
+  useEffect(() => {
+    if (!envReadOnly) return;
+    if (WRITE_METHODS.has(method)) setMethod("GET");
+    if (WRITE_METHODS.has(cleanupMethod)) setCleanupMethod("GET");
+  }, [envReadOnly, method, cleanupMethod]);
 
   const submit = async () => {
     setError(null);
@@ -106,6 +128,10 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
       setError("自定义环境需要填写 URL");
       return;
     }
+    if (target === "configured" && !envId) {
+      setError("请选择一个已配置的 API 环境");
+      return;
+    }
 
     let cleanup: { method?: string; path?: string; body?: string | Record<string, unknown> } | undefined;
     const cleanupPathTrimmed = cleanupPath.trim();
@@ -132,8 +158,9 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
         method: "POST",
         body: JSON.stringify({
           title: title.trim() || undefined,
-          target,
+          target: target === "configured" ? undefined : target,
           customUrl: target === "custom" ? customUrl.trim() : undefined,
+          envId: target === "configured" ? envId : undefined,
           method,
           path: path.trim(),
           headers: Object.keys(headerParse.headers).length ? headerParse.headers : undefined,
@@ -209,6 +236,20 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
             />
             自定义（须在白名单）
           </label>
+          {configuredEnvs.map((item) => (
+            <label key={item.id}>
+              <input
+                type="radio"
+                name="api-env"
+                checked={target === "configured" && envId === item.id}
+                onChange={() => {
+                  setTarget("configured");
+                  setEnvId(item.id);
+                }}
+              />
+              {item.label} ({item.baseUrl})
+            </label>
+          ))}
           {target === "custom" ? (
             <input
               className="custom-url"
@@ -216,6 +257,25 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
               onChange={(e) => setCustomUrl(e.target.value)}
               placeholder="https://127.0.0.1:4173"
             />
+          ) : null}
+          {selectedEnv ? (
+            <div className="api-env-summary">
+              <p className="run-detail-meta">
+                {selectedEnv.label} · <code>{selectedEnv.baseUrl}</code>{" "}
+                <span className={`badge${selectedEnv.allowWrite ? "" : " weak"}`}>
+                  {selectedEnv.allowWrite ? "可写" : "只读"}
+                </span>
+              </p>
+              {selectedEnv.headerNames.length > 0 ? (
+                <p className="stat-note">
+                  环境预置请求头（仅名称）：{selectedEnv.headerNames.join(", ")}。值在本地配置中通过{" "}
+                  {"{{env.KEY}}"} 引用，不会出现在界面或 API 响应里。
+                </p>
+              ) : null}
+              {envReadOnly ? (
+                <p className="hint-inline">只读环境仅允许 GET/HEAD；写方法已禁用。</p>
+              ) : null}
+            </div>
           ) : null}
         </fieldset>
 
@@ -227,7 +287,7 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
               value={method}
               onChange={(e) => setMethod(e.target.value as (typeof METHODS)[number])}
             >
-              {METHODS.map((item) => (
+              {methodOptions.map((item) => (
                 <option key={item} value={item}>
                   {item}
                 </option>
@@ -287,7 +347,7 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
                 value={cleanupMethod}
                 onChange={(e) => setCleanupMethod(e.target.value as (typeof METHODS)[number])}
               >
-                {METHODS.map((item) => (
+                {cleanupMethodOptions.map((item) => (
                   <option key={item} value={item}>
                     {item}
                   </option>

@@ -10,6 +10,7 @@ dist/
 !.env.example
 docs/pilot-baseline.json
 docs/pilot-constraints.json
+api-envs.json
 
 # Generated evidence / test output
 data/

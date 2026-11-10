@@ -1,0 +1,20 @@
+[
+  {
+    "id": "staging-api",
+    "label": "Staging API",
+    "baseUrl": "https://api.staging.example",
+    "headers": {
+      "Authorization": "Bearer {{env.stagingToken}}"
+    },
+    "allowWrite": false
+  },
+  {
+    "id": "staging-api-write",
+    "label": "Staging API (write)",
+    "baseUrl": "https://api.staging.example",
+    "headers": {
+      "Authorization": "Bearer {{env.stagingToken}}"
+    },
+    "allowWrite": true
+  }
+]

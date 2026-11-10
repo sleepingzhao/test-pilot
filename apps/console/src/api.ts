@@ -2,6 +2,14 @@ import type { SystemProfile } from "@testpilot/detect";
 
 export type DetectionTarget = "demo" | "pilot" | "custom" | "real";
 
+export type PublicApiEnv = {
+  id: string;
+  label: string;
+  baseUrl: string;
+  allowWrite: boolean;
+  headerNames: string[];
+};
+
 export type DetectionRecord = {
   id: string;
   sessionId: string;

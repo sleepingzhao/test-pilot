@@ -1,8 +1,8 @@
-# TestPilot 执行路线图 v0.6
+# TestPilot 执行路线图 v0.7.5
 
 ## 从「能演示」到「能信任、能证明业务结果」，再到「能发现系统能力」
 
-**2026-11-08 · V0.6 能力探测与系统画像完成（规则 + LLM 双引擎），V0.7 实时机制下一阶段 · Cursor 执行，Claude 定期把关**
+**2026-11-10 · V0.7 接口直连 / 文件媒体 / WS 管道完成；V0.7.5「业务接入就绪」为下一阶段 · Cursor 执行，Claude 定期把关**
 
 > **唯一执行计划。** 原 `docs/BACKLOG.md` 已合并到本文件；`design/` 下的 v0.2 路线 docx 已删除，仅保留架构/概念图。状态只在本文件维护，不要另建待办文件。
 
@@ -18,26 +18,84 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 因此 v0.3 的第一目标不是加功能，而是：**让每条已批准的测试都能失败、都能证明业务结果，并且让扩展新断言类型成为配置工作，而不是改 runner 代码。**
 
+## 0.1 方向、进度与架构对齐（2026-11-10）
+
+**当前方向：Web 业务系统优先。** 先把「测试人员安全接入一个业务系统 → 生成/审阅用例 → 跑出可信证据 → 清理测试数据」做通。移动端、CI、多项目/RBAC、平台化暂不投入；实时与 Agent 在业务接入闭环之后继续。
+
+**当前唯一开工任务：V7-7 测试数据生命周期。** 在它验收前，不并行开 V7-0f / V7-0h / V7-5e / V7-6b / V7-0i。
+
+**本阶段要证明的事：** 一条业务系统的正常功能回归，可以被人审阅、能在失败时给出证据、能在通过后不留下脏数据。
+
+### 架构图对照
+
+| 架构层 | 当前状态 | 结论 / 缺口 |
+|---|---|---|
+| Web Console / CLI / CI | Console 可用；CLI `validate` / `run` / `record` 可用；CI 无（有意） | 主干对齐；CI 后置 |
+| Test Intelligence Layer | LLM Provider、Context Engine、失败诊断可用；Test Generator 覆盖需求→草稿与能力探测 | 风险分析、主动场景探索未做；机制包尚未接入生成链路 |
+| Test IR + Assertion Engine | IR v1；navigate/click/fill/press/wait/select/selectCascader/request/upload；5 个断言 Provider（ui / captured-http / postgres-readonly / otel-trace / ws）；负向探针 5 路 | 核心最强；**测试数据生命周期缺失**；自修复仅建议 |
+| 平台层 | Web（Playwright）可用；Android / iOS / Harmony 仅有类型占位 | 与架构图差距最大，后置 |
+| Execution & Observability | 批次调度、并发、恢复、Trace / network / screenshot / ws 证据、flake、基线可用 | **测试数据清理缺失**；CI 未接；WS 证据无控制台入口 |
+
+概念图输入侧：自然语言 / PRD ✓、人工录制 ✓、**OpenAPI ✗**、**Git Diff ✗**。探索模式目前只有结构化采集 + 能力探测，没有视觉探索。
+
+### 已完成（截至 2026-11-10）
+
+- V0.3–V0.6：断言 Provider、可信批次、需求→草稿→试跑→审批、能力探测（规则 + LLM）与系统画像。
+- V7-0：`request` 步骤、登录 Cookie 复用、模板变量、`stepRef` 断言绑定、控制台「接口测试」模式。
+- V7-5：`upload` 步骤、demo `/files`、`planFileMedia` 机制包、故障注入负向验证。
+- V7-1a / V7-3a / V7-6a：WS 收发帧证据、`ws` 断言 Provider、demo `/chat`、`drop` 负向验证。
+- 当前控制台：16 条已批准用例（15 demo + 1 pilot），弱断言 0；`pnpm verify` 全绿；负向探针 5 个 Provider。
+
+### 未完成 / 明确后置
+
+- **P0（V0.7.5）**：测试数据生命周期、命名 API 环境与鉴权、cURL/OpenAPI 导入、机制包接线、WS 证据入口。
+- **P1**：多账号 `actors`、realtime 机制包、SSE 证据。
+- **P2**：Agent 语义断言与 `llm-judge`、风险分析、主动探索。
+- **后置**：Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
+
+### 下一里程碑：V0.7.5 业务接入就绪
+
+**目标：** 测试人员能在明确授权的环境里，对一个业务系统跑通「创建 → 断言 → 清理」的完整回归，且不留下脏数据。
+
+**执行顺序：**
+
+1. **V7-7 测试数据生命周期**（P0，先做）：teardown 步骤、失败也清理、清理结果入证据、审批绑定 teardown。
+2. **V7-0f 命名 API 环境与鉴权头**：`api-envs.json` + `allowWrite` + 控制台选择器；试点/真实默认只读。
+3. **V7-0h cURL 导入**：粘贴 cURL 预填接口表单。
+4. **V7-5e 机制接线**：画像 → `planFileMedia` → 控制台生成草稿；无能力时显示 blockers。
+5. **V7-6b WS 证据入口**：运行详情可打开 `ws.json`，显示收发帧摘要。
+6. **V7-0i OpenAPI 导入**：OpenAPI 3.x（JSON/YAML）选 operation → 预填接口用例。
+
+**验收标准：**
+
+- 一条写业务数据的用例：通过时 teardown 删除数据；断言失败时 teardown 仍执行；清理失败单独标记，不掩盖产品缺陷。
+- 试点/真实环境没有 `allowWrite` 时只能发 GET/HEAD；真实环境默认仍只读。
+- 接口用例可从 cURL 或 OpenAPI operation 生成，必须人工审阅批准，不自动批准。
+- 控制台能显示「该环境可用的机制 / 缺什么前置条件」，而不是只给能力百分比。
+- `pnpm verify` 全绿；UI 改动在浏览器实际验证。
+
 ## 1. 当前基线
 
 | 能力 | 状态 | 证据 / 缺口 |
 |---|---|---|
-| Test IR v1 | 可用 | schema、validator、per-test baseUrl、IR hash v2 |
-| Web runner | 可用 | 步骤机、重试、定位回退、trace/network/截图 |
+| Test IR v1 | 可用 | schema、validator、per-test baseUrl、IR hash v2；动作含 request / upload |
+| Web runner | 可用 | 步骤机、重试、定位回退、trace/network/screenshot/ws 证据 |
 | Web recorder | 已验证（P-3） | 密码/手机号/PII → env/fixture ref；真实浏览器录制测试 `recorded-session.test.ts`；原生 select 录为 `select` 步骤；cascader 仍需手工补 `selectCascader` |
-| Console | 可用 | 步骤编辑/草稿试跑（试跑不计入回归指标）、Provider 审阅面板、审批身份与审计、删除草稿、弱断言门禁 |
-| Planner | 规则式 + 可选 LLM | 规则模板 + LLM 步骤（快照校验）；表单探索已能采集弹窗字段/下拉；尚无能力探测 |
-| 能力探测（Detect） | 可用（V0.6） | `packages/detect` 采集器 + 八类规则 + LLM 能力分析 + `/api/detect` + 系统画像；demo 识别 CRUD/文件/搜索，试点识别文件/工作流，真实环境识别实时消息/文件，并由 LLM 发现小智 Agent、工具市场、MCP、技能、记忆、设备控制；实时与 Agent 执行在 V0.7/V0.8 |
-| 实时/富媒体证据 | 未实现（V0.7） | 只抓 HTTP；无 WebSocket frame、SSE、多账号 |
+| Console | 可用 | 需求生成、接口测试、步骤编辑、草稿试跑、Provider 审阅、审批身份与审计、弱断言门禁 |
+| Planner | 规则式 + 可选 LLM | 规则模板 + LLM 步骤（快照校验）；表单探索可采集弹窗字段/下拉；能力探测已接入系统画像 |
+| 能力探测（Detect） | 可用（V0.6） | `packages/detect` 采集器 + 八类规则 + LLM 能力分析 + `/api/detect` + 系统画像；真实环境 LLM 发现小智 Agent、工具市场、MCP、技能、记忆、设备控制；执行侧机制包尚未接线 |
+| API 直连 | 可用（V7-0） | `request` 步骤、登录 Cookie 复用、`{{runId}}` / `{{var}}` / `{{env.KEY}}`、`saveAs` / `saveFields`、`stepRef` 断言；控制台「接口测试」生成草稿并试跑 |
+| 文件/媒体 | 可用（V7-5） | `upload` 步骤 + fixture 目录约束；demo `/files`；`planFileMedia` 生成正常/类型/大小场景；负向故障注入 |
+| 实时/富媒体证据 | 部分（V7-1a / V7-3a / V7-6a） | WS 收发帧、`ws.json`、`ws` 断言、demo `/chat` 已完成；SSE、多账号 A→B、重连/顺序/去重未做 |
 | Agent 语义断言 | 部分（V0.8） | OTel trace 工具调用断言已有；无幻觉 rubric / LLM judge |
 | 管理 API | 文件存储 | 安全边界已加固；本机无登录；无数据库 |
-| 试点用例 | 15 条已批准 | 登录页与工单必填校验已改强；`pilot-ticket-submit-success` 模板已入库（批准前需对齐级联/HTTP） |
-| 断言引擎 | 可用 | UI / captured-http / postgres-readonly / otel-trace Provider；负向探针 4 路 |
+| 试点用例 | 16 条已批准（15 demo + 1 pilot） | 弱断言 0；`pilot-ticket-submit-success` 仍须在真实试点校对后批准 |
+| 断言引擎 | 可用 | UI / captured-http / postgres-readonly / otel-trace / ws 共 5 个 Provider；负向探针 5 路 |
 | 弱断言 | 0 条 | 首页/列表/筛选/审阅弹窗可见；批准时强制拦截 |
 | 本地验证 | 通过 | `pnpm verify`（见 [`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md)）；含 IR 校验、单元测试、demo smoke、负向探针 |
-| 全量回归 | 54/54 通过（连续 3 批，18 条/批）；当前 17 条 | 2026-11-07 显式批次；flake 3.7%；移除冗余登录页 smoke 后 17/17 复跑通过；详见 V4-6 |
+| 全量回归 | 以最近批次为准 | 2026-11-10 控制台为 16 条已批准；近期无新的显式全量批次，跑完再更新 flake/基线数字 |
 | CI | 无（有意） | 无 `.github/workflows`；[`docs/LOCAL-GATE.md`](docs/LOCAL-GATE.md) 为唯一门禁说明 |
-| LLM | 可选 | 1M max_tokens 透传；配置/运行错误在控制台可见 |
+| LLM | 可选 | 草稿、诊断、能力分析；回归执行零 LLM；1M max_tokens 透传，配置/运行错误在控制台可见 |
 
 **必须诚实记录的事实：** `pilot-auto-ticket-no-attachment` 是「必填校验」负向用例。`pilot-ticket-submit-success.json` 提供成功路径模板，须在真实试点上校对级联文案与 HTTP 后再批准；练习环境由 `demo-ticket-submit-success` + smoke 证明。
 
@@ -157,7 +215,8 @@ Console 的断言编辑器需要支持：
 | V0.4 可重复回归（已完成） | 显式批次与并行、flake 统计与看板、运行详情页、证据保留/清理、试点成功用例业务化、连续 3 批基线 | Provider 扩展、GitLab/CI、PostgreSQL、RBAC、调度 |
 | V0.5-lite 需求→自动测试（已完成） | 一句话/PRD → 草稿 → 自动试跑 → 一键入回归；LLM 用量与降级可见 | 自动批准、CI、团队平台 |
 | V0.6 能力探测底座（已完成） | Detect、SystemProfile、能力分类 v1、系统画像、LLM 能力分析与测试建议 | 新执行器、实时/Agent 断言 |
-| V0.7 接口直连与实时机制（下一阶段） | 业务接口直连、WebSocket/SSE 证据、多账号执行、realtime-messaging、file-media 机制包 | Agent 语义判断 |
+| V0.7 接口直连与实时机制（部分完成） | 业务接口直连、file-media、WS 帧/断言已完成 | SSE、多账号、realtime 机制包、控制台入口 |
+| V0.7.5 业务接入就绪（下一阶段） | 测试数据生命周期、命名 API 环境/鉴权、cURL/OpenAPI 导入、机制接线、WS 证据入口 | 移动端、CI、多项目 |
 | V0.8 Agent 机制 | 工具调用断言、幻觉/引用/多轮、LLM judge 独立 semantic suite | 自动批准、无证据 judge |
 | V0.9 机制扩展与漂移 | workflow/auth-rbac/search-filter 机制包、探测 diff、pack SDK | 平台化 |
 | V1.0 开源/多端 | Docker、文档、插件 SDK、Android/iOS/Harmony/Glass Adapter、基准 | 一次性完成所有端 |
@@ -402,7 +461,7 @@ interface MechanismPack {
 - [x] V6-5 系统画像与 API — `services/test-management/src/detection.ts` + `/api/detect` jobs/profiles；复用 session 目录 `kind: "detect"` 与 20 个会话保留；控制台「系统画像」页与创建页能力提示；`detection.test.ts`；demo 实测 CRUD/文件/媒体，`pnpm verify` 全绿（2026-11-08）
 - [x] V6-6 demo/试点/真实环境验证 — demo 识别 CRUD 0.86 / 文件 0.90 / 搜索 0.72；试点识别文件 0.90 / 工作流 0.65；真实环境识别文件 0.90 / CRUD 0.82 / 搜索 0.72 / 实时消息 0.66（均含 LLM 测试建议），并补充 8 项 LLM 能力：小智 Agent、工具市场、MCP、技能、记忆/知识图谱、设备控制、认证、SOP；页面文本/标题/人名不落盘；`pnpm detect:validate -- --target all|real` + `artifacts/detect/validate-last.json`；`pnpm verify` 全绿（2026-11-08）
 
-**V0.7 实时与媒体机制（约 2～3 周）**
+**V0.7 接口直连、文件媒体与 WS 管道（已完成部分）**
 
 **第一目标：业务接口直连（V7-0，先做）**
 
@@ -415,11 +474,23 @@ interface MechanismPack {
 - [x] V7-0d demo 验证 — demo API-only 用例：登录页 → `POST /api/users`，断言 201 + email、409 重复邮箱、400 缺邮箱（`api-user-create.json`、`api-duplicate-email.json`、`api-missing-email.json`）；`requestRef` 由 `env.requestRefs` 映射到 url/method；故障注入返回 500 或错误 JSON 时原断言以 `PRODUCT_DEFECT` 失败（`api-direct-demo.test.ts`）；`pnpm verify` 全绿（2026-11-09）。试点/真实接口未验证，等 V7-0e 明确授权后再接
 - [x] V7-0e 控制台接口用例 — 创建页新增「接口测试」模式：方法/路径/请求头/请求体、状态码/响应文本/响应 JSON 断言、环境选择与自定义 URL；提交后自动保存为**草稿**并试跑，不自动批准；审阅面板识别 `sourceChannel: "api"`，不再注入整页 UI 断言，步骤编辑器可查看/编辑 `request` 步骤；试点/真实环境在界面层拒绝，需后续明确授权；`api-test-draft.test.ts` + `api-test-route.test.ts` + 浏览器实跑（2026-11-09）
 
-**API 体验增强（backlog，不阻塞机制包）**
+**V0.7.5 业务接入就绪（下一阶段，P0，按顺序做）**
 
-- [ ] V7-0f 命名 API 环境与鉴权头 — 本地 `api-envs.json`（示例入库、真实配置 gitignore）：id/label/baseUrl/headers（值可写 `{{env.token}}`）/`allowWrite`；控制台环境选择器直接选；`allowWrite: false` 时只允许 GET/HEAD；配置不含密钥
-- [ ] V7-0g 接口用例编辑 — 用例列表对 `sourceChannel: "api"` 提供「编辑接口」，表单回填并保存为新版本，而不是只能改 JSON
+目标：测试人员能在明确授权的环境里，对一个业务系统跑通「创建 → 断言 → 清理」，不留下脏数据。
+
+- [ ] V7-7 测试数据生命周期（先做）— IR 增加 `policy.cleanup: "none" | "on-success" | "always"` 与 `teardownSteps: TestStep[]`；runner 在 `finally` 执行 teardown，步骤/断言失败时也清理；清理失败单独记为 `TEST_DATA` / `ENVIRONMENT`，不得掩盖产品缺陷；teardown 进入 IR hash 与审阅，不允许自动批准；控制台审阅显示 teardown、运行详情显示清理结果；创建接口/UI 用例时，写操作缺少 `{{runId}}` 标记要给出警告。测试：成功清理、失败仍清理、清理失败不掩盖缺陷、`none` 不执行、teardown 变更导致重新审阅
+- [ ] V7-0f 命名 API 环境与鉴权头 — 本地 `api-envs.json`（示例入库、真实配置 gitignore）：id/label/baseUrl/headers（值可写 `{{env.token}}`）/`allowWrite`；控制台环境选择器直接选；`allowWrite: false` 时只允许 GET/HEAD；配置不含密钥；试点/真实默认只读
 - [ ] V7-0h cURL 导入 — 粘贴 cURL 自动解析 method/path/headers/body，预填接口表单；解析失败给出明确提示
+- [ ] V7-5e 机制接线 — `GET /api/detect/:id/mechanisms` 返回机制计划（先 file-media）与 blockers；`POST /api/mechanisms/file-media/draft` 生成草稿（可选试跑）；控制台系统画像显示「可测机制 / 缺什么」，不再只给能力百分比
+- [ ] V7-6b WS 证据入口 — 运行详情可打开 `ws.json`，显示收发帧摘要、方向、截断/丢弃数量；仍按现有脱敏规则
+- [ ] V7-0i OpenAPI 导入 — OpenAPI 3.x（JSON/YAML）选择 operation → 预填接口用例；只在本地解析，不上传外部；生成草稿，不自动批准
+
+**P1 backlog（V0.7.5 之后）**
+
+- [ ] V7-0g 接口用例编辑 — 用例列表对 `sourceChannel: "api"` 提供「编辑接口」，表单回填并保存为新版本，而不是只能改 JSON
+- [ ] V7-1b SSE 证据 — 采集 SSE chunks；与 WS 共用脱敏/截断；证据可下载
+- [ ] V7-2 多账号执行 — IR 增加 `actors`，runner 支持多 browser context、`waitForEvent`；单账号回退必须显式标注
+- [ ] V7-4 realtime-messaging 机制包 — 文本送达（出站 WS + 入站 WS + 对方 DOM）、图片、超长、重连、顺序、去重
 
 **第二批：文件/媒体（接口直连验收后）**
 
@@ -436,12 +507,11 @@ interface MechanismPack {
 - [x] V7-3a `ws` 断言 Provider — `type: "event"` + `provider: "ws"`；expect 支持 `urlIncludes`、`direction`、`contains`、`regex`、`jsonPath` + `equals`、`minCount`、`absent`、`timeoutMs`（`ws.test.ts`：同一帧命中/不命中、direction、regex、jsonPath、minCount、absent、超时为 PRODUCT_DEFECT、非法 expect 为 ASSERTION_ORACLE；阻断广播的负向探针在 V7-6a；2026-11-10）
 - [x] V7-6a demo `/chat` + 集成验证 — `examples/demo-webapp` 加 `/chat`（消息列表/输入框/发送按钮）与 `/ws/chat` 广播；`DEMO_CHAT_DROP=1` 与 `?drop=1` 只丢弃广播；runner 集成：发送 → 出站帧 + 入站帧 + 页面文案；drop 时 received 为 PRODUCT_DEFECT；`pnpm negative-probes` 5 个 provider；`pnpm verify` 全绿（2026-11-10）
 
-**第二波：多账号与 realtime 机制包（WS 管道验收后）**
+**第二波：多账号与 realtime 机制包（V0.7.5 之后）**
 
-- [ ] V7-1b SSE 证据 — 采集 SSE chunks；与 WS 共用脱敏/截断；证据可下载
-- [ ] V7-2 多账号执行 — IR 增加 `actors`，runner 支持多 browser context、`waitForEvent`；单账号回退必须显式标注
-- [ ] V7-4 realtime-messaging 机制包 — 文本送达（出站 WS + 入站 WS + 对方 DOM）、图片、超长、重连、顺序、去重
-- [ ] V7-6b 控制台 — 控制台选 pack、看 WS 证据；`pnpm verify` 全绿
+任务见上方 P1 backlog（V7-1b / V7-2 / V7-4），另加：
+
+- [ ] V7-6c 控制台 — 选择机制包、查看 WS 证据；`pnpm verify` 全绿
 
 **V0.8 Agent 机制（约 2～3 周）**
 
@@ -462,7 +532,8 @@ interface MechanismPack {
 ### 6.3.5 发布门槛与验收指标
 
 - V0.6：demo 识别 CRUD/上传/搜索；试点识别当前工单面；真实环境识别 IM/文件并发现 Agent 平台；每次探测 1 次 LLM 分析（digest 命中缓存时 0 次），所有 LLM 结论必须带证据；误判以问题呈现；0 条自动批准。
-- V0.7：业务接口可主动调用（同源、复用登录 Cookie）并断言状态/JSON/头，返回 500 或错误 JSON 时断言必须失败；demo 上 A→B 文本/图片真实送达；超长按不变量断言；重连不丢不重；阻断投递时断言必须失败。
+- V0.7：业务接口可主动调用（同源、复用登录 Cookie）并断言状态/JSON/头，返回 500 或错误 JSON 时断言必须失败；文件上传可被断言且故障注入时失败；单页面 WS 收发帧可断言，阻断广播时断言必须失败。多账号 A→B 归入 P1。
+- V0.7.5：写业务数据的用例，通过和失败都要执行 teardown；清理失败可见且不掩盖产品缺陷；试点/真实没有 `allowWrite` 时只能只读；cURL/OpenAPI 生成的接口草稿必须人工批准；控制台能看到「可测机制 / 缺少的前置条件」。
 - V0.8：工具调用可确定性断言；喂一个「编造答案」的 agent 时幻觉用例必须失败；LLM judge 无证据不得通过；成本可见。
 - V0.9：4 个以上机制包；探测 diff 能指出受影响的用例；不自动改批准。
 

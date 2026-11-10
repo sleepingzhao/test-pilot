@@ -141,7 +141,7 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 | Management API | `services/test-management` |
 | Demo + 种子用例 | `examples/demo-webapp` |
 
-V0.6 已完成[能力探测与系统画像](ROADMAP.md)：先发现系统是什么能力（CRUD / 实时消息 / 富媒体 / Agent 等），再按能力选择测试机制；下一阶段是 V0.7 实时消息与富媒体机制。
+当前进度见 [ROADMAP.md](ROADMAP.md) §0.1：能力探测（规则 + LLM）、业务接口直连、文件/媒体机制、WS 帧证据与断言已完成；下一阶段是 **V0.7.5 业务接入就绪**——测试数据生命周期、命名 API 环境/鉴权、cURL/OpenAPI 导入、机制接线。
 
 高级用户仍可用 `pnpm cli run …`（见 `ROADMAP.md` 附录）。
 

@@ -90,6 +90,14 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 - demo 练习环境新增 `/chat` 与 `/ws/chat`；`/chat?drop=1` 或 `DEMO_CHAT_DROP=1` 只接收不广播，用于负向验证。`pnpm negative-probes` 现在覆盖 5 个 Provider。
 - 限制：当前是单页面链路；多账号 A→B、重连、顺序、去重和 realtime 机制包在第二波。
 
+### 测试数据清理（V7-7）
+
+- IR 支持 `policy.cleanup: "none" | "on-success" | "always"` 与 `teardownSteps`；teardown 与主步骤共享 `runId` 和 `saveFields` 变量。
+- `always` 在主步骤或断言失败后仍执行清理；`on-success` 只在主流程通过后清理。
+- 主流程通过、清理失败 → 运行失败并标记 `TEST_DATA`；主流程已失败时保留产品缺陷分型，清理失败单独记录，不掩盖问题。
+- 控制台「审阅」可编辑清理策略与 teardown；运行详情显示清理结果；「接口测试」可填清理请求，复用主请求头，并可用 `{{createdId}}` 定位刚创建的数据。
+- demo 新增 `/api/items` 与 `api-items-cleanup.json`（创建 → 清理），已加入 smoke/种子用例，`pnpm verify` 会证明清理确实执行。
+
 ### 业务试点（P0-1）
 
 1. 复制凭据：`cp .env.example .env` 并填写 `TESTPILOT_ENV_ADMIN_*`（勿提交 Git）
@@ -141,7 +149,7 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 | Management API | `services/test-management` |
 | Demo + 种子用例 | `examples/demo-webapp` |
 
-当前进度见 [ROADMAP.md](ROADMAP.md) §0.1：能力探测（规则 + LLM）、业务接口直连、文件/媒体机制、WS 帧证据与断言已完成；下一阶段是 **V0.7.5 业务接入就绪**——测试数据生命周期、命名 API 环境/鉴权、cURL/OpenAPI 导入、机制接线。
+当前进度见 [ROADMAP.md](ROADMAP.md) §0.1：能力探测（规则 + LLM）、业务接口直连、文件/媒体机制、WS 帧证据与断言、测试数据清理（V7-7）已完成；下一步是 **V7-0f 命名 API 环境与鉴权头**，随后 cURL/OpenAPI 导入、机制接线。
 
 高级用户仍可用 `pnpm cli run …`（见 `ROADMAP.md` 附录）。
 

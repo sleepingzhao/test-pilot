@@ -22,7 +22,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 **当前方向：Web 业务系统优先。** 先把「测试人员安全接入一个业务系统 → 生成/审阅用例 → 跑出可信证据 → 清理测试数据」做通。移动端、CI、多项目/RBAC、平台化暂不投入；实时与 Agent 在业务接入闭环之后继续。
 
-**当前唯一开工任务：V7-7 测试数据生命周期。** 在它验收前，不并行开 V7-0f / V7-0h / V7-5e / V7-6b / V7-0i。
+**当前唯一开工任务：V7-0f 命名 API 环境与鉴权头。** V7-7 已验收；在 V7-0f 验收前，不并行开 V7-0h / V7-5e / V7-6b / V7-0i。
 
 **本阶段要证明的事：** 一条业务系统的正常功能回归，可以被人审阅、能在失败时给出证据、能在通过后不留下脏数据。
 
@@ -32,9 +32,9 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 |---|---|---|
 | Web Console / CLI / CI | Console 可用；CLI `validate` / `run` / `record` 可用；CI 无（有意） | 主干对齐；CI 后置 |
 | Test Intelligence Layer | LLM Provider、Context Engine、失败诊断可用；Test Generator 覆盖需求→草稿与能力探测 | 风险分析、主动场景探索未做；机制包尚未接入生成链路 |
-| Test IR + Assertion Engine | IR v1；navigate/click/fill/press/wait/select/selectCascader/request/upload；5 个断言 Provider（ui / captured-http / postgres-readonly / otel-trace / ws）；负向探针 5 路 | 核心最强；**测试数据生命周期缺失**；自修复仅建议 |
+| Test IR + Assertion Engine | IR v1；navigate/click/fill/press/wait/select/selectCascader/request/upload；`policy.cleanup` + `teardownSteps`；5 个断言 Provider（ui / captured-http / postgres-readonly / otel-trace / ws）；负向探针 5 路 | 核心最强；数据隔离/自动生成仍缺；自修复仅建议 |
 | 平台层 | Web（Playwright）可用；Android / iOS / Harmony 仅有类型占位 | 与架构图差距最大，后置 |
-| Execution & Observability | 批次调度、并发、恢复、Trace / network / screenshot / ws 证据、flake、基线可用 | **测试数据清理缺失**；CI 未接；WS 证据无控制台入口 |
+| Execution & Observability | 批次调度、并发、恢复、Trace / network / screenshot / ws 证据、测试数据清理、flake、基线可用 | 数据隔离/自动生成仍缺；CI 未接；WS 证据无控制台入口 |
 
 概念图输入侧：自然语言 / PRD ✓、人工录制 ✓、**OpenAPI ✗**、**Git Diff ✗**。探索模式目前只有结构化采集 + 能力探测，没有视觉探索。
 
@@ -44,11 +44,12 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 - V7-0：`request` 步骤、登录 Cookie 复用、模板变量、`stepRef` 断言绑定、控制台「接口测试」模式。
 - V7-5：`upload` 步骤、demo `/files`、`planFileMedia` 机制包、故障注入负向验证。
 - V7-1a / V7-3a / V7-6a：WS 收发帧证据、`ws` 断言 Provider、demo `/chat`、`drop` 负向验证。
-- 当前控制台：16 条已批准用例（15 demo + 1 pilot），弱断言 0；`pnpm verify` 全绿；负向探针 5 个 Provider。
+- V7-7：`policy.cleanup` + `teardownSteps`、失败也清理、清理结果入 `RunResult.cleanup`、控制台审阅/运行详情、接口模式清理请求、demo `/api/items` 端到端清理用例。
+- 当前控制台：17 条已批准用例（16 demo + 1 pilot），弱断言 0；`pnpm verify` 全绿；负向探针 5 个 Provider。
 
 ### 未完成 / 明确后置
 
-- **P0（V0.7.5）**：测试数据生命周期、命名 API 环境与鉴权、cURL/OpenAPI 导入、机制包接线、WS 证据入口。
+- **P0（V0.7.5）**：命名 API 环境与鉴权、cURL/OpenAPI 导入、机制包接线、WS 证据入口。
 - **P1**：多账号 `actors`、realtime 机制包、SSE 证据。
 - **P2**：Agent 语义断言与 `llm-judge`、风险分析、主动探索。
 - **后置**：Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
@@ -59,12 +60,12 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 **执行顺序：**
 
-1. **V7-7 测试数据生命周期**（P0，先做）：teardown 步骤、失败也清理、清理结果入证据、审批绑定 teardown。
-2. **V7-0f 命名 API 环境与鉴权头**：`api-envs.json` + `allowWrite` + 控制台选择器；试点/真实默认只读。
-3. **V7-0h cURL 导入**：粘贴 cURL 预填接口表单。
-4. **V7-5e 机制接线**：画像 → `planFileMedia` → 控制台生成草稿；无能力时显示 blockers。
-5. **V7-6b WS 证据入口**：运行详情可打开 `ws.json`，显示收发帧摘要。
-6. **V7-0i OpenAPI 导入**：OpenAPI 3.x（JSON/YAML）选 operation → 预填接口用例。
+- [x] **V7-7 测试数据生命周期**（2026-11-11 完成）：teardown 步骤、失败也清理、清理结果入证据、审批绑定 teardown。
+- [ ] 1. **V7-0f 命名 API 环境与鉴权头**：`api-envs.json` + `allowWrite` + 控制台选择器；试点/真实默认只读。
+- [ ] 2. **V7-0h cURL 导入**：粘贴 cURL 预填接口表单。
+- [ ] 3. **V7-5e 机制接线**：画像 → `planFileMedia` → 控制台生成草稿；无能力时显示 blockers。
+- [ ] 4. **V7-6b WS 证据入口**：运行详情可打开 `ws.json`，显示收发帧摘要。
+- [ ] 5. **V7-0i OpenAPI 导入**：OpenAPI 3.x（JSON/YAML）选 operation → 预填接口用例。
 
 **验收标准：**
 
@@ -86,6 +87,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | 能力探测（Detect） | 可用（V0.6） | `packages/detect` 采集器 + 八类规则 + LLM 能力分析 + `/api/detect` + 系统画像；真实环境 LLM 发现小智 Agent、工具市场、MCP、技能、记忆、设备控制；执行侧机制包尚未接线 |
 | API 直连 | 可用（V7-0） | `request` 步骤、登录 Cookie 复用、`{{runId}}` / `{{var}}` / `{{env.KEY}}`、`saveAs` / `saveFields`、`stepRef` 断言；控制台「接口测试」生成草稿并试跑 |
 | 文件/媒体 | 可用（V7-5） | `upload` 步骤 + fixture 目录约束；demo `/files`；`planFileMedia` 生成正常/类型/大小场景；负向故障注入 |
+| 测试数据清理 | 可用（V7-7） | `policy.cleanup` + `teardownSteps`；通过/失败都清理；清理失败单独标记 `TEST_DATA`；控制台审阅/运行详情/接口模式均可配置 |
 | 实时/富媒体证据 | 部分（V7-1a / V7-3a / V7-6a） | WS 收发帧、`ws.json`、`ws` 断言、demo `/chat` 已完成；SSE、多账号 A→B、重连/顺序/去重未做 |
 | Agent 语义断言 | 部分（V0.8） | OTel trace 工具调用断言已有；无幻觉 rubric / LLM judge |
 | 管理 API | 文件存储 | 安全边界已加固；本机无登录；无数据库 |
@@ -478,7 +480,7 @@ interface MechanismPack {
 
 目标：测试人员能在明确授权的环境里，对一个业务系统跑通「创建 → 断言 → 清理」，不留下脏数据。
 
-- [ ] V7-7 测试数据生命周期（先做）— IR 增加 `policy.cleanup: "none" | "on-success" | "always"` 与 `teardownSteps: TestStep[]`；runner 在 `finally` 执行 teardown，步骤/断言失败时也清理；清理失败单独记为 `TEST_DATA` / `ENVIRONMENT`，不得掩盖产品缺陷；teardown 进入 IR hash 与审阅，不允许自动批准；控制台审阅显示 teardown、运行详情显示清理结果；创建接口/UI 用例时，写操作缺少 `{{runId}}` 标记要给出警告。测试：成功清理、失败仍清理、清理失败不掩盖缺陷、`none` 不执行、teardown 变更导致重新审阅
+- [x] V7-7 测试数据生命周期（2026-11-11）— IR：`policy.cleanup: "none" | "on-success" | "always"` + `teardownSteps`，进入 schema/语义校验/IR hash，teardown id 不得与主步骤重复；runner：主步骤/断言失败后仍执行 teardown，`RunResult.cleanup` 记录状态/步骤/错误，主流程通过而清理失败标 `TEST_DATA`，主流程已失败时保留 `PRODUCT_DEFECT`；控制台：审阅显示清理策略与 teardown、运行详情显示清理结果、接口模式可填清理请求并复用主请求头/自动保存 `{{createdId}}`、写接口缺少 `{{runId}}` 警告；demo `/api/items` + `api-items-cleanup.json` 加入 smoke/种子；`cleanup.test.ts` 覆盖通过、断言失败、步骤失败、清理 500、`none`、`on-success`；浏览器实测创建条目→试跑→清理通过→`GET /api/items` 为空；`pnpm verify` 全绿
 - [ ] V7-0f 命名 API 环境与鉴权头 — 本地 `api-envs.json`（示例入库、真实配置 gitignore）：id/label/baseUrl/headers（值可写 `{{env.token}}`）/`allowWrite`；控制台环境选择器直接选；`allowWrite: false` 时只允许 GET/HEAD；配置不含密钥；试点/真实默认只读
 - [ ] V7-0h cURL 导入 — 粘贴 cURL 自动解析 method/path/headers/body，预填接口表单；解析失败给出明确提示
 - [ ] V7-5e 机制接线 — `GET /api/detect/:id/mechanisms` 返回机制计划（先 file-media）与 blockers；`POST /api/mechanisms/file-media/draft` 生成草稿（可选试跑）；控制台系统画像显示「可测机制 / 缺什么」，不再只给能力百分比

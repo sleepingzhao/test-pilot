@@ -276,15 +276,15 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
           <button type="button" className="btn-small" onClick={applyCurlImport}>
             解析并填入
           </button>
-          {curlImportError ? <p className="diagnose-msg">{curlImportError}</p> : null}
-          {curlImportWarnings.length > 0 ? (
-            <ul className="stat-note api-curl-import-warnings">
-              {curlImportWarnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          ) : null}
         </details>
+        {curlImportError ? <p className="diagnose-msg">{curlImportError}</p> : null}
+        {curlImportWarnings.length > 0 ? (
+          <ul className="stat-note api-curl-import-warnings">
+            {curlImportWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
 
         <div className="field-row">
           <div className="field">

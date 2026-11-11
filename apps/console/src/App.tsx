@@ -1621,6 +1621,8 @@ export function App() {
             realUrl={realUrl}
             realReachable={realOk}
             realSecretsConfigured={realSecrets}
+            onOpenReview={(testId) => void openReviewById(testId)}
+            onRefresh={() => void refresh()}
           />
         )}
 

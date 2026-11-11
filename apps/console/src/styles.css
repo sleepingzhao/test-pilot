@@ -2128,3 +2128,84 @@ button.status-chip {
 .profile-recent .link-button {
   text-align: left;
 }
+
+.mechanism-card {
+  margin-top: 12px;
+}
+
+.mechanism-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.mechanism-card-header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.badge.subtle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-strong);
+  background: var(--line);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.mechanism-form-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  margin: 12px 0;
+}
+
+.mechanism-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  min-width: min(100%, 200px);
+  flex: 1 1 180px;
+}
+
+.mechanism-field input,
+.mechanism-field select {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.mechanism-trial {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin: 0;
+}
+
+.mechanism-advanced {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.mechanism-advanced .mechanism-form-grid {
+  margin-top: 10px;
+}
+
+.mechanism-blockers {
+  margin: 8px 0 0;
+  padding-left: 1.2em;
+  font-size: 13px;
+  color: var(--muted-strong);
+}
+
+.mechanism-success {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--green);
+}

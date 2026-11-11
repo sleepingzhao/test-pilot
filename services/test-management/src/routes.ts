@@ -94,6 +94,12 @@ import {
   type DetectionJob,
   type DetectionTarget,
 } from "./detection.js";
+import {
+  FILE_MEDIA_SCENARIO_LABELS,
+  fileMediaScenarioIr,
+  mechanismPlanForRecord,
+  type FileMediaScenarioKind,
+} from "./mechanisms.js";
 
 const recordJobs = new Map<string, RecordJob>();
 let recordLock = false;
@@ -1394,6 +1400,149 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const record = await readDetection(dataRoot, detectionId);
     if (!record) return reply.notFound("detection not found");
     return record;
+  });
+
+  app.get("/api/detect/:detectionId/mechanisms", async (req, reply) => {
+    const { detectionId } = req.params as { detectionId: string };
+    const record = await readDetection(dataRoot, detectionId);
+    if (!record) return reply.notFound("detection not found");
+    const query = req.query as Record<string, string | undefined>;
+    const ctxInput: Record<string, unknown> = {};
+    for (const key of [
+      "pagePath",
+      "uploadRef",
+      "fileName",
+      "uploadRequestRef",
+      "uploadTarget",
+      "submitTarget",
+      "listTarget",
+      "invalidTypeRef",
+      "invalidTypeName",
+      "oversizeRef",
+      "oversizeName",
+    ]) {
+      if (typeof query[key] === "string") ctxInput[key] = query[key];
+    }
+    return mechanismPlanForRecord(record, record.target, ctxInput);
+  });
+
+  app.post("/api/mechanisms/file-media/draft", async (req, reply) => {
+    const body = (req.body ?? {}) as {
+      detectionId?: string;
+      scenario?: FileMediaScenarioKind;
+      context?: Record<string, unknown>;
+      trial?: boolean;
+    };
+    const detectionId = body.detectionId?.trim();
+    if (!detectionId) return reply.code(400).send({ error: "detectionId 必填" });
+    const record = await readDetection(dataRoot, detectionId);
+    if (!record) return reply.notFound("detection not found");
+
+    if (record.target === "pilot" || record.target === "real") {
+      return reply.code(400).send({ error: "试点/真实环境不允许生成会写入数据的机制草稿" });
+    }
+
+    const scenario: FileMediaScenarioKind = body.scenario ?? "happy";
+    const ctxInput = body.context ?? {};
+    const planView = mechanismPlanForRecord(record, record.target, ctxInput);
+    const fileMedia = planView.mechanisms[0];
+    if (!fileMedia?.runnable) {
+      return reply.code(400).send({
+        error: "当前机制计划不可生成草稿",
+        plan: { blockers: fileMedia?.blockers ?? [], scenario },
+      });
+    }
+    if (!fileMedia.scenarios.some((item) => item.kind === scenario)) {
+      return reply.code(400).send({
+        error: `场景 ${scenario} 不在当前计划中`,
+        plan: { blockers: fileMedia.blockers, scenario },
+      });
+    }
+
+    if (body.trial === true && record.target !== "demo") {
+      return reply.code(400).send({ error: "仅练习环境支持生成后试跑" });
+    }
+
+    const { scenarioIr } = fileMediaScenarioIr(record, scenario, ctxInput);
+    if (!scenarioIr) {
+      return reply.code(400).send({
+        error: `场景 ${scenario} 无可用 IR`,
+        plan: { blockers: fileMedia.blockers, scenario },
+      });
+    }
+
+    const project = store.project();
+    let ir = applyBaseUrlTarget(scenarioIr.ir, record.url);
+    if (!isAllowedTargetUrl(record.url)) {
+      return reply.code(400).send({ error: `探测目标地址不在允许列表: ${record.url}` });
+    }
+    const validated = validateTestIR(ir);
+    if (!validated.ok) return reply.code(400).send({ issues: validated.issues });
+    const semantics = validateSemantics(validated.value);
+    if (semantics.length) {
+      return reply.code(400).send({ issues: semantics, error: semantics[0]?.message });
+    }
+    const providerIssues = validateAssertionProviders(validated.value);
+    if (providerIssues.length) {
+      return reply.code(400).send({ issues: providerIssues, error: "断言 Provider 校验失败" });
+    }
+    const missingSecrets = missingEnvRefs(validated.value);
+    if (missingSecrets.length) {
+      return reply.code(400).send({
+        error: `缺少用例所需环境变量：${missingSecrets.join(", ")}（见 .env.example）`,
+      });
+    }
+
+    const slug = randomUUID().slice(0, 8);
+    const testId = `mechanism-file-media-${scenario}-${slug}`;
+    if (!isSafeTestId(testId)) {
+      return reply.code(500).send({ error: "无法生成安全的用例 id" });
+    }
+    const label = FILE_MEDIA_SCENARIO_LABELS[scenario];
+    const test = stampTestMeta({
+      id: testId,
+      projectId: project.id,
+      title: `文件/媒体 · ${label}`,
+      ir: validated.value,
+      approvalStatus: "draft",
+      sourceChannel: "mechanism",
+      intentSummary: `file-media ${scenario}`,
+      updatedAt: new Date().toISOString(),
+    });
+    await store.saveTest(test);
+
+    const response: {
+      test: ReturnType<typeof withWeakAssertions>;
+      plan: { blockers: string[]; scenario: FileMediaScenarioKind };
+      trial?: { run: StoredRun; trial: true };
+      trialError?: string;
+    } = {
+      test: withWeakAssertions(test),
+      plan: { blockers: fileMedia.blockers, scenario },
+    };
+
+    if (body.trial === true && record.target === "demo") {
+      if (!(await checkTargetReachable(record.url))) {
+        response.trialError = `目标环境不可达: ${record.url}`;
+      } else {
+        try {
+          const run = await executeSingleIrRun(
+            store,
+            test,
+            validated.value,
+            record.url,
+            project.id,
+            artifactsRoot,
+            dataRoot,
+          );
+          response.trial = { run, trial: true };
+        } catch (err) {
+          response.trialError = err instanceof Error ? err.message : String(err);
+        }
+      }
+    }
+
+    return response;
   });
 
   app.get("/api/environment", async () => {

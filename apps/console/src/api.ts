@@ -19,6 +19,32 @@ export type DetectionRecord = {
   profile: SystemProfile;
 };
 
+export type FileMediaScenarioKind = "happy" | "invalid-type" | "oversize";
+
+export type MechanismPlanResponse = {
+  detectionId: string;
+  target: DetectionTarget;
+  mechanisms: Array<{
+    id: "file-media";
+    runnable: boolean;
+    blockers: string[];
+    context: {
+      pagePath?: string;
+      uploadRef: string;
+      fileName: string;
+      uploadRequestRef: string;
+      uploadTarget?: string;
+      submitTarget?: string;
+      listTarget?: string;
+      invalidTypeRef?: string;
+      invalidTypeName?: string;
+      oversizeRef?: string;
+      oversizeName?: string;
+    };
+    scenarios: Array<{ id: string; kind: FileMediaScenarioKind }>;
+  }>;
+};
+
 export type DetectionJob = {
   id: string;
   status: "running" | "completed" | "failed";
@@ -52,7 +78,7 @@ export type StoredTest = {
   approvedBy?: string;
   weakAssertions?: Array<{ path: string; message: string }>;
   intentSummary?: string;
-  sourceChannel?: "intent" | "prd" | "record" | "api";
+  sourceChannel?: "intent" | "prd" | "record" | "api" | "mechanism";
   plannerNotes?: string[];
   updatedAt: string;
 };

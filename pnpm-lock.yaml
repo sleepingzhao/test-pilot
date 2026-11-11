@@ -308,6 +308,9 @@ importers:
       '@testpilot/fixtures':
         specifier: workspace:*
         version: link:../../packages/fixtures
+      '@testpilot/mechanisms':
+        specifier: workspace:*
+        version: link:../../packages/mechanisms
       '@testpilot/planner':
         specifier: workspace:*
         version: link:../../packages/planner

@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { api, type DetectionJob, type DetectionRecord, type DetectionTarget } from "./api";
+import {
+  api,
+  type DetectionJob,
+  type DetectionRecord,
+  type DetectionTarget,
+  type FileMediaScenarioKind,
+  type MechanismPlanResponse,
+  type StoredTest,
+} from "./api";
 import { CAPABILITY_LABELS, REQUIREMENT_LABELS, SIGNAL_LABELS } from "./capabilityLabels";
 
 type Props = {
@@ -10,7 +18,64 @@ type Props = {
   realUrl: string | null;
   realReachable: boolean | null;
   realSecretsConfigured: boolean | null;
+  onOpenReview: (testId: string) => void;
+  onRefresh?: () => void;
 };
+
+const SCENARIO_LABELS: Record<FileMediaScenarioKind, string> = {
+  happy: "正常上传",
+  "invalid-type": "类型不符",
+  oversize: "超过大小",
+};
+
+type MechanismContextForm = {
+  pagePath: string;
+  uploadRef: string;
+  fileName: string;
+  uploadRequestRef: string;
+  uploadTarget: string;
+  submitTarget: string;
+  listTarget: string;
+  invalidTypeRef: string;
+  invalidTypeName: string;
+  oversizeRef: string;
+  oversizeName: string;
+};
+
+function contextFromPlan(
+  ctx: MechanismPlanResponse["mechanisms"][0]["context"] | undefined,
+): MechanismContextForm {
+  return {
+    pagePath: ctx?.pagePath ?? "/files",
+    uploadRef: ctx?.uploadRef ?? "fixture.samplePng",
+    fileName: ctx?.fileName ?? "sample.png",
+    uploadRequestRef: ctx?.uploadRequestRef ?? "files-upload",
+    uploadTarget: ctx?.uploadTarget ?? "file-input",
+    submitTarget: ctx?.submitTarget ?? "file-upload-submit",
+    listTarget: ctx?.listTarget ?? "file-list",
+    invalidTypeRef: ctx?.invalidTypeRef ?? "",
+    invalidTypeName: ctx?.invalidTypeName ?? "",
+    oversizeRef: ctx?.oversizeRef ?? "",
+    oversizeName: ctx?.oversizeName ?? "",
+  };
+}
+
+function contextPayload(form: MechanismContextForm): Record<string, string> {
+  const out: Record<string, string> = {
+    pagePath: form.pagePath,
+    uploadRef: form.uploadRef,
+    fileName: form.fileName,
+    uploadRequestRef: form.uploadRequestRef,
+    uploadTarget: form.uploadTarget,
+    submitTarget: form.submitTarget,
+    listTarget: form.listTarget,
+  };
+  if (form.invalidTypeRef.trim()) out.invalidTypeRef = form.invalidTypeRef.trim();
+  if (form.invalidTypeName.trim()) out.invalidTypeName = form.invalidTypeName.trim();
+  if (form.oversizeRef.trim()) out.oversizeRef = form.oversizeRef.trim();
+  if (form.oversizeName.trim()) out.oversizeName = form.oversizeName.trim();
+  return out;
+}
 
 const TARGET_LABELS: Record<DetectionTarget, string> = {
   demo: "练习环境",
@@ -33,6 +98,8 @@ export function SystemProfileView({
   realUrl,
   realReachable,
   realSecretsConfigured,
+  onOpenReview,
+  onRefresh,
 }: Props) {
   const [target, setTarget] = useState<DetectionTarget>("demo");
   const [customUrl, setCustomUrl] = useState("");
@@ -42,6 +109,13 @@ export function SystemProfileView({
   const [error, setError] = useState<string | null>(null);
   const [record, setRecord] = useState<DetectionRecord | null>(null);
   const [recent, setRecent] = useState<DetectionRecord[]>([]);
+  const [mechanismPlan, setMechanismPlan] = useState<MechanismPlanResponse | null>(null);
+  const [mechContext, setMechContext] = useState<MechanismContextForm>(contextFromPlan(undefined));
+  const [mechScenario, setMechScenario] = useState<FileMediaScenarioKind>("happy");
+  const [mechTrial, setMechTrial] = useState(false);
+  const [mechSaving, setMechSaving] = useState(false);
+  const [mechError, setMechError] = useState<string | null>(null);
+  const [mechSaved, setMechSaved] = useState<{ title: string; testId: string } | null>(null);
 
   const loadRecent = async () => {
     try {
@@ -73,6 +147,46 @@ export function SystemProfileView({
     };
     // customUrl is intentionally not a dependency: typing a URL should not probe storage.
   }, [target]);
+
+  useEffect(() => {
+    setMechContext(contextFromPlan(undefined));
+    setMechScenario("happy");
+    setMechTrial(false);
+  }, [record?.id]);
+
+  useEffect(() => {
+    if (!record || loading) {
+      setMechanismPlan(null);
+      return;
+    }
+    const hasFileMedia = record.profile.capabilities.some((c) => c.id === "file-media");
+    if (!hasFileMedia) {
+      setMechanismPlan(null);
+      return;
+    }
+    let cancelled = false;
+    const params = new URLSearchParams(contextPayload(mechContext));
+    api<MechanismPlanResponse>(`/api/detect/${record.id}/mechanisms?${params.toString()}`)
+      .then((plan) => {
+        if (cancelled) return;
+        setMechanismPlan(plan);
+        const fileMedia = plan.mechanisms[0];
+        if (fileMedia?.scenarios.length && !fileMedia.scenarios.some((s) => s.kind === mechScenario)) {
+          setMechScenario(fileMedia.scenarios[0]!.kind);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setMechanismPlan(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [record?.id, record?.profile.capabilities, loading, mechContext]);
+
+  useEffect(() => {
+    setMechSaved(null);
+    setMechError(null);
+  }, [record?.id]);
 
   const startDetection = async () => {
     if (target === "custom" && !customUrl.trim()) {
@@ -119,6 +233,35 @@ export function SystemProfileView({
       signal.evidence.map((evidence) => [evidence.id, evidence] as const),
     ),
   );
+  const fileMediaMechanism = mechanismPlan?.mechanisms[0];
+  const hasFileMediaCapability = Boolean(
+    record?.profile.capabilities.some((c) => c.id === "file-media"),
+  );
+
+  const createMechanismDraft = async () => {
+    if (!record) return;
+    setMechSaving(true);
+    setMechError(null);
+    setMechSaved(null);
+    try {
+      const res = await api<{ test: StoredTest; error?: string }>("/api/mechanisms/file-media/draft", {
+        method: "POST",
+        body: JSON.stringify({
+          detectionId: record.id,
+          scenario: mechScenario,
+          context: contextPayload(mechContext),
+          trial: mechTrial && record.target === "demo",
+        }),
+      });
+      setMechSaved({ title: res.test.title, testId: res.test.id });
+      onRefresh?.();
+    } catch (e) {
+      setMechError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMechSaving(false);
+    }
+  };
+
   const llmCapabilities = record?.profile.llmCapabilities ?? [];
   const capabilityCount = (record?.profile.capabilities.length ?? 0) + llmCapabilities.length;
   const llmQuestions = record?.profile.llmQuestions ?? [];
@@ -377,6 +520,112 @@ export function SystemProfileView({
               </div>
             )}
           </div>
+
+          {hasFileMediaCapability && fileMediaMechanism ? (
+            <div className="card-panel mechanism-card">
+              <header className="mechanism-card-header">
+                <h3>可测机制</h3>
+                <span className="badge subtle">文件/媒体</span>
+              </header>
+              {fileMediaMechanism.runnable ? (
+                <>
+                  <p className="stat-note">
+                    状态：<strong>可生成草稿</strong> · 从画像生成文件上传用例，仍需人工审阅批准。
+                  </p>
+                  <div className="mechanism-form-grid">
+                  <label className="mechanism-field">
+                    场景
+                    <select
+                      value={mechScenario}
+                      onChange={(e) => setMechScenario(e.target.value as FileMediaScenarioKind)}
+                    >
+                      {fileMediaMechanism.scenarios.map((scenario) => (
+                        <option key={scenario.id} value={scenario.kind}>
+                          {SCENARIO_LABELS[scenario.kind]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {record.target === "demo" ? (
+                    <label className="mechanism-trial">
+                      <input
+                        type="checkbox"
+                        checked={mechTrial}
+                        onChange={(e) => setMechTrial(e.target.checked)}
+                      />
+                      生成后试跑（仅练习环境）
+                    </label>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={mechSaving}
+                    onClick={() => void createMechanismDraft()}
+                  >
+                    {mechSaving ? "生成中…" : "生成草稿"}
+                  </button>
+                  </div>
+                  <details className="mechanism-advanced">
+                    <summary>定位与引用（高级）</summary>
+                    <div className="mechanism-form-grid">
+                      {(
+                        [
+                          ["pagePath", "页面路径"],
+                          ["uploadRef", "上传 fixture 引用"],
+                          ["fileName", "期望文件名"],
+                          ["uploadRequestRef", "上传请求 ref"],
+                          ["uploadTarget", "文件输入 testId"],
+                          ["submitTarget", "提交按钮 testId"],
+                          ["listTarget", "列表 testId"],
+                          ["invalidTypeRef", "类型不符 fixture"],
+                          ["invalidTypeName", "类型不符文件名"],
+                          ["oversizeRef", "超大 fixture"],
+                          ["oversizeName", "超大文件名"],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <label key={key} className="mechanism-field">
+                          {label}
+                          <input
+                            value={mechContext[key]}
+                            onChange={(e) =>
+                              setMechContext((prev) => ({ ...prev, [key]: e.target.value }))
+                            }
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+                  {fileMediaMechanism.blockers.length > 0 ? (
+                    <ul className="mechanism-blockers stat-note">
+                      {fileMediaMechanism.blockers.map((blocker) => (
+                        <li key={blocker}>{blocker}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <p className="stat-note">
+                    状态：<strong>缺条件</strong>
+                  </p>
+                  <ul className="mechanism-blockers">
+                    {fileMediaMechanism.blockers.map((blocker) => (
+                      <li key={blocker}>{blocker}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {mechSaved ? (
+                <p className="mechanism-success" role="status">
+                  草稿已保存：{mechSaved.title}{" "}
+                  <button type="button" className="link-button" onClick={() => onOpenReview(mechSaved.testId)}>
+                    打开审阅
+                  </button>
+                </p>
+              ) : null}
+              {mechError ? <p className="diagnose-msg">{mechError}</p> : null}
+            </div>
+          ) : null}
 
           {questionCount > 0 ? (
             <div className="card-panel">

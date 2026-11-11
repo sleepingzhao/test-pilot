@@ -38,7 +38,7 @@ export type StoredTest = {
   /** Hash of docs assertion-db/agent config at approval time. */
   assertionConfigHash?: string;
   intentSummary?: string;
-  sourceChannel?: "intent" | "prd" | "record" | "api";
+  sourceChannel?: "intent" | "prd" | "record" | "api" | "mechanism";
   /** Planner uncertainties shown in review (not used at runtime). */
   plannerNotes?: string[];
   updatedAt: string;

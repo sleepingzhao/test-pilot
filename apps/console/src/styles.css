@@ -470,6 +470,25 @@ button.status-chip {
   font-weight: 600;
 }
 
+.run-step-shot-link {
+  grid-column: 1 / -1;
+  display: inline-block;
+  line-height: 0;
+}
+
+.run-step-shot {
+  display: block;
+  max-width: 160px;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.run-detail-actions {
+  margin: 8px 0 0;
+}
+
 .run-step-msg {
   color: var(--muted-strong);
 }

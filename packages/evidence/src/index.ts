@@ -45,6 +45,16 @@ export type WsFrame = {
 const WS_FRAME_LIMIT = 200;
 const WS_PAYLOAD_LIMIT = 4000;
 
+function safeStepFileId(stepId: string): string {
+  const sanitized = stepId.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 40);
+  return sanitized.length > 0 ? sanitized : "step";
+}
+
+function stepScreenshotFileName(index: number, stepId: string): string {
+  const nn = String(index).padStart(2, "0");
+  return `step-${nn}-${safeStepFileId(stepId)}.png`;
+}
+
 export type DirectNetworkInput = {
   url: string;
   method: string;
@@ -81,6 +91,7 @@ export function createEvidenceCollector(options: EvidenceOptions) {
   const inFlight = new Set<Request>();
   const wsFrames: WsFrame[] = [];
   let wsDropped = 0;
+  const stepScreenshots: Array<{ stepId: string; file: string }> = [];
 
   function recordWsFrame(url: string, direction: WsFrame["direction"], raw: string | Buffer) {
     if (wsFrames.length >= WS_FRAME_LIMIT) {
@@ -285,6 +296,21 @@ export function createEvidenceCollector(options: EvidenceOptions) {
       await writeNetworkLog();
     },
 
+    async captureStep(page: Page, stepId: string, index: number): Promise<string | undefined> {
+      if (options.screenshots !== "always") return undefined;
+      const fileName = stepScreenshotFileName(index, stepId);
+      try {
+        await mkdir(runDir, { recursive: true });
+        await page.screenshot({ path: join(runDir, fileName), fullPage: true });
+      } catch {
+        // Evidence capture must not turn a passing step into a failed run.
+        return undefined;
+      }
+      artifacts.push({ kind: "screenshot", path: join(runDir, fileName) });
+      stepScreenshots.push({ stepId, file: fileName });
+      return fileName;
+    },
+
     async finalize(status: string): Promise<RunArtifacts> {
       await mkdir(runDir, { recursive: true });
       await writeNetworkLog();
@@ -294,7 +320,7 @@ export function createEvidenceCollector(options: EvidenceOptions) {
         await context.tracing.stop({ path: tracePath });
         artifacts.push({ kind: "trace", path: tracePath });
       }
-      const manifest = { runId: options.runId, status, artifacts };
+      const manifest = { runId: options.runId, status, artifacts, stepScreenshots };
       const manifestPath = join(runDir, "manifest.json");
       await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
       artifacts.push({ kind: "log", path: manifestPath });

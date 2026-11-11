@@ -149,7 +149,9 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 | Management API | `services/test-management` |
 | Demo + 种子用例 | `examples/demo-webapp` |
 
-当前进度见 [ROADMAP.md](ROADMAP.md) §0.1：业务接口直连、文件/媒体机制、WS 证据、测试数据清理（V7-7）、命名 API 环境（V7-0f）、**cURL 导入接口表单（V7-0h，浏览器本地解析）** 已完成；下一步 **V7-5e 机制接线**，随后 WS 证据入口与 OpenAPI 导入。
+当前进度见 [ROADMAP.md](ROADMAP.md) §0.1：业务接口直连、文件/媒体机制、WS 证据、测试数据清理（V7-7）、命名 API 环境（V7-0f）、cURL 导入（V7-0h）、**步骤截图时间线与失败回放（V7-9a，借鉴 Midscene）** 已完成；下一步 **V7-5e 机制接线**，随后 WS 证据入口、OpenAPI 导入与生成期视觉定位。
+
+视觉能力边界见 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md)：视觉只用于生成期定位建议与证据；已批准的回归保持零 LLM。DeepSeek Flash 已支持图像理解，可作为视觉模型候选。
 
 高级用户仍可用 `pnpm cli run …`（见 `ROADMAP.md` 附录）。
 

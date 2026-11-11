@@ -12,6 +12,10 @@ export function artifactUrl(run: StoredRun, fileName: string): string {
   return `/api/runs/${run.runId}/artifacts/${fileName}`;
 }
 
+export function artifactUrlForFile(run: StoredRun, fileName: string): string {
+  return `/api/runs/${run.runId}/artifacts/${encodeURIComponent(fileName)}`;
+}
+
 export type EvidenceRow = { label: string; href: string | null };
 
 function available(run: StoredRun, kind: string): boolean {

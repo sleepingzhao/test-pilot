@@ -21,6 +21,8 @@ export type StepResult = {
   status: "passed" | "failed" | "skipped";
   durationMs: number;
   message?: string;
+  /** Basename of step screenshot when policy.screenshots is "always". */
+  screenshot?: string;
 };
 
 export type CleanupResult = {
@@ -186,7 +188,7 @@ async function executeStep(
   secrets: string[],
   recordNetworkEntry: (input: DirectNetworkInput) => void,
   options?: ExecuteStepOptions,
-) {
+): Promise<StepResult> {
   const started = Date.now();
   try {
     switch (step.action) {
@@ -463,7 +465,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
     await evidence.attachPage(context, page);
 
     for (const step of ir.steps) {
-      const result = await executeStep(
+      const executed = await executeStep(
         page,
         context,
         step,
@@ -475,6 +477,11 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         templateSecrets,
         evidence.recordNetworkEntry,
       );
+      const result: StepResult = { ...executed };
+      if (result.status !== "failed" && (ir.policy?.screenshots ?? "on-failure") === "always") {
+        const shot = await evidence.captureStep(page, result.stepId, steps.length + 1);
+        if (shot) result.screenshot = shot;
+      }
       steps.push(result);
       if (result.status === "failed") {
         status = "failed";

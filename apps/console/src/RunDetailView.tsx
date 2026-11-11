@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type StoredRun } from "./api.js";
-import { formatJsonBrief, listEvidenceRows, runDetailHeadline } from "./runDetail.js";
+import { artifactUrlForFile, formatJsonBrief, listEvidenceRows, runDetailHeadline } from "./runDetail.js";
 import { failureKindLabel } from "./stepSummary.js";
 
 type Props = {
@@ -72,6 +72,19 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
   }
 
   const evidence = listEvidenceRows(run);
+  const hasFailedStep = run.steps.some((s) => s.status === "failed");
+  const hasFailedAssertion = run.assertions.some((a) => !a.passed);
+
+  function scrollToFailure() {
+    const failedStep = document.querySelector(".run-step-failed");
+    if (failedStep) {
+      failedStep.scrollIntoView({ block: "center" });
+      return;
+    }
+    if (hasFailedAssertion) {
+      document.getElementById("run-assertions-panel")?.scrollIntoView({ block: "start" });
+    }
+  }
 
   return (
     <section className="run-detail">
@@ -105,6 +118,13 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
             失败分型：<strong>{failureKindLabel(run.metrics.failureKind) ?? run.metrics.failureKind}</strong>
           </p>
         )}
+        {(hasFailedStep || hasFailedAssertion) && (
+          <p className="run-detail-actions">
+            <button type="button" className="btn btn-secondary btn-small" onClick={scrollToFailure}>
+              跳到失败步骤
+            </button>
+          </p>
+        )}
       </header>
 
       <div className="run-detail-grid">
@@ -114,12 +134,28 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
             {run.steps.map((s) => (
               <li
                 key={s.stepId}
+                id={`run-step-${s.stepId}`}
                 className={`run-step${s.status === "failed" ? " run-step-failed" : ""}`}
               >
                 <span className="run-step-id">{s.stepId}</span>
                 <span className="run-step-status">{s.status}</span>
                 {typeof s.durationMs === "number" ? (
                   <span className="run-step-dur">{s.durationMs} ms</span>
+                ) : null}
+                {s.screenshot ? (
+                  <a
+                    className="run-step-shot-link"
+                    href={artifactUrlForFile(run, s.screenshot)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <img
+                      className="run-step-shot"
+                      src={artifactUrlForFile(run, s.screenshot)}
+                      alt={`${s.stepId} 截图`}
+                      loading="lazy"
+                    />
+                  </a>
                 ) : null}
                 {s.message ? (
                   s.message.length > 240 ? (
@@ -137,7 +173,7 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
           </ol>
         </div>
 
-        <div className="card-panel">
+        <div className="card-panel" id="run-assertions-panel">
           <h3>断言</h3>
           <ul className="run-assertion-list">
             {run.assertions.map((a) => (

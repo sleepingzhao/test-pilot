@@ -22,7 +22,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 **当前方向：Web 业务系统优先。** 先把「测试人员安全接入一个业务系统 → 生成/审阅用例 → 跑出可信证据 → 清理测试数据」做通。移动端、CI、多项目/RBAC、平台化暂不投入；实时与 Agent 在业务接入闭环之后继续。
 
-**当前唯一开工任务：V7-5e 机制接线。** V7-0h 已验收（2026-11-11）；在 V7-5e 验收前，不并行开 V7-6b / V7-0i（除非用户改序）。
+**当前唯一开工任务：V7-5e 机制接线。** V7-9a 已验收（2026-11-12）；随后 V7-6b → V7-0i，再回到 V7-9b 生成期视觉定位（DeepSeek Flash 已支持图像理解，可复用现有 OpenAI 兼容端点）。视觉能力边界见 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md)：视觉只用于生成期与证据期，已批准回归保持零 LLM。
 
 **本阶段要证明的事：** 一条业务系统的正常功能回归，可以被人审阅、能在失败时给出证据、能在通过后不留下脏数据。
 
@@ -34,24 +34,26 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | Test Intelligence Layer | LLM Provider、Context Engine、失败诊断可用；Test Generator 覆盖需求→草稿与能力探测 | 风险分析、主动场景探索未做；机制包尚未接入生成链路 |
 | Test IR + Assertion Engine | IR v1；navigate/click/fill/press/wait/select/selectCascader/request/upload；`policy.cleanup` + `teardownSteps`；5 个断言 Provider（ui / captured-http / postgres-readonly / otel-trace / ws）；负向探针 5 路 | 核心最强；数据隔离/自动生成仍缺；自修复仅建议 |
 | 平台层 | Web（Playwright）可用；Android / iOS / Harmony 仅有类型占位 | 与架构图差距最大，后置 |
-| Execution & Observability | 批次调度、并发、恢复、Trace / network / screenshot / ws 证据、测试数据清理、flake、基线可用 | 数据隔离/自动生成仍缺；CI 未接；WS 证据无控制台入口 |
+| Execution & Observability | 批次调度、并发、恢复、Trace / network / screenshot / ws 证据、步骤截图时间线与失败直达、测试数据清理、flake、基线可用 | WS 证据无控制台入口；CI 未接 |
 
-概念图输入侧：自然语言 / PRD ✓、人工录制 ✓、**OpenAPI ✗**、**Git Diff ✗**。探索模式目前只有结构化采集 + 能力探测，没有视觉探索。
+概念图输入侧：自然语言 / PRD ✓、人工录制 ✓、**OpenAPI ✗**、**Git Diff ✗**。探索模式目前只有结构化采集 + 能力探测；视觉探索按 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md) 后置到 V7-9c，且不参与回归门禁。
 
-### 已完成（截至 2026-11-10）
+### 已完成（截至 2026-11-12）
 
 - V0.3–V0.6：断言 Provider、可信批次、需求→草稿→试跑→审批、能力探测（规则 + LLM）与系统画像。
 - V7-0：`request` 步骤、登录 Cookie 复用、模板变量、`stepRef` 断言绑定、控制台「接口测试」模式。
 - V7-5：`upload` 步骤、demo `/files`、`planFileMedia` 机制包、故障注入负向验证。
 - V7-1a / V7-3a / V7-6a：WS 收发帧证据、`ws` 断言 Provider、demo `/chat`、`drop` 负向验证。
 - V7-7：`policy.cleanup` + `teardownSteps`、失败也清理、清理结果入 `RunResult.cleanup`、控制台审阅/运行详情、接口模式清理请求、demo `/api/items` 端到端清理用例。
+- V7-0f / V7-0h：命名 API 环境（`api-envs.json`、`allowWrite`、环境头合并）与 cURL 本地解析导入；只读环境只允许 GET/HEAD。
+- V7-9a：借鉴 Midscene 的步骤截图时间线（`screenshots: "always"`）、manifest `stepScreenshots`、控制台缩略图与「跳到失败步骤」；回归仍零 LLM。
 - 当前控制台：17 条已批准用例（16 demo + 1 pilot），弱断言 0；`pnpm verify` 全绿；负向探针 5 个 Provider。
 
 ### 未完成 / 明确后置
 
-- **P0（V0.7.5）**：命名 API 环境与鉴权、cURL/OpenAPI 导入、机制包接线、WS 证据入口。
-- **P1**：多账号 `actors`、realtime 机制包、SSE 证据。
-- **P2**：Agent 语义断言与 `llm-judge`、风险分析、主动探索。
+- **P0（V0.7.5）**：机制包接线、WS 证据入口、OpenAPI 导入。
+- **P1**：多账号 `actors`、realtime 机制包、SSE 证据、生成期视觉定位建议（V7-9b，DeepSeek Flash 支持图像理解）。
+- **P2**：Agent 语义断言与 `llm-judge`、风险分析、主动探索、探索模式视觉判定（V7-9c，不进门禁）。
 - **后置**：Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
 
 ### 下一里程碑：V0.7.5 业务接入就绪
@@ -66,6 +68,14 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 - [ ] 3. **V7-5e 机制接线**：画像 → `planFileMedia` → 控制台生成草稿；无能力时显示 blockers。
 - [ ] 4. **V7-6b WS 证据入口**：运行详情可打开 `ws.json`，显示收发帧摘要。
 - [ ] 5. **V7-0i OpenAPI 导入**：OpenAPI 3.x（JSON/YAML）选 operation → 预填接口用例。
+
+### 借鉴 Midscene（2026-11-12，[ADR-011](docs/adr/ADR-011-midscene-visual-assist.md)）
+
+**原则：视觉只用于生成期与证据期；已批准回归保持零 LLM。**
+
+- [x] **V7-9a 步骤截图时间线与失败回放**（2026-11-12）：`policy.screenshots: "always"` 每步落 `step-<NN>-<stepId>.png` 并记入 `StepResult.screenshot` 与 manifest `stepScreenshots`；截图失败不把通过步骤变成失败；控制台时间线缩略图、点击看原图、「跳到失败步骤」；`on-failure` / `never` 不变；`step-screenshots.test.ts`（evidence 18、runner 50）覆盖三种策略与失败步骤；浏览器实测 2 步通过用例两张缩略图、失败运行跳转生效；`pnpm verify` 全绿。
+- [ ] **V7-9b 生成期视觉定位建议（P1）**：截图 + 裁剪 ARIA 发给视觉模型，返回 1–3 个 locator 候选与包围盒；人工选定后写入 IR，运行时零模型调用；建议缓存只作为候选；试点/真实环境默认关闭。
+- [ ] **V7-9c 探索模式视觉判定（P2）**：视觉问答只作为探索/诊断建议与证据，标 `oracle: "ai-suggested"`；不参与回归通过/失败门禁；不缓存判定结果。
 
 **验收标准：**
 
@@ -486,6 +496,7 @@ interface MechanismPack {
 - [ ] V7-5e 机制接线 — `GET /api/detect/:id/mechanisms` 返回机制计划（先 file-media）与 blockers；`POST /api/mechanisms/file-media/draft` 生成草稿（可选试跑）；控制台系统画像显示「可测机制 / 缺什么」，不再只给能力百分比
 - [ ] V7-6b WS 证据入口 — 运行详情可打开 `ws.json`，显示收发帧摘要、方向、截断/丢弃数量；仍按现有脱敏规则
 - [ ] V7-0i OpenAPI 导入 — OpenAPI 3.x（JSON/YAML）选择 operation → 预填接口用例；只在本地解析，不上传外部；生成草稿，不自动批准
+- [x] V7-9a 步骤截图时间线与失败回放（借鉴 Midscene，2026-11-12）— `policy.screenshots: "always"` 下每步落图并记入 `StepResult.screenshot`/manifest；控制台时间线缩略图、点击看原图、「跳到失败步骤」；`on-failure`/`never` 不变；三种策略测试 + 浏览器实测
 
 **P1 backlog（V0.7.5 之后）**
 
@@ -493,6 +504,7 @@ interface MechanismPack {
 - [ ] V7-1b SSE 证据 — 采集 SSE chunks；与 WS 共用脱敏/截断；证据可下载
 - [ ] V7-2 多账号执行 — IR 增加 `actors`，runner 支持多 browser context、`waitForEvent`；单账号回退必须显式标注
 - [ ] V7-4 realtime-messaging 机制包 — 文本送达（出站 WS + 入站 WS + 对方 DOM）、图片、超长、重连、顺序、去重
+- [ ] V7-9b 生成期视觉定位建议（借鉴 Midscene）— 截图 + 裁剪 ARIA → 1–3 个 locator 候选与包围盒；人工选定后写入 IR；运行时零模型调用；建议缓存只读；试点/真实默认关闭
 
 **第二批：文件/媒体（接口直连验收后）**
 

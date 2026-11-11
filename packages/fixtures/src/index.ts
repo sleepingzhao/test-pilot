@@ -145,6 +145,7 @@ const DEFAULT_REQUEST_REFS: Record<string, { urlIncludes: string; method?: strin
   "api-users-create": { urlIncludes: "/api/users", method: "POST" },
   "users-lookup-existing-email": { urlIncludes: "/api/users", method: "POST" },
   "tickets-create-attempt": { urlIncludes: "/api/tickets", method: "POST" },
+  "files-upload": { urlIncludes: "/api/files", method: "POST" },
   "pilot-ticket-submit": {
     urlIncludes: process.env.TESTPILOT_PILOT_TICKET_API_INCLUDES ?? "/api/workorder/workOrder/create",
     method: "POST",

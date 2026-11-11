@@ -112,6 +112,10 @@
         "saveFields": {
           "type": "object",
           "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "saveFromRef": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "allOf": [

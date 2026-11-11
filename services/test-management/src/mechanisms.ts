@@ -30,7 +30,10 @@ function locatorFromTestId(testId: string | undefined, fallback: string): Locato
   return { testId: testId ?? fallback };
 }
 
-export function buildFileMediaContext(input: Record<string, unknown> = {}): FileMediaContext {
+export function buildFileMediaContext(
+  input: Record<string, unknown> = {},
+  target: DetectionTarget = "custom",
+): FileMediaContext {
   const pagePath = readString(input, "pagePath") ?? DEFAULT_PAGE_PATH;
   const uploadRef = readString(input, "uploadRef") ?? DEFAULT_UPLOAD_REF;
   const fileName = readString(input, "fileName") ?? DEFAULT_FILE_NAME;
@@ -49,6 +52,16 @@ export function buildFileMediaContext(input: Record<string, unknown> = {}): File
     submitTarget: locatorFromTestId(submitTargetId, DEFAULT_SUBMIT_TARGET),
     listTarget: locatorFromTestId(listTargetId, DEFAULT_LIST_TARGET),
   };
+
+  const cleanupPath =
+    readString(input, "cleanupPath") ??
+    (target === "demo" ? "/api/files/{{uploadedId}}" : undefined);
+  const cleanupMethod = readString(input, "cleanupMethod") ?? (cleanupPath ? "DELETE" : undefined);
+  const cleanupIdField = readString(input, "cleanupIdField") ?? "id";
+  if (cleanupPath) {
+    ctx.cleanup = { path: cleanupPath, idField: cleanupIdField };
+    if (cleanupMethod) ctx.cleanup.method = cleanupMethod;
+  }
 
   const invalidTypeRef = readString(input, "invalidTypeRef");
   const invalidTypeName = readString(input, "invalidTypeName");
@@ -74,6 +87,9 @@ export type PublicFileMediaContext = {
   invalidTypeName?: string;
   oversizeRef?: string;
   oversizeName?: string;
+  cleanupPath?: string;
+  cleanupMethod?: string;
+  cleanupIdField?: string;
 };
 
 export function publicFileMediaContext(ctx: FileMediaContext): PublicFileMediaContext {
@@ -90,6 +106,11 @@ export function publicFileMediaContext(ctx: FileMediaContext): PublicFileMediaCo
   if (ctx.invalidTypeName) out.invalidTypeName = ctx.invalidTypeName;
   if (ctx.oversizeRef) out.oversizeRef = ctx.oversizeRef;
   if (ctx.oversizeName) out.oversizeName = ctx.oversizeName;
+  if (ctx.cleanup?.path) {
+    out.cleanupPath = ctx.cleanup.path;
+    out.cleanupMethod = ctx.cleanup.method ?? "DELETE";
+    out.cleanupIdField = ctx.cleanup.idField ?? "id";
+  }
   return out;
 }
 
@@ -112,7 +133,7 @@ export function mechanismPlanForRecord(
   target: DetectionTarget,
   ctxInput: Record<string, unknown> = {},
 ): MechanismPlanResponse {
-  const ctx = buildFileMediaContext(ctxInput);
+  const ctx = buildFileMediaContext(ctxInput, target);
   const profile = {
     capabilities: record.profile.capabilities.map((capability) => ({
       id: capability.id,
@@ -165,7 +186,7 @@ export function fileMediaScenarioIr(
   scenario: FileMediaScenarioKind,
   ctxInput: Record<string, unknown>,
 ) {
-  const ctx = buildFileMediaContext(ctxInput);
+  const ctx = buildFileMediaContext(ctxInput, record.target);
   const profile = {
     capabilities: record.profile.capabilities.map((capability) => ({
       id: capability.id,

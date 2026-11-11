@@ -1,9 +1,16 @@
-import type { Locator, TestAssertion, TestIR, TestStep } from "@testpilot/test-ir";
+import type { Locator, RequestMethod, TestAssertion, TestIR, TestStep } from "@testpilot/test-ir";
 
 const FILE_MEDIA_CONFIDENCE = 0.6;
 
 export type FileMediaProfile = {
   capabilities?: ReadonlyArray<{ id: string; confidence: number }>;
+};
+
+export type FileMediaCleanup = {
+  method?: string;
+  path: string;
+  idVar?: string;
+  idField?: string;
 };
 
 export type FileMediaContext = {
@@ -18,6 +25,8 @@ export type FileMediaContext = {
   invalidTypeName?: string;
   oversizeRef?: string;
   oversizeName?: string;
+  /** Delete the uploaded record after the run; only used by the happy scenario. */
+  cleanup?: FileMediaCleanup;
 };
 
 export type FileMediaScenarioKind = "happy" | "invalid-type" | "oversize";
@@ -57,22 +66,25 @@ function scenarioIr(
   ctx: FileMediaContext,
   valueRef: string,
   assertion: TestAssertion,
+  cleanup?: FileMediaCleanup,
 ): TestIR {
+  const uploadStep: TestStep = {
+    id: "choose-file",
+    action: "upload",
+    target: locator(ctx.uploadTarget, "file-input"),
+    valueRef,
+  };
+  const submitStep: TestStep = {
+    id: "submit-upload",
+    action: "click",
+    target: locator(ctx.submitTarget, "file-upload-submit"),
+  };
   const steps: TestStep[] = [
     { id: "open-page", action: "navigate", path: present(ctx.pagePath) ?? "/files" },
-    {
-      id: "choose-file",
-      action: "upload",
-      target: locator(ctx.uploadTarget, "file-input"),
-      valueRef,
-    },
-    {
-      id: "submit-upload",
-      action: "click",
-      target: locator(ctx.submitTarget, "file-upload-submit"),
-    },
+    uploadStep,
+    submitStep,
   ];
-  return {
+  const ir: TestIR = {
     id,
     version: 1,
     platform: "web",
@@ -80,6 +92,21 @@ function scenarioIr(
     assertions: [assertion],
     policy: { screenshots: "on-failure" },
   };
+  if (cleanup) {
+    const idVar = present(cleanup.idVar) ?? "uploadedId";
+    submitStep.saveFromRef = ctx.uploadRequestRef;
+    submitStep.saveFields = { [idVar]: present(cleanup.idField) ?? "id" };
+    ir.policy = { screenshots: "on-failure", cleanup: "always" };
+    ir.teardownSteps = [
+      {
+        id: "cleanup",
+        action: "request",
+        method: (present(cleanup.method) ?? "DELETE").toUpperCase() as RequestMethod,
+        path: cleanup.path,
+      },
+    ];
+  }
+  return ir;
 }
 
 function apiAssertion(id: string, requestRef: string, expect: Record<string, unknown>): TestAssertion {
@@ -90,6 +117,37 @@ function apiAssertion(id: string, requestRef: string, expect: Record<string, unk
     requestRef,
     expect,
     oracle: "api-contract",
+  };
+}
+
+const CLEANUP_METHODS = new Set(["DELETE", "POST", "PUT", "PATCH"]);
+
+function resolveCleanup(
+  cleanup: FileMediaCleanup | undefined,
+): { cleanup?: FileMediaCleanup; blocker?: string } {
+  if (!cleanup) {
+    return { blocker: "未配置 cleanupPath：上传成功后可能留下测试数据" };
+  }
+  const path = present(cleanup.path);
+  if (!path) return { blocker: "cleanupPath 为空：不会生成清理步骤" };
+  if (!path.startsWith("/") || path.includes("://")) {
+    return { blocker: "cleanupPath 必须是同源相对路径（以 / 开头）" };
+  }
+  const idVar = present(cleanup.idVar) ?? "uploadedId";
+  if (!path.includes(`{{${idVar}}}`)) {
+    return { blocker: `cleanupPath 必须包含 {{${idVar}}}，否则会删错数据` };
+  }
+  const method = (present(cleanup.method) ?? "DELETE").toUpperCase();
+  if (!CLEANUP_METHODS.has(method)) {
+    return { blocker: `cleanupMethod 不支持 ${method}（可用 DELETE/POST/PUT/PATCH）` };
+  }
+  return {
+    cleanup: {
+      method,
+      path,
+      idVar,
+      idField: present(cleanup.idField) ?? "id",
+    },
   };
 }
 
@@ -112,6 +170,9 @@ export function planFileMedia(profile: FileMediaProfile, ctx: FileMediaContext):
     return { mechanism: "file-media", runnable: false, blockers, scenarios: [] };
   }
 
+  const cleanupResult = resolveCleanup(ctx.cleanup);
+  if (cleanupResult.blocker) blockers.push(cleanupResult.blocker);
+
   const scenarios: FileMediaScenario[] = [
     {
       id: "happy",
@@ -125,6 +186,7 @@ export function planFileMedia(profile: FileMediaProfile, ctx: FileMediaContext):
             statusCode: 201,
             responseJsonBody: { name: fileName },
           }),
+          cleanupResult.cleanup,
         ),
         assertions: [
           apiAssertion("upload-created", uploadRequestRef, {

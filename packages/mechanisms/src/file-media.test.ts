@@ -106,3 +106,45 @@ test("missing optional fixtures skip those scenarios and explain why", () => {
   assert.match(notes, /oversize/);
   assert.match(notes, /oversizeRef/);
 });
+
+test("cleanup adds saveFields, teardown, and cleanup policy to the happy IR", () => {
+  const plan = planFileMedia(ready, {
+    ...ctx,
+    cleanup: { path: "/api/files/{{uploadedId}}", method: "DELETE", idField: "id" },
+  });
+  assert.equal(plan.runnable, true);
+  const happy = plan.scenarios.find((scenario) => scenario.kind === "happy")!;
+  const submit = happy.ir.steps.find((step) => step.id === "submit-upload");
+  assert.equal(submit?.saveFromRef, "files-upload");
+  assert.deepEqual(submit?.saveFields, { uploadedId: "id" });
+  assert.equal(happy.ir.policy?.cleanup, "always");
+  assert.deepEqual(happy.ir.teardownSteps, [
+    { id: "cleanup", action: "request", method: "DELETE", path: "/api/files/{{uploadedId}}" },
+  ]);
+  const validated = validateTestIR(happy.ir);
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? {} : validated.issues));
+  if (validated.ok) assert.deepEqual(validateSemantics(validated.value), []);
+  assert.equal(JSON.stringify(happy.ir).includes("/Users/"), false);
+
+  const invalidScenarios = plan.scenarios.filter((scenario) => scenario.kind !== "happy");
+  for (const scenario of invalidScenarios) {
+    assert.equal(scenario.ir.teardownSteps, undefined);
+  }
+});
+
+test("invalid cleanup config is reported and never generates a teardown", () => {
+  const plan = planFileMedia(ready, {
+    ...ctx,
+    cleanup: { path: "https://evil.example/files/{{uploadedId}}" },
+  });
+  assert.match(plan.blockers.join("\n"), /cleanupPath/);
+  const happy = plan.scenarios.find((scenario) => scenario.kind === "happy")!;
+  assert.equal(happy.ir.teardownSteps, undefined);
+  assert.equal(happy.ir.policy?.cleanup, undefined);
+
+  const wrongPlaceholder = planFileMedia(ready, {
+    ...ctx,
+    cleanup: { path: "/api/files/fixed-id" },
+  });
+  assert.match(wrongPlaceholder.blockers.join("\n"), /\{\{uploadedId\}\}/);
+});

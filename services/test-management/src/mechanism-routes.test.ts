@@ -88,11 +88,16 @@ test("GET mechanisms for demo file-media record is runnable with defaults", asyn
     const res = await app.inject({ method: "GET", url: "/api/detect/detect_demo_fm/mechanisms" });
     assert.equal(res.statusCode, 200);
     const body = res.json() as {
-      mechanisms: Array<{ runnable: boolean; scenarios: Array<{ id: string }>; context: { uploadRef: string } }>;
+      mechanisms: Array<{
+        runnable: boolean;
+        scenarios: Array<{ id: string }>;
+        context: { uploadRef: string; cleanupPath?: string };
+      }>;
     };
     assert.equal(body.mechanisms[0]?.runnable, true);
     assert.deepEqual(body.mechanisms[0]?.scenarios.map((s) => s.id), ["happy"]);
     assert.equal(body.mechanisms[0]?.context.uploadRef, "fixture.samplePng");
+    assert.equal(body.mechanisms[0]?.context.cleanupPath, "/api/files/{{uploadedId}}");
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });
@@ -134,10 +139,11 @@ test("POST file-media draft saves mechanism channel draft without paths", async 
     });
     assert.equal(res.statusCode, 200);
     const body = res.json() as {
-      test: { id: string; approvalStatus: string; sourceChannel?: string; ir: unknown };
+      test: { id: string; approvalStatus: string; sourceChannel?: string; ir: { id?: string } };
     };
     assert.equal(body.test.approvalStatus, "draft");
     assert.equal(body.test.sourceChannel, "mechanism");
+    assert.equal(body.test.ir.id, body.test.id);
     const raw = JSON.stringify(body.test.ir);
     assert.equal(raw.includes("/Users/"), false);
     assert.equal(raw.includes("fixture/"), false);
@@ -145,6 +151,10 @@ test("POST file-media draft saves mechanism channel draft without paths", async 
     const stored = await store.getTest(body.test.id);
     assert.equal(stored?.approvalStatus, "draft");
     assert.equal(stored?.sourceChannel, "mechanism");
+    assert.equal(stored?.ir.policy?.cleanup, "always");
+    assert.deepEqual(stored?.ir.teardownSteps?.map((step) => step.path), [
+      "/api/files/{{uploadedId}}",
+    ]);
   } finally {
     if (prevFixture === undefined) delete process.env.TESTPILOT_FIXTURE_SAMPLEPNG;
     else process.env.TESTPILOT_FIXTURE_SAMPLEPNG = prevFixture;

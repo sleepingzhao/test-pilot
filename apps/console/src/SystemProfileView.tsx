@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   type DetectionJob,
@@ -40,6 +40,9 @@ type MechanismContextForm = {
   invalidTypeName: string;
   oversizeRef: string;
   oversizeName: string;
+  cleanupPath: string;
+  cleanupMethod: string;
+  cleanupIdField: string;
 };
 
 function contextFromPlan(
@@ -57,6 +60,9 @@ function contextFromPlan(
     invalidTypeName: ctx?.invalidTypeName ?? "",
     oversizeRef: ctx?.oversizeRef ?? "",
     oversizeName: ctx?.oversizeName ?? "",
+    cleanupPath: ctx?.cleanupPath ?? "",
+    cleanupMethod: ctx?.cleanupMethod ?? "DELETE",
+    cleanupIdField: ctx?.cleanupIdField ?? "id",
   };
 }
 
@@ -74,6 +80,11 @@ function contextPayload(form: MechanismContextForm): Record<string, string> {
   if (form.invalidTypeName.trim()) out.invalidTypeName = form.invalidTypeName.trim();
   if (form.oversizeRef.trim()) out.oversizeRef = form.oversizeRef.trim();
   if (form.oversizeName.trim()) out.oversizeName = form.oversizeName.trim();
+  if (form.cleanupPath.trim()) {
+    out.cleanupPath = form.cleanupPath.trim();
+    out.cleanupMethod = form.cleanupMethod.trim() || "DELETE";
+    out.cleanupIdField = form.cleanupIdField.trim() || "id";
+  }
   return out;
 }
 
@@ -116,6 +127,7 @@ export function SystemProfileView({
   const [mechSaving, setMechSaving] = useState(false);
   const [mechError, setMechError] = useState<string | null>(null);
   const [mechSaved, setMechSaved] = useState<{ title: string; testId: string } | null>(null);
+  const mechInitRef = useRef<string | null>(null);
 
   const loadRecent = async () => {
     try {
@@ -170,6 +182,10 @@ export function SystemProfileView({
       .then((plan) => {
         if (cancelled) return;
         setMechanismPlan(plan);
+        if (mechInitRef.current !== record.id) {
+          mechInitRef.current = record.id;
+          setMechContext(contextFromPlan(plan.mechanisms[0]?.context));
+        }
         const fileMedia = plan.mechanisms[0];
         if (fileMedia?.scenarios.length && !fileMedia.scenarios.some((s) => s.kind === mechScenario)) {
           setMechScenario(fileMedia.scenarios[0]!.kind);
@@ -581,6 +597,9 @@ export function SystemProfileView({
                           ["invalidTypeName", "类型不符文件名"],
                           ["oversizeRef", "超大 fixture"],
                           ["oversizeName", "超大文件名"],
+                          ["cleanupPath", "清理请求路径（含 {{uploadedId}}）"],
+                          ["cleanupMethod", "清理方法"],
+                          ["cleanupIdField", "响应中的 id 字段"],
                         ] as const
                       ).map(([key, label]) => (
                         <label key={key} className="mechanism-field">

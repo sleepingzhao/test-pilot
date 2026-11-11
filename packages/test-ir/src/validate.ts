@@ -3,7 +3,7 @@ import addFormatsModule from "ajv-formats";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { Locator, RequestMethod, TestIR, ValidationIssue, ValidationResult } from "./types.js";
+import type { Locator, RequestMethod, TestIR, TestStep, ValidationIssue, ValidationResult } from "./types.js";
 
 const schemaPath = join(dirname(fileURLToPath(import.meta.url)), "../schema/test-ir.v1.schema.json");
 
@@ -92,6 +92,23 @@ export function requestPathIssue(path: string): string | undefined {
   return undefined;
 }
 
+function saveFromIssue(step: TestStep): string | undefined {
+  if (step.action === "request") {
+    if (step.saveFromRef) {
+      return "request steps use saveFields directly; saveFromRef is only for UI-triggered requests";
+    }
+    return undefined;
+  }
+  if (step.saveFromRef) {
+    if (!step.saveFields || Object.keys(step.saveFields).length === 0) {
+      return "saveFromRef requires saveFields";
+    }
+    return undefined;
+  }
+  if (step.saveFields) return "saveFields on a non-request step requires saveFromRef";
+  return undefined;
+}
+
 /** Semantic checks beyond JSON Schema (e.g. human-approved for high-risk UI). */
 export function validateSemantics(ir: TestIR): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
@@ -127,6 +144,8 @@ export function validateSemantics(ir: TestIR): ValidationIssue[] {
       issues.push({ path: `/steps/${i}/id`, message: `duplicate step id: ${step.id}` });
     }
     stepIds.add(step.id);
+    const saveIssue = saveFromIssue(step);
+    if (saveIssue) issues.push({ path: `/steps/${i}`, message: saveIssue });
   }
   for (const [i, step] of teardown.entries()) {
     if (stepIds.has(step.id)) {
@@ -136,6 +155,8 @@ export function validateSemantics(ir: TestIR): ValidationIssue[] {
       });
     }
     stepIds.add(step.id);
+    const saveIssue = saveFromIssue(step);
+    if (saveIssue) issues.push({ path: `/teardownSteps/${i}`, message: saveIssue });
   }
   if (cleanup && cleanup !== "none" && teardown.length === 0) {
     issues.push({

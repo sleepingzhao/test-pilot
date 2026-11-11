@@ -1472,7 +1472,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
 
     const project = store.project();
-    let ir = applyBaseUrlTarget(scenarioIr.ir, record.url);
+    const slug = randomUUID().slice(0, 8);
+    const testId = `mechanism-file-media-${scenario}-${slug}`;
+    if (!isSafeTestId(testId)) {
+      return reply.code(500).send({ error: "无法生成安全的用例 id" });
+    }
+    const ir = { ...applyBaseUrlTarget(scenarioIr.ir, record.url), id: testId };
     if (!isAllowedTargetUrl(record.url)) {
       return reply.code(400).send({ error: `探测目标地址不在允许列表: ${record.url}` });
     }
@@ -1493,11 +1498,6 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       });
     }
 
-    const slug = randomUUID().slice(0, 8);
-    const testId = `mechanism-file-media-${scenario}-${slug}`;
-    if (!isSafeTestId(testId)) {
-      return reply.code(500).send({ error: "无法生成安全的用例 id" });
-    }
     const label = FILE_MEDIA_SCENARIO_LABELS[scenario];
     const test = stampTestMeta({
       id: testId,

@@ -40,6 +40,9 @@ export type MechanismPlanResponse = {
       invalidTypeName?: string;
       oversizeRef?: string;
       oversizeName?: string;
+      cleanupPath?: string;
+      cleanupMethod?: string;
+      cleanupIdField?: string;
     };
     scenarios: Array<{ id: string; kind: FileMediaScenarioKind }>;
   }>;

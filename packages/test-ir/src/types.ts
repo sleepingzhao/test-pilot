@@ -38,6 +38,8 @@ export interface TestStep {
   saveAs?: string;
   /** Variable name → dot path into the JSON response body. */
   saveFields?: Record<string, string>;
+  /** For non-request steps: capture the response of a UI-triggered request matched by requestRef. */
+  saveFromRef?: string;
 }
 
 export interface TestAssertion {

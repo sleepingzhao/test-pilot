@@ -377,3 +377,86 @@ test("rejects duplicate step ids across steps and teardownSteps", () => {
   const issues = validateSemantics(ir);
   assert.ok(issues.some((issue) => /duplicate step id/.test(issue.message)));
 });
+
+test("accepts saveFromRef with saveFields on a UI-triggered request", () => {
+  const ir = {
+    id: "save-from",
+    version: 1,
+    platform: "web",
+    steps: [
+      { id: "open", action: "navigate", path: "/" },
+      {
+        id: "upload",
+        action: "click",
+        target: { testId: "submit" },
+        saveFromRef: "files-upload",
+        saveFields: { uploadedId: "id" },
+      },
+    ],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "ok" }],
+  };
+  const result = validateTestIR(ir);
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? {} : result.issues));
+  if (result.ok) assert.deepEqual(validateSemantics(result.value), []);
+});
+
+test("rejects saveFields without saveFromRef on a non-request step", () => {
+  const result = validateTestIR({
+    id: "save-fields-only",
+    version: 1,
+    platform: "web",
+    steps: [
+      {
+        id: "upload",
+        action: "click",
+        target: { testId: "submit" },
+        saveFields: { uploadedId: "id" },
+      },
+    ],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "ok" }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    const issues = validateSemantics(result.value);
+    assert.match(issues.map((issue) => issue.message).join("\n"), /saveFromRef/);
+  }
+});
+
+test("rejects saveFromRef on a request step and without saveFields", () => {
+  const onRequest = validateTestIR({
+    id: "save-from-request",
+    version: 1,
+    platform: "web",
+    steps: [
+      {
+        id: "call",
+        action: "request",
+        method: "GET",
+        path: "/api/x",
+        saveFromRef: "files-upload",
+        saveFields: { uploadedId: "id" },
+      },
+    ],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "ok" }],
+  });
+  assert.equal(onRequest.ok, true);
+  if (onRequest.ok) {
+    const issues = validateSemantics(onRequest.value);
+    assert.match(issues.map((issue) => issue.message).join("\n"), /request steps use saveFields/);
+  }
+
+  const noFields = validateTestIR({
+    id: "save-from-no-fields",
+    version: 1,
+    platform: "web",
+    steps: [
+      { id: "click", action: "click", target: { testId: "submit" }, saveFromRef: "files-upload" },
+    ],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "ok" }],
+  });
+  assert.equal(noFields.ok, true);
+  if (noFields.ok) {
+    const issues = validateSemantics(noFields.value);
+    assert.match(issues.map((issue) => issue.message).join("\n"), /requires saveFields/);
+  }
+});

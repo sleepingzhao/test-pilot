@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/ticket-p1.test.ts src/negative-probes.test.ts src/recorded-login-p3.test.ts src/retry-integration.test.ts src/delayed-network-assertion.test.ts src/request-step.test.ts src/request-template.test.ts src/api-direct-demo.test.ts src/upload-step.test.ts src/file-media-demo.test.ts src/ws-pipeline.test.ts src/cleanup.test.ts src/step-screenshots.test.ts",
+    "test": "node --import tsx --test src/ticket-p1.test.ts src/negative-probes.test.ts src/recorded-login-p3.test.ts src/retry-integration.test.ts src/delayed-network-assertion.test.ts src/request-step.test.ts src/request-template.test.ts src/api-direct-demo.test.ts src/upload-step.test.ts src/file-media-demo.test.ts src/ws-pipeline.test.ts src/cleanup.test.ts src/step-screenshots.test.ts src/ui-response-capture.test.ts",
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {

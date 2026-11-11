@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/config-hash.test.ts src/trace-client.test.ts src/upload-path.test.ts value-ref.test.mjs",
+    "test": "node --import tsx --test src/config-hash.test.ts src/trace-client.test.ts src/upload-path.test.ts src/request-refs.test.ts value-ref.test.mjs",
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {

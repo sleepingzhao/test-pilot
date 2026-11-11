@@ -1,6 +1,6 @@
 import { requestPathIssue, type Locator as TargetLocator, type TestIR, type TestStep } from "@testpilot/test-ir";
 import { runAssertion, urlPathMatches, type AssertionContext } from "@testpilot/assertions";
-import type { DirectNetworkInput, RunArtifacts, WsFrame } from "@testpilot/evidence";
+import type { DirectNetworkInput, NetworkEntry, RunArtifacts, WsFrame } from "@testpilot/evidence";
 import { classifyFailure, createEvidenceCollector, maxRunAttempts, redactForEvidence, redactStringBody, redactStrings, shouldRetryAfterFailure } from "@testpilot/evidence";
 import type { RunEnvironment } from "@testpilot/fixtures";
 import { buildReadonlyDbClient, buildAgentTraceClient, getDbConfigBundle, getAgentConfigBundle, resolveBaseUrl, resolveFixtureRefs, resolveRequestRef, resolveUploadFixturePath, resolveValueRefs } from "@testpilot/fixtures";
@@ -478,6 +478,26 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         evidence.recordNetworkEntry,
       );
       const result: StepResult = { ...executed };
+      if (result.status !== "failed" && step.saveFromRef && step.saveFields) {
+        try {
+          const spec = resolveRequestRef(step.saveFromRef, options.env);
+          if (!spec) throw new Error(`unknown requestRef: ${step.saveFromRef}`);
+          const matches = (entry: NetworkEntry) =>
+            urlPathMatches(entry.url, spec.urlIncludes) &&
+            (!spec.method || entry.method.toUpperCase() === spec.method.toUpperCase());
+          const captured = await evidence.waitForNetworkEntry(matches, 10_000);
+          if (!captured) throw new Error(`没有捕获到 ${step.saveFromRef} 的响应`);
+          const entries = evidence.getNetworkLog().filter(matches);
+          const entry = entries[entries.length - 1];
+          if (!entry?.responseBody) {
+            throw new Error(`${step.saveFromRef} 的响应体为空或过大，无法保存字段`);
+          }
+          assignResponseVariables(step, entry.responseBody, vars);
+        } catch (err) {
+          result.status = "failed";
+          result.message = err instanceof Error ? err.message : String(err);
+        }
+      }
       if (result.status !== "failed" && (ir.policy?.screenshots ?? "on-failure") === "always") {
         const shot = await evidence.captureStep(page, result.stepId, steps.length + 1);
         if (shot) result.screenshot = shot;

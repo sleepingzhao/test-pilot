@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { join } from "node:path";
 import test from "node:test";
@@ -121,7 +123,7 @@ test("two actors: isolated cookies, UI/API assertions, multi actorMode", async (
   const server = createActorServer();
   const port = await listen(server);
   const baseUrl = `http://127.0.0.1:${port}`;
-  const artifactsDir = join(process.cwd(), "artifacts-multi-actor-ok");
+  const artifactsDir = await mkdtemp(join(tmpdir(), "testpilot-multi-actor-"));
   try {
     const run = await runTestIR(twoActorIr(baseUrl), {
       headless: true,
@@ -138,6 +140,7 @@ test("two actors: isolated cookies, UI/API assertions, multi actorMode", async (
     assert.ok(existsSync(join(runDir, "trace.zip")));
   } finally {
     server.close();
+    await rm(artifactsDir, { recursive: true, force: true });
   }
 });
 

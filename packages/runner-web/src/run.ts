@@ -548,7 +548,8 @@ async function runMainStep(
   }
   if (result.status !== "failed" && (ir.policy?.screenshots ?? "on-failure") === "always") {
     const shot = await evidence.captureStep(page, result.stepId, steps.length + 1);
-    if (shot) result.screenshot = shot;
+    // Only primary screenshots are addressable through the run artifact URL today.
+    if (shot && actorId === "primary") result.screenshot = shot;
   }
   return result;
 }
@@ -646,7 +647,15 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
 
     if (status === "passed") {
       if (ir.assertions.some((a) => a.type === "api")) {
-        await primarySession.page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => undefined);
+        const apiActorIds = new Set(
+          ir.assertions.filter((a) => a.type === "api").map((a) => a.actor ?? "primary"),
+        );
+        for (const actorId of apiActorIds) {
+          const session = lookupActorSession(sessions, actorId);
+          await session?.page
+            .waitForLoadState("networkidle", { timeout: 8_000 })
+            .catch(() => undefined);
+        }
         for (const assertion of ir.assertions) {
           if (assertion.type !== "api" || !assertion.requestRef) continue;
           const actorId = assertion.actor ?? "primary";

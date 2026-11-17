@@ -69,7 +69,9 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
     void (async () => {
       try {
         const res = await api<{ ws: WsLog }>(`/api/runs/${run.runId}/ws`);
-        if (!cancelled) setWsLog(res.ws);
+        if (!cancelled) {
+          setWsLog(res.ws.frames.length === 0 && res.ws.dropped === 0 ? null : res.ws);
+        }
       } catch {
         if (!cancelled) setWsLog(null);
       }

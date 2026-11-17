@@ -96,7 +96,7 @@ function parseOpenApiDocument(text: string): { ok: true; doc: Record<string, unk
     doc = JSON.parse(trimmed) as unknown;
   } catch {
     try {
-      doc = parseYaml(trimmed, { prettyErrors: false });
+      doc = parseYaml(trimmed, { prettyErrors: false, maxAliasCount: 100 });
     } catch {
       return { ok: false, error: "无法解析 OpenAPI 文档（JSON/YAML 格式错误）" };
     }
@@ -174,6 +174,7 @@ export function parseOpenApi(text: string): OpenApiParseResult {
   const paths = doc.paths as Record<string, unknown>;
   for (const [path, pathItem] of Object.entries(paths)) {
     if (!isRecord(pathItem)) continue;
+    if (!path.startsWith("/") || path.startsWith("//")) continue;
     for (const method of HTTP_METHODS) {
       const op = pathItem[method];
       if (!isRecord(op)) continue;
@@ -405,6 +406,10 @@ export function buildOpenApiRequest(
     }
 
     if (loc === "header") {
+      if (/[\r\n]/.test(name) || (value !== undefined && /[\r\n]/.test(String(value)))) {
+        warnings.push(`请求头 ${name.replace(/[\r\n]/g, "")} 含换行，已跳过`);
+        continue;
+      }
       const key = name.toLowerCase();
       if (SENSITIVE_HEADERS.has(key)) {
         const display = DISPLAY_HEADER_NAMES[key] ?? name;
@@ -489,6 +494,15 @@ export function buildOpenApiRequest(
     }
 
     if (isAbsoluteHttpUrl(url)) {
+      try {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.username || parsedUrl.password) {
+          warnings.push("服务器 URL 包含凭据，已忽略");
+          break;
+        }
+      } catch {
+        /* isAbsoluteHttpUrl already validated */
+      }
       serverUrl = url.replace(/\/$/, "");
       break;
     }

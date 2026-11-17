@@ -298,3 +298,56 @@ test("unknown operation key returns error", () => {
   if (built.ok) throw new Error("expected error");
   assert.equal(built.error, "未找到该操作");
 });
+test("skips path keys that are not root-relative", () => {
+  const spec = JSON.stringify({
+    openapi: "3.0.0",
+    info: { title: "Paths", version: "1" },
+    paths: {
+      "/ok": { get: { responses: { "200": { description: "OK" } } } },
+      "items": { get: { responses: { "200": { description: "OK" } } } },
+      "//evil.example/api": { get: { responses: { "200": { description: "OK" } } } },
+    },
+  });
+  const parsed = parseOpenApi(spec);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.deepEqual(parsed.operations.map((o) => o.key), ["GET /ok"]);
+});
+
+test("server URLs with credentials are ignored", () => {
+  const spec = JSON.stringify({
+    openapi: "3.0.0",
+    info: { title: "Creds", version: "1" },
+    servers: [{ url: "https://user:pass@api.example.com" }],
+    paths: { "/x": { get: { responses: { "200": { description: "OK" } } } } },
+  });
+  const built = buildOpenApiRequest(spec, "GET /x");
+  assert.equal(built.ok, true);
+  if (!built.ok) return;
+  assert.equal(built.request.serverUrl, undefined);
+  assert.match(built.request.warnings.join("\n"), /包含凭据/);
+  assert.equal(JSON.stringify(built.request).includes("user:pass"), false);
+});
+
+test("header values with CRLF are skipped", () => {
+  const spec = JSON.stringify({
+    openapi: "3.0.0",
+    info: { title: "Headers", version: "1" },
+    paths: {
+      "/x": {
+        get: {
+          parameters: [
+            { name: "X-Test", in: "header", example: "a\r\nb" },
+            { name: "X-Ok", in: "header", example: "fine" },
+          ],
+          responses: { "200": { description: "OK" } },
+        },
+      },
+    },
+  });
+  const built = buildOpenApiRequest(spec, "GET /x");
+  assert.equal(built.ok, true);
+  if (!built.ok) return;
+  assert.deepEqual(built.request.headers, { "X-Ok": "fine" });
+  assert.match(built.request.warnings.join("\n"), /X-Test.*含换行/);
+});

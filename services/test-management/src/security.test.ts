@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import sensible from "@fastify/sensible";
 import Fastify from "fastify";
@@ -10,6 +10,7 @@ import {
   isAllowedCorsOrigin,
   isAllowedTargetUrl,
   isSafeArtifactName,
+  isSafeArtifactRelativePath,
   isSafeRunId,
   isSafeTestId,
   isWithin,
@@ -31,6 +32,10 @@ test("storage ids reject traversal and uppercase", () => {
   assert.equal(isSafeArtifactName("network.json"), true);
   assert.equal(isSafeArtifactName("../trace.zip"), false);
   assert.equal(isSafeArtifactName(".env"), false);
+  assert.equal(isSafeArtifactRelativePath("actors/b/network.json"), true);
+  assert.equal(isSafeArtifactRelativePath("trace.zip"), true);
+  assert.equal(isSafeArtifactRelativePath("actors/../network.json"), false);
+  assert.equal(isSafeArtifactRelativePath("../.env"), false);
 });
 
 test("path containment rejects sibling-prefix and parent escapes", () => {
@@ -207,6 +212,50 @@ test("artifact routes cannot escape the run directory", async () => {
       url: "/api/runs/run_sec1/artifacts/manifest.json",
     });
     assert.equal(unregistered.statusCode, 404);
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("artifact routes serve nested actor evidence and reject traversal", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-security-actor-artifact-"));
+  const artifactsRoot = join(root, "artifacts");
+  const dataRoot = join(root, "data");
+  const runDir = join(artifactsRoot, "runs", "run_multi");
+  const actorNet = join(runDir, "actors", "b", "network.json");
+  const store = new FileStore(dataRoot);
+  await store.init();
+  await mkdir(dirname(actorNet), { recursive: true });
+  await writeFile(actorNet, '[{"url":"http://127.0.0.1/whoami"}]\n');
+  const run: StoredRun = {
+    ...makeRun("run_multi", runDir),
+    actorMode: "multi",
+    artifacts: {
+      runId: "run_multi",
+      dir: runDir,
+      artifacts: [{ kind: "network", path: actorNet }],
+    },
+  };
+  await store.saveRun(run);
+
+  const app = Fastify();
+  await app.register(sensible);
+  registerRoutes(app, store, artifactsRoot, dataRoot);
+  await app.ready();
+  try {
+    const ok = await app.inject({
+      method: "GET",
+      url: "/api/runs/run_multi/artifacts/actors/b/network.json",
+    });
+    assert.equal(ok.statusCode, 200);
+    assert.match(ok.body, /whoami/);
+
+    const escape = await app.inject({
+      method: "GET",
+      url: "/api/runs/run_multi/artifacts/actors/b/../../.env",
+    });
+    assert.equal(escape.statusCode, 404);
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });

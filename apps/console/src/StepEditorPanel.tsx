@@ -74,6 +74,11 @@ export function StepEditorPanel({
           <li key={`${step.id}-${i}`} className="step-editor-row">
             <span className="step-editor-index">{i + 1}</span>
             <span className="step-editor-summary">{describeStep(step, i).replace(/^\d+\.\s*/, "")}</span>
+            {step.actor ? (
+              <span className="badge subtle step-actor-badge" title="step.actor">
+                {step.actor}
+              </span>
+            ) : null}
             <div className="step-editor-actions">
               <button type="button" className="btn-mini" disabled={i === 0} onClick={() => onChange(moveStep(steps, i, -1))}>
                 上移

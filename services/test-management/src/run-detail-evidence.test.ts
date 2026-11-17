@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   artifactFileName,
+  artifactUrlForRelativePath,
   formatJsonBrief,
+  listActorEvidenceGroups,
   listEvidenceRows,
   runDetailHeadline,
 } from "../../../apps/console/src/runDetail.js";
@@ -81,4 +83,41 @@ test("SSE artifact links to sse.json when present", () => {
 test("formatJsonBrief truncates long values and tolerates undefined", () => {
   assert.equal(formatJsonBrief(undefined), "—");
   assert.ok(formatJsonBrief({ a: "x".repeat(1000) }, 40).endsWith("…"));
+});
+
+test("actor evidence groups link nested artifact paths", () => {
+  const multi = run({
+    actorMode: "multi",
+    artifacts: {
+      dir: "/artifacts/runs/run_multi",
+      artifacts: [
+        { kind: "trace", path: "/artifacts/runs/run_multi/trace.zip" },
+        { kind: "network", path: "/artifacts/runs/run_multi/actors/b/network.json" },
+        { kind: "trace", path: "/artifacts/runs/run_multi/actors/b/trace.zip" },
+      ],
+    },
+  });
+  const groups = listActorEvidenceGroups(multi);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0]!.actorId, "b");
+  assert.equal(groups[0]!.links.length, 2);
+  const href = groups[0]!.links.find((l) => l.label === "Network")?.href ?? "";
+  assert.equal(href, artifactUrlForRelativePath(multi, "actors/b/network.json"));
+  assert.match(href, /\/artifacts\/actors\/b\/network\.json$/);
+});
+
+test("primary evidence rows ignore actor artifacts", () => {
+  const rows = listEvidenceRows(
+    run({
+      artifacts: {
+        dir: "/artifacts/runs/run_multi",
+        artifacts: [
+          { kind: "network", path: "/artifacts/runs/run_multi/network.json" },
+          { kind: "network", path: "/artifacts/runs/run_multi/actors/b/network.json" },
+        ],
+      },
+    }),
+  );
+  assert.equal(rows.find((r) => r.label === "Network")?.href?.endsWith("network.json"), true);
+  assert.equal(rows.some((r) => r.label.includes("账号")), false);
 });

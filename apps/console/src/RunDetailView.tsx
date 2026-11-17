@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { api, type StoredRun, type WsLog } from "./api.js";
-import { artifactUrlForFile, formatJsonBrief, listEvidenceRows, runDetailHeadline } from "./runDetail.js";
+import {
+  artifactUrlForFile,
+  formatJsonBrief,
+  listActorEvidenceGroups,
+  listEvidenceRows,
+  runDetailHeadline,
+} from "./runDetail.js";
 import { failureKindLabel } from "./stepSummary.js";
 
 type Props = {
@@ -104,6 +110,7 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
   }
 
   const evidence = listEvidenceRows(run);
+  const actorEvidence = listActorEvidenceGroups(run);
   const hasFailedStep = run.steps.some((s) => s.status === "failed");
   const hasFailedAssertion = run.assertions.some((a) => !a.passed);
 
@@ -128,6 +135,12 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
         <p className="run-detail-meta">
           {runDetailHeadline(run)}
           {run.trial ? " · 试跑" : ""}
+          {run.actorMode === "multi" ? (
+            <>
+              {" · "}
+              <span className="badge subtle">多账号执行</span>
+            </>
+          ) : null}
         </p>
         <p className="run-detail-meta">
           {new Date(run.completedAt).toLocaleString()} · <code>{run.runId}</code>
@@ -170,6 +183,11 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
                 className={`run-step${s.status === "failed" ? " run-step-failed" : ""}`}
               >
                 <span className="run-step-id">{s.stepId}</span>
+                {s.actor ? (
+                  <span className="badge subtle step-actor-badge" title="step.actor">
+                    {s.actor}
+                  </span>
+                ) : null}
                 <span className="run-step-status">{s.status}</span>
                 {typeof s.durationMs === "number" ? (
                   <span className="run-step-dur">{s.durationMs} ms</span>
@@ -325,6 +343,30 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
                 )}
               </>
             )}
+          </div>
+        ) : null}
+
+        {actorEvidence.length > 0 ? (
+          <div className="card-panel run-detail-actor-evidence">
+            <h3>账号证据</h3>
+            <p className="hint-inline">按 actor 分组的附属浏览器上下文证据（路径 actors/&lt;id&gt;/）。</p>
+            {actorEvidence.map((group) => (
+              <div key={group.actorId} className="actor-evidence-group">
+                <h4>
+                  <code>{group.actorId}</code>
+                </h4>
+                <ul className="evidence-links">
+                  {group.links.map((link) => (
+                    <li key={link.href}>
+                      <span>{link.label}</span>
+                      <a className="btn-small" href={link.href} target="_blank" rel="noreferrer">
+                        打开
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
         ) : null}
 

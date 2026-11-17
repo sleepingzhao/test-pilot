@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -75,7 +75,7 @@ import {
 } from "./regression-baseline.js";
 import {
   isAllowedTargetUrl,
-  isSafeArtifactName,
+  isSafeArtifactRelativePath,
   isSafeRunId,
   isSafeTestId,
   isWithin,
@@ -320,6 +320,12 @@ async function appendRunMetrics(dataRoot: string, stored: StoredRun, extra?: Rec
 /** Old runs may predate write-time redaction; redact again on API reads. */
 function redactRunForApi(run: StoredRun): StoredRun {
   return redactForEvidence(run) as StoredRun;
+}
+
+function artifactRelativeFromRunDir(runDir: string, artifactPath: string): string | null {
+  const filePath = resolve(isAbsolute(artifactPath) ? artifactPath : join(runDir, artifactPath));
+  if (!isWithin(runDir, filePath)) return null;
+  return relative(runDir, filePath).split(sep).join("/");
 }
 
 function artifactPresence(run: StoredRun, artifactsRoot: string): Record<string, boolean> {
@@ -2014,23 +2020,28 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (!isSafeRunId(runId)) return reply.notFound("run not found");
     const run = await store.getRun(runId);
     if (!run) return reply.notFound("run not found");
-    if (!isSafeArtifactName(wildcard)) return reply.notFound("artifact not found");
+    const normalizedWildcard = wildcard.replace(/\\/g, "/");
+    if (!isSafeArtifactRelativePath(normalizedWildcard)) return reply.notFound("artifact not found");
 
     const root = resolve(artifactsRoot);
     const rawRunDir = run.artifacts?.dir ?? join(root, "runs", runId);
     const runDir = resolve(isAbsolute(rawRunDir) ? rawRunDir : resolve(root, "..", rawRunDir));
     if (runDir === root || !isWithin(root, runDir)) return reply.notFound("artifact not found");
 
-    const registered = run.artifacts?.artifacts?.find((a) => basename(a.path) === wildcard);
+    const registered = run.artifacts?.artifacts?.find((a) => {
+      const rel = artifactRelativeFromRunDir(runDir, a.path);
+      if (rel === normalizedWildcard) return true;
+      return !normalizedWildcard.includes("/") && basename(a.path) === normalizedWildcard;
+    });
     let filePath: string | null = registered
       ? resolve(isAbsolute(registered.path) ? registered.path : join(runDir, registered.path))
       : null;
     if (filePath && !isWithin(runDir, filePath)) filePath = null;
-    if (!filePath && wildcard === "network.json") filePath = resolveWithin(runDir, wildcard);
+    if (!filePath && normalizedWildcard === "network.json") filePath = resolveWithin(runDir, normalizedWildcard);
     if (!filePath || filePath === runDir) return reply.notFound("artifact not found");
 
     if (!existsSync(filePath)) {
-      if (wildcard === "network.json") {
+      if (normalizedWildcard === "network.json") {
         await mkdir(runDir, { recursive: true });
         await writeFile(filePath, "[]\n", "utf8");
       } else {

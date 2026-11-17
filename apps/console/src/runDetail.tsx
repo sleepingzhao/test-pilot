@@ -13,7 +13,63 @@ export function artifactUrl(run: StoredRun, fileName: string): string {
 }
 
 export function artifactUrlForFile(run: StoredRun, fileName: string): string {
+  if (fileName.includes("/")) return artifactUrlForRelativePath(run, fileName);
   return `/api/runs/${run.runId}/artifacts/${encodeURIComponent(fileName)}`;
+}
+
+export function artifactUrlForRelativePath(run: StoredRun, relativePath: string): string {
+  const normalized = relativePath.replace(/\\/g, "/").replace(/^\/+/, "");
+  const encoded = normalized
+    .split("/")
+    .filter(Boolean)
+    .map((seg) => encodeURIComponent(seg))
+    .join("/");
+  return `/api/runs/${run.runId}/artifacts/${encoded}`;
+}
+
+const ACTOR_ARTIFACT_KIND_LABEL: Record<string, string> = {
+  network: "Network",
+  trace: "Trace",
+  screenshot: "截图",
+  har: "HAR",
+  log: "清单",
+  ws: "WebSocket",
+  sse: "SSE",
+};
+
+function artifactPathUnderActors(artifactPath: string): { actorId: string; relative: string } | null {
+  const normalized = artifactPath.replace(/\\/g, "/");
+  const marker = "/actors/";
+  const idx = normalized.indexOf(marker);
+  if (idx < 0) return null;
+  const rest = normalized.slice(idx + marker.length);
+  const slash = rest.indexOf("/");
+  if (slash <= 0) return null;
+  const actorId = rest.slice(0, slash);
+  const file = rest.slice(slash + 1);
+  if (!actorId || !file) return null;
+  return { actorId, relative: `actors/${actorId}/${file}` };
+}
+
+export type ActorEvidenceGroup = {
+  actorId: string;
+  links: Array<{ label: string; href: string }>;
+};
+
+export function listActorEvidenceGroups(run: StoredRun): ActorEvidenceGroup[] {
+  const groups = new Map<string, ActorEvidenceGroup["links"]>();
+  for (const item of run.artifacts?.artifacts ?? []) {
+    const parsed = artifactPathUnderActors(item.path);
+    if (!parsed) continue;
+    const label = ACTOR_ARTIFACT_KIND_LABEL[item.kind] ?? parsed.relative.split("/").pop() ?? item.kind;
+    const href = artifactUrlForRelativePath(run, parsed.relative);
+    const bucket = groups.get(parsed.actorId) ?? [];
+    bucket.push({ label, href });
+    groups.set(parsed.actorId, bucket);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([actorId, links]) => ({ actorId, links }));
 }
 
 export type EvidenceRow = { label: string; href: string | null };

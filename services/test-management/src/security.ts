@@ -21,6 +21,17 @@ export function isSafeArtifactName(value: string): boolean {
   return ARTIFACT_NAME_RE.test(value) && value !== "." && value !== "..";
 }
 
+const ARTIFACT_SEGMENT_RE = ARTIFACT_NAME_RE;
+
+/** Relative artifact paths under a run directory (e.g. actors/b/network.json). */
+export function isSafeArtifactRelativePath(value: string): boolean {
+  if (!value || value.includes("\0") || isAbsolute(value)) return false;
+  if (value === "." || value === "..") return false;
+  const segments = value.split("/").filter(Boolean);
+  if (segments.length === 0) return false;
+  return segments.every((seg) => ARTIFACT_SEGMENT_RE.test(seg) && seg !== "." && seg !== "..");
+}
+
 export function isWithin(root: string, target: string): boolean {
   const base = resolve(root);
   const next = resolve(target);

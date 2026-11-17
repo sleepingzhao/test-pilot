@@ -10,6 +10,7 @@ import {
 } from "./AssertionProviderPanel";
 import type { TestStep } from "@testpilot/test-ir/step-edit";
 import { StepEditorPanel } from "./StepEditorPanel";
+import { ActorsReviewPanel } from "./ActorsReviewPanel";
 import { RequirementFlowView } from "./RequirementFlowView";
 import { ApiTestView } from "./ApiTestView";
 import { ApiTestEditPanel } from "./ApiTestEditPanel";
@@ -105,6 +106,8 @@ export function App() {
   const [reviewIntent, setReviewIntent] = useState("");
   const [reviewSteps, setReviewSteps] = useState<TestStep[]>([]);
   const [reviewTeardown, setReviewTeardown] = useState<TestStep[]>([]);
+  const [actorsJson, setActorsJson] = useState("[]");
+  const [actorsEditorVisible, setActorsEditorVisible] = useState(false);
   const [cleanupPolicy, setCleanupPolicy] = useState<CleanupPolicy>("none");
   const [reviewDirty, setReviewDirty] = useState(false);
   const [trialRunning, setTrialRunning] = useState(false);
@@ -488,6 +491,8 @@ export function App() {
     setEditTest(t);
     setReviewSteps([...(t.ir.steps ?? [])] as TestStep[]);
     setReviewTeardown([...(t.ir.teardownSteps ?? [])] as TestStep[]);
+    setActorsJson(JSON.stringify(t.ir.actors ?? [], null, 2));
+    setActorsEditorVisible((t.ir.actors?.length ?? 0) > 0);
     const policyCleanup = t.ir.policy?.cleanup;
     setCleanupPolicy(
       policyCleanup === "on-success" || policyCleanup === "always" ? policyCleanup : "none",
@@ -723,10 +728,21 @@ export function App() {
     markReviewDirty();
   };
 
+  const applyActorsSaved = async (updated: StoredTest) => {
+    setEditTest(updated);
+    setActorsJson(JSON.stringify(updated.ir.actors ?? [], null, 2));
+    setActorsEditorVisible((updated.ir.actors?.length ?? 0) > 0);
+    setReviewDirty(false);
+    setTrialResult(null);
+    await refresh();
+  };
+
   const applyApiTestSaved = async (updated: StoredTest) => {
     setEditTest(updated);
     setReviewSteps([...(updated.ir.steps ?? [])] as TestStep[]);
     setReviewTeardown([...(updated.ir.teardownSteps ?? [])] as TestStep[]);
+    setActorsJson(JSON.stringify(updated.ir.actors ?? [], null, 2));
+    setActorsEditorVisible((updated.ir.actors?.length ?? 0) > 0);
     const policyCleanup = updated.ir.policy?.cleanup;
     setCleanupPolicy(
       policyCleanup === "on-success" || policyCleanup === "always" ? policyCleanup : "none",
@@ -798,6 +814,16 @@ export function App() {
     const ir: StoredTest["ir"] = { ...editTest.ir, assertions: base, steps: reviewSteps };
     if (Object.keys(policy).length > 0) ir.policy = policy;
     else delete ir.policy;
+    if (reviewTeardown.length > 0) ir.teardownSteps = reviewTeardown;
+    else delete ir.teardownSteps;
+    return ir;
+  };
+
+  const buildIrForPersist = (): StoredTest["ir"] | null => {
+    if (!editTest) return null;
+    const built = buildReviewIr();
+    if (built) return built;
+    const ir: StoredTest["ir"] = { ...editTest.ir, steps: reviewSteps };
     if (reviewTeardown.length > 0) ir.teardownSteps = reviewTeardown;
     else delete ir.teardownSteps;
     return ir;
@@ -1848,6 +1874,17 @@ export function App() {
               {editTest.sourceChannel === "api" ? (
                 <ApiTestEditPanel test={editTest} onSaved={(t) => void applyApiTestSaved(t)} />
               ) : null}
+              <ActorsReviewPanel
+                test={editTest}
+                actorsJson={actorsJson}
+                onActorsJsonChange={setActorsJson}
+                visible={actorsEditorVisible}
+                onShow={() => setActorsEditorVisible(true)}
+                buildIr={buildIrForPersist}
+                intentSummary={reviewIntent}
+                onSaved={(t) => void applyActorsSaved(t)}
+                notify={notify}
+              />
               <StepEditorPanel steps={reviewSteps} onChange={updateReviewSteps} />
 
               <section className="review-section">

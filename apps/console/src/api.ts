@@ -83,6 +83,7 @@ export type StoredTest = {
     assertions: unknown[];
     steps: unknown[];
     teardownSteps?: unknown[];
+    actors?: Array<{ id: string; loginSteps?: unknown[]; baseUrl?: string; baseUrlRef?: string }>;
     policy?: { cleanup?: "none" | "on-success" | "always"; [key: string]: unknown };
     baseUrl?: string;
     baseUrlRef?: string;
@@ -129,12 +130,15 @@ export type StoredRun = {
   batchId?: string;
   batchStartedAt?: string;
   metrics?: { durationMs: number; failureKind?: string; attemptCount?: number; flakeRecovery?: boolean };
+  /** `multi` when the IR had 2+ actors; omitted on legacy runs. */
+  actorMode?: "multi" | "single";
   steps: Array<{
     stepId: string;
     status: string;
     durationMs?: number;
     message?: string;
     screenshot?: string;
+    actor?: string;
   }>;
   assertions: Array<{
     assertionId: string;

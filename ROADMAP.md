@@ -22,7 +22,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 **当前方向：Web 业务系统优先。** 先把「测试人员安全接入一个业务系统 → 生成/审阅用例 → 跑出可信证据 → 清理测试数据」做通。移动端、CI、多项目/RBAC、平台化暂不投入；实时与 Agent 在业务接入闭环之后继续。
 
-**当前唯一开工任务：V7-9b 生成期视觉定位。** V7-0i 已验收（2026-11-18）：OpenAPI 3.x 本地解析 + 控制台 operation 预填接口表单；V7-6b（2026-11-17）运行详情 WebSocket 帧卡片 + `GET /api/runs/:runId/ws`。DeepSeek Flash 已支持图像理解，可复用现有 OpenAI 兼容端点。视觉能力边界见 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md)：视觉只用于生成期与证据期，已批准回归保持零 LLM。
+**V7-9b 生成期视觉定位已验收（2026-11-18）。** 录制中 `POST /api/record/:jobId/locate` 截图 + 可见元素候选 → 视觉模型返回 Playwright 选择器；控制台「AI 定位」仅作编写辅助、不写 IR；默认 `TESTPILOT_VISION_ENABLED` 关闭，回归仍零 LLM。V7-0i OpenAPI 预填、V7-6b WS 运行详情已就绪。视觉边界见 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md)。**下一开工任务：** P1 backlog（V7-0g / V7-1b / V7-2 / V7-4 等）。
 
 **本阶段要证明的事：** 一条业务系统的正常功能回归，可以被人审阅、能在失败时给出证据、能在通过后不留下脏数据。
 
@@ -53,7 +53,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 ### 未完成 / 明确后置
 
 - **P0（V0.7.5）**：机制包接线、WS 证据入口、OpenAPI 导入（V7-0i 已完成）。
-- **P1**：多账号 `actors`、realtime 机制包、SSE 证据、生成期视觉定位建议（V7-9b，DeepSeek Flash 支持图像理解）。
+- **P1**：多账号 `actors`、realtime 机制包、SSE 证据；~~生成期视觉定位（V7-9b）~~ 已完成。
 - **P2**：Agent 语义断言与 `llm-judge`、风险分析、主动探索、探索模式视觉判定（V7-9c，不进门禁）。
 - **后置**：Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
 
@@ -75,7 +75,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 **原则：视觉只用于生成期与证据期；已批准回归保持零 LLM。**
 
 - [x] **V7-9a 步骤截图时间线与失败回放**（2026-11-12）：`policy.screenshots: "always"` 每步落 `step-<NN>-<stepId>.png` 并记入 `StepResult.screenshot` 与 manifest `stepScreenshots`；截图失败不把通过步骤变成失败；控制台时间线缩略图、点击看原图、「跳到失败步骤」；`on-failure` / `never` 不变；`step-screenshots.test.ts`（evidence 18、runner 50）覆盖三种策略与失败步骤；浏览器实测 2 步通过用例两张缩略图、失败运行跳转生效；`pnpm verify` 全绿。
-- [ ] **V7-9b 生成期视觉定位建议（P1）**：截图 + 裁剪 ARIA 发给视觉模型，返回 1–3 个 locator 候选与包围盒；人工选定后写入 IR，运行时零模型调用；建议缓存只作为候选；试点/真实环境默认关闭。
+- [x] **V7-9b 生成期视觉定位建议（2026-11-18）**：`vision-config.ts` / `vision-locate.ts` + `POST /api/record/:jobId/locate`；录制会话 live page Map；控制台录制中「AI 定位」+ 复制选择器（不写入 IR）；`TESTPILOT_VISION_*` 默认关；`vision-config.test.ts` + `vision-locate.test.ts` + `record-locate.test.ts`；`pnpm verify` 全绿；Playwright 抽检：录制中定位 → 503「视觉定位未启用」、录制正常结束。**未验证：** 开启 `TESTPILOT_VISION_ENABLED=1` 后对 DeepSeek 的真实视觉调用（本机未开密钥）。
 - [ ] **V7-9c 探索模式视觉判定（P2）**：视觉问答只作为探索/诊断建议与证据，标 `oracle: "ai-suggested"`；不参与回归通过/失败门禁；不缓存判定结果。
 
 **验收标准：**
@@ -505,7 +505,7 @@ interface MechanismPack {
 - [ ] V7-1b SSE 证据 — 采集 SSE chunks；与 WS 共用脱敏/截断；证据可下载
 - [ ] V7-2 多账号执行 — IR 增加 `actors`，runner 支持多 browser context、`waitForEvent`；单账号回退必须显式标注
 - [ ] V7-4 realtime-messaging 机制包 — 文本送达（出站 WS + 入站 WS + 对方 DOM）、图片、超长、重连、顺序、去重
-- [ ] V7-9b 生成期视觉定位建议（借鉴 Midscene）— 截图 + 裁剪 ARIA → 1–3 个 locator 候选与包围盒；人工选定后写入 IR；运行时零模型调用；建议缓存只读；试点/真实默认关闭
+- [x] V7-9b 生成期视觉定位建议（2026-11-18）— 录制 `POST …/locate` + 控制台 AI 定位；确定性 css 写入由人手抄；运行时零模型；默认关闭；证据见 §0.1 V7-9b
 
 **第二批：文件/媒体（接口直连验收后）**
 

@@ -58,6 +58,21 @@ export type DetectionJob = {
   error?: string;
 };
 
+export type RecordLocateResponse = {
+  locator: { css: string; testId?: string; role?: string; name?: string };
+  candidate: {
+    index: number;
+    tag: string;
+    text?: string;
+    role?: string;
+    name?: string;
+    rect: { x: number; y: number; width: number; height: number };
+  };
+  confidence: number;
+  reason: string;
+  model: string;
+};
+
 export type StoredTest = {
   id: string;
   projectId: string;

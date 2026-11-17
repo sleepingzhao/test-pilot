@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type StoredBatch, type StoredRun, type StoredTest } from "./api";
+import { api, type RecordLocateResponse, type StoredBatch, type StoredRun, type StoredTest } from "./api";
 import { BatchDetailView } from "./BatchDetailView";
 import {
   AssertionProviderPanel,
@@ -124,6 +124,10 @@ export function App() {
   const [createUrl, setCreateUrl] = useState("");
   const [createMode, setCreateMode] = useState<"requirement" | "api">("requirement");
   const [recordJob, setRecordJob] = useState<string | null>(null);
+  const [locateInstruction, setLocateInstruction] = useState("");
+  const [locateBusy, setLocateBusy] = useState(false);
+  const [locateResult, setLocateResult] = useState<RecordLocateResponse | null>(null);
+  const [locateError, setLocateError] = useState<string | null>(null);
   const [summary, setSummary] = useState<{
     passRate: number;
     avgDurationMs: number;
@@ -539,6 +543,10 @@ export function App() {
       if (job.status === "running") return;
       clearInterval(timer);
       setRecordJob(null);
+      setLocateInstruction("");
+      setLocateResult(null);
+      setLocateError(null);
+      setLocateBusy(false);
       if (job.status === "completed") {
         notify("录制已保存，请审阅断言");
         await refresh();
@@ -1016,6 +1024,35 @@ export function App() {
     });
   };
 
+  const runRecordLocate = async () => {
+    if (!recordJob || !locateInstruction.trim()) return;
+    setLocateBusy(true);
+    setLocateError(null);
+    setLocateResult(null);
+    try {
+      const res = await api<RecordLocateResponse>(`/api/record/${recordJob}/locate`, {
+        method: "POST",
+        body: JSON.stringify({ instruction: locateInstruction.trim() }),
+      });
+      setLocateResult(res);
+    } catch (e) {
+      setLocateError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLocateBusy(false);
+    }
+  };
+
+  const copyLocateSelector = async () => {
+    const css = locateResult?.locator.css;
+    if (!css) return;
+    try {
+      await navigator.clipboard.writeText(css);
+      notify("已复制选择器", "success");
+    } catch {
+      notify("无法访问剪贴板，请手动复制", "error");
+    }
+  };
+
   const startRecord = async () => {
     const testId = `rec-${Date.now().toString(36)}`;
     const url =
@@ -1036,6 +1073,9 @@ export function App() {
         }),
       });
       setRecordJob(res.jobId);
+      setLocateInstruction("");
+      setLocateResult(null);
+      setLocateError(null);
       notify("录制窗口即将打开，操作完成后请关闭该窗口");
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e));
@@ -1607,6 +1647,69 @@ export function App() {
                 <button type="button" className="btn btn-primary" disabled={!!recordJob} onClick={startRecord}>
                   {recordJob ? "录制中…" : "开始录制"}
                 </button>
+                {recordJob ? (
+                  <div className="record-locate-panel">
+                    <h3 className="record-locate-title">AI 定位（可选）</h3>
+                    <p className="record-locate-hint">
+                      在录制窗口中操作页面后，用自然语言描述要选中的元素，获取 Playwright 选择器（不会自动写入用例）。
+                    </p>
+                    <div className="record-locate-row">
+                      <input
+                        type="text"
+                        className="record-locate-input"
+                        value={locateInstruction}
+                        onChange={(e) => setLocateInstruction(e.target.value)}
+                        placeholder="例如：页面右上角的下载按钮"
+                        disabled={locateBusy}
+                      />
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={locateBusy || !locateInstruction.trim()}
+                        onClick={() => void runRecordLocate()}
+                      >
+                        {locateBusy ? "定位中…" : "定位"}
+                      </button>
+                    </div>
+                    {locateError ? <p className="record-locate-error">{locateError}</p> : null}
+                    {locateResult ? (
+                      <div className="record-locate-result">
+                        <dl className="record-locate-meta">
+                          {locateResult.candidate.name || locateResult.candidate.text ? (
+                            <div>
+                              <dt>文本 / 名称</dt>
+                              <dd>{locateResult.candidate.name ?? locateResult.candidate.text}</dd>
+                            </div>
+                          ) : null}
+                          {locateResult.candidate.role ? (
+                            <div>
+                              <dt>role</dt>
+                              <dd>{locateResult.candidate.role}</dd>
+                            </div>
+                          ) : null}
+                          {locateResult.locator.testId ? (
+                            <div>
+                              <dt>data-testid</dt>
+                              <dd>{locateResult.locator.testId}</dd>
+                            </div>
+                          ) : null}
+                          <div>
+                            <dt>置信度</dt>
+                            <dd>{(locateResult.confidence * 100).toFixed(0)}%</dd>
+                          </div>
+                          <div>
+                            <dt>说明</dt>
+                            <dd>{locateResult.reason || "—"}</dd>
+                          </div>
+                        </dl>
+                        <code className="record-locate-css">{locateResult.locator.css}</code>
+                        <button type="button" className="btn btn-small" onClick={() => void copyLocateSelector()}>
+                          复制选择器
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </details>
           </section>

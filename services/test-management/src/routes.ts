@@ -100,9 +100,27 @@ import {
   mechanismPlanForRecord,
   type FileMediaScenarioKind,
 } from "./mechanisms.js";
+import {
+  clearRecordLivePage,
+  getRecordLivePage,
+  registerRecordLivePage,
+  resetRecordLivePagesForTest,
+} from "./record-live-session.js";
+import { isVisionEnabledFlag, visionConfigError, visionConfigFromEnv } from "./vision-config.js";
+import { getSuggestLocator } from "./vision-locate.js";
 
 const recordJobs = new Map<string, RecordJob>();
 let recordLock = false;
+
+export function seedRecordJobForTest(job: RecordJob): void {
+  recordJobs.set(job.id, job);
+}
+
+export function resetRecordStateForTest(): void {
+  recordJobs.clear();
+  recordLock = false;
+  resetRecordLivePagesForTest();
+}
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 export type RunBatchJob = {
@@ -2058,7 +2076,13 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     void (async () => {
       try {
         await assertPlaywrightReady();
-        const { ir: recordedIr, warnings } = await recordSession({ url: parsedUrl.toString(), testId });
+        const { ir: recordedIr, warnings } = await recordSession({
+          url: parsedUrl.toString(),
+          testId,
+          onPage: async (page) => {
+            registerRecordLivePage(jobId, page);
+          },
+        });
         const ir = applyBaseUrlTarget(recordedIr, parsedUrl.toString());
         const validated = validateTestIR(ir);
         if (!validated.ok) {
@@ -2089,11 +2113,57 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         job.error = err instanceof Error ? err.message : String(err);
         job.completedAt = new Date().toISOString();
       } finally {
+        clearRecordLivePage(jobId);
         recordLock = false;
       }
     })();
 
     return { jobId, status: "running" };
+  });
+
+  app.post("/api/record/:jobId/locate", async (req, reply) => {
+    const { jobId } = req.params as { jobId: string };
+    if (!isSafeRunId(jobId)) return reply.notFound("job not found");
+
+    const body = req.body as { instruction?: string };
+    const instruction = body?.instruction?.trim() ?? "";
+    if (!instruction) {
+      return reply.code(400).send({ error: "请提供要定位的元素描述" });
+    }
+    if (instruction.length > 200) {
+      return reply.code(400).send({ error: "描述不能超过 200 个字符" });
+    }
+
+    const vision = visionConfigFromEnv();
+    if (!vision) {
+      const detail = isVisionEnabledFlag() ? visionConfigError() : null;
+      return reply.code(503).send({
+        error: detail ?? "视觉定位未启用（TESTPILOT_VISION_ENABLED=1）",
+      });
+    }
+
+    const job = recordJobs.get(jobId);
+    if (!job || job.status !== "running") {
+      return reply.notFound("job not found");
+    }
+
+    const page = getRecordLivePage(jobId);
+    if (!page || page.isClosed()) {
+      return reply.code(409).send({ error: "录制页面不可用，请确认录制窗口仍打开" });
+    }
+
+    const result = await getSuggestLocator()(page, instruction, vision);
+    if (!result.ok) {
+      return reply.code(422).send({ error: result.error });
+    }
+
+    return {
+      locator: result.locator,
+      candidate: result.candidate,
+      confidence: result.confidence,
+      reason: result.reason,
+      model: vision.model,
+    };
   });
 
   app.get("/api/record/:jobId", async (req, reply) => {

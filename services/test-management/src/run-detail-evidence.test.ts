@@ -66,6 +66,18 @@ test("runDetailHeadline reports attempts and failure kind", () => {
   assert.match(text, /环境异常/);
 });
 
+test("SSE artifact links to sse.json when present", () => {
+  const rows = listEvidenceRows(
+    run({
+      artifacts: {
+        dir: "artifacts/runs/run_1",
+        artifacts: [{ kind: "sse", path: "/artifacts/runs/run_1/sse.json" }],
+      },
+    }),
+  );
+  assert.match(rows.find((r) => r.label === "SSE")?.href ?? "", /\/artifacts\/sse\.json$/);
+});
+
 test("formatJsonBrief truncates long values and tolerates undefined", () => {
   assert.equal(formatJsonBrief(undefined), "—");
   assert.ok(formatJsonBrief({ a: "x".repeat(1000) }, 40).endsWith("…"));

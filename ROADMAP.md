@@ -22,7 +22,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 **当前方向：Web 业务系统优先。** 先把「测试人员安全接入一个业务系统 → 生成/审阅用例 → 跑出可信证据 → 清理测试数据」做通。移动端、CI、多项目/RBAC、平台化暂不投入；实时与 Agent 在业务接入闭环之后继续。
 
-**V7-0g 接口用例审阅编辑已验收（2026-11-18）。** 审阅 sheet 对 `sourceChannel: "api"` 展示 `ApiTestEditPanel`（请求/期望/清理）；`PUT /api/tests/:id` 保存、`approvalStatus→draft`；`api-test-route.test.ts` PUT 覆盖；Playwright 抽检 `api-get-api-health-mwaxyol6` 预填、改 path + cleanup、非法请求头拦截；`pnpm verify` 全绿。**下一开工任务：** P1 backlog（V7-1b / V7-2 / V7-4 等）。
+**V7-1b SSE 证据已验收（2026-11-18）。** 练习环境 `/sse` + `GET /api/sse`；`packages/evidence` CDP 采集有限 SSE 写入 `sse.json`（与 WS 同限 200/4000、同脱敏）；控制台证据行链 `/api/runs/:runId/artifacts/sse.json`；`sse-frames.test.ts` + `sse-pipeline.test.ts` + `sse.test.mjs`；`pnpm verify` 全绿。**下一开工任务：** P1 backlog（V7-2 / V7-4 等）。
 
 **本阶段要证明的事：** 一条业务系统的正常功能回归，可以被人审阅、能在失败时给出证据、能在通过后不留下脏数据。
 
@@ -99,7 +99,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | API 直连 | 可用（V7-0） | `request` 步骤、登录 Cookie 复用、`{{runId}}` / `{{var}}` / `{{env.KEY}}`、`saveAs` / `saveFields`、`stepRef` 断言；控制台「接口测试」生成草稿并试跑 |
 | 文件/媒体 | 可用（V7-5） | `upload` 步骤 + fixture 目录约束；demo `/files`；`planFileMedia` 生成正常/类型/大小场景；负向故障注入 |
 | 测试数据清理 | 可用（V7-7） | `policy.cleanup` + `teardownSteps`；通过/失败都清理；清理失败单独标记 `TEST_DATA`；控制台审阅/运行详情/接口模式均可配置 |
-| 实时/富媒体证据 | 部分（V7-1a / V7-3a / V7-6a） | WS 收发帧、`ws.json`、`ws` 断言、demo `/chat` 已完成；SSE、多账号 A→B、重连/顺序/去重未做 |
+| 实时/富媒体证据 | 部分（V7-1a / V7-1b / V7-3a / V7-6a） | WS 收发帧、`ws.json`、`ws` 断言、demo `/chat`；**SSE 有限流 `sse.json` + 证据下载（V7-1b）**；多账号 A→B、重连/顺序/去重未做 |
 | Agent 语义断言 | 部分（V0.8） | OTel trace 工具调用断言已有；无幻觉 rubric / LLM judge |
 | 管理 API | 文件存储 | 安全边界已加固；本机无登录；无数据库 |
 | 试点用例 | 16 条已批准（15 demo + 1 pilot） | 弱断言 0；`pilot-ticket-submit-success` 仍须在真实试点校对后批准 |
@@ -502,7 +502,7 @@ interface MechanismPack {
 **P1 backlog（V0.7.5 之后）**
 
 - [x] V7-0g 接口用例编辑（2026-11-18）— `apps/console/src/ApiTestEditPanel.tsx` 审阅 sheet 表单回填请求/断言/清理；`PUT /api/tests/:testId` 重置批准；隐藏 API 用例的 JSON expect 块；`api-test-route.test.ts`（PUT 批准→草稿、teardown、`ir.id`、非法断言 400）；Playwright：`api-get-api-health-mwaxyol6` 预填 `/api/health`、保存 `/api/health-v7g` + cleanup、`已保存为新草稿版本`、非法头 `缺少冒号`；`pnpm --filter @testpilot/test-management test`、`pnpm --filter @testpilot/console typecheck`、`pnpm verify` 全绿
-- [ ] V7-1b SSE 证据 — 采集 SSE chunks；与 WS 共用脱敏/截断；证据可下载
+- [x] V7-1b SSE 证据（2026-11-18）— 有限 SSE 经 CDP 采集 `sse.json`（200/4000、脱敏与 WS 一致）；`text/event-stream` 不进 `network.json`；demo `/sse` + `GET /api/sse`；控制台证据 SSE 行；`sse-frames.test.ts` + `sse-pipeline.test.ts` + `examples/demo-webapp/sse.test.mjs`；`pnpm verify` 全绿；浏览器：`sse-pipeline.test.ts` 试跑 `sse-pipeline-ok`，`sse.json` 含 3 条 data + `event: done`，无密钥
 - [ ] V7-2 多账号执行 — IR 增加 `actors`，runner 支持多 browser context、`waitForEvent`；单账号回退必须显式标注
 - [ ] V7-4 realtime-messaging 机制包 — 文本送达（出站 WS + 入站 WS + 对方 DOM）、图片、超长、重连、顺序、去重
 - [x] V7-9b 生成期视觉定位建议（2026-11-18）— 录制 `POST …/locate` + 控制台 AI 定位；确定性 css 写入由人手抄；运行时零模型；默认关闭；证据见 §0.1 V7-9b

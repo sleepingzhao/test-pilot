@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { BrowserContext, Page, Request, Response, WebSocket } from "playwright";
 
 export type ArtifactRef = {
-  kind: "trace" | "screenshot" | "har" | "log" | "network" | "ws";
+  kind: "trace" | "screenshot" | "har" | "log" | "network" | "ws" | "sse";
   path: string;
 };
 
@@ -42,8 +42,19 @@ export type WsFrame = {
   at: string;
 };
 
+export type SseEvent = {
+  url: string;
+  event?: string;
+  data: string;
+  at: string;
+};
+
 const WS_FRAME_LIMIT = 200;
 const WS_PAYLOAD_LIMIT = 4000;
+const SSE_EVENT_LIMIT = 200;
+const SSE_DATA_LIMIT = 4000;
+/** Finite SSE only: Playwright `body()` on endless streams is raced and dropped on timeout. */
+const SSE_BODY_TIMEOUT_MS = 3_000;
 
 function safeStepFileId(stepId: string): string {
   const sanitized = stepId.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 40);
@@ -91,7 +102,63 @@ export function createEvidenceCollector(options: EvidenceOptions) {
   const inFlight = new Set<Request>();
   const wsFrames: WsFrame[] = [];
   let wsDropped = 0;
+  const sseEvents: SseEvent[] = [];
+  let sseDropped = 0;
+  let sseDataTruncated = false;
+  const ssePending: Promise<void>[] = [];
+  const sseSeen = new Set<string>();
   const stepScreenshots: Array<{ stepId: string; file: string }> = [];
+
+  function parseSseBlocks(text: string): Array<{ event?: string; data: string }> {
+    const normalized = text.replace(/\r\n/g, "\n");
+    const blocks = normalized.split("\n\n").filter((block) => block.trim().length > 0);
+    const parsed: Array<{ event?: string; data: string }> = [];
+    for (const block of blocks) {
+      let event: string | undefined;
+      const dataLines: string[] = [];
+      for (const line of block.split("\n")) {
+        if (!line || line.startsWith(":")) continue;
+        if (line.startsWith("event:")) {
+          event = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+          const chunk = line.slice(5).trimStart();
+          if (chunk.length > 0) dataLines.push(chunk);
+        }
+      }
+      if (dataLines.length > 0 || event) {
+        parsed.push({ event, data: dataLines.join("\n") });
+      }
+    }
+    return parsed;
+  }
+
+  function recordSseEvent(url: string, event: string | undefined, data: string) {
+    if (!event && data.trim().length === 0) return; // drop nameless heartbeats only
+    const dedupeKey = `${url.slice(0, 2000)}\0${event ?? ""}\0${data}`;
+    if (sseSeen.has(dedupeKey)) return;
+    sseSeen.add(dedupeKey);
+    if (sseEvents.length >= SSE_EVENT_LIMIT) {
+      sseDropped += 1;
+      return;
+    }
+    let text = data;
+    if (text.length > SSE_DATA_LIMIT) {
+      text = text.slice(0, SSE_DATA_LIMIT);
+      sseDataTruncated = true;
+    }
+    sseEvents.push({
+      url: url.slice(0, 2000),
+      ...(event ? { event: event.slice(0, 200) } : {}),
+      data: text,
+      at: new Date().toISOString(),
+    });
+  }
+
+  function recordSseFromBody(url: string, bodyText: string) {
+    for (const block of parseSseBlocks(bodyText)) {
+      recordSseEvent(url, block.event, block.data);
+    }
+  }
 
   function recordWsFrame(url: string, direction: WsFrame["direction"], raw: string | Buffer) {
     if (wsFrames.length >= WS_FRAME_LIMIT) {
@@ -139,6 +206,37 @@ export function createEvidenceCollector(options: EvidenceOptions) {
     }
   }
 
+  async function writeSseLog() {
+    await Promise.allSettled(ssePending);
+    const path = join(runDir, "sse.json");
+    const body: {
+      limit: number;
+      dropped: number;
+      note?: string;
+      events: SseEvent[];
+    } = {
+      limit: SSE_EVENT_LIMIT,
+      dropped: sseDropped,
+      events: sseEvents.map((evt) => ({
+        ...evt,
+        url: redactUrl(evt.url),
+        data: redactStringBody(evt.data),
+      })),
+    };
+    const notes: string[] = [];
+    if (sseDataTruncated) {
+      notes.push(`some event data truncated to ${SSE_DATA_LIMIT} characters`);
+    }
+    if (sseDropped > 0) {
+      notes.push(`dropped ${sseDropped} sse events beyond the limit of ${SSE_EVENT_LIMIT}`);
+    }
+    if (notes.length > 0) body.note = notes.join("; ");
+    await writeFile(path, JSON.stringify(body, null, 2));
+    if (!artifacts.some((a) => a.kind === "sse")) {
+      artifacts.push({ kind: "sse", path });
+    }
+  }
+
   async function writeWsLog() {
     const path = join(runDir, "ws.json");
     const body: {
@@ -171,6 +269,10 @@ export function createEvidenceCollector(options: EvidenceOptions) {
 
     getWebSocketFrames(): WsFrame[] {
       return [...wsFrames];
+    },
+
+    getSseEvents(): SseEvent[] {
+      return [...sseEvents];
     },
 
     async waitForWebSocketFrame(
@@ -228,6 +330,40 @@ export function createEvidenceCollector(options: EvidenceOptions) {
       context = ctx;
       await mkdir(runDir, { recursive: true });
       await ctx.tracing.start({ screenshots: true, snapshots: true, sources: true });
+      const cdp = await ctx.newCDPSession(page);
+      await cdp.send("Network.enable");
+      const sseRequestUrls = new Map<string, string>();
+      cdp.on("Network.responseReceived", (params) => {
+        const mime = params.response.mimeType?.toLowerCase() ?? "";
+        if (!mime.includes("event-stream")) return;
+        sseRequestUrls.set(params.requestId, params.response.url);
+      });
+      cdp.on("Network.eventSourceMessageReceived", (params) => {
+        const url = sseRequestUrls.get(params.requestId);
+        if (!url) return;
+        const rawName = params.eventName?.trim();
+        const eventName = rawName && rawName !== "message" ? rawName : undefined;
+        recordSseEvent(url, eventName, params.data ?? "");
+      });
+      cdp.on("Network.loadingFinished", (params) => {
+        const url = sseRequestUrls.get(params.requestId);
+        if (!url) return;
+        ssePending.push(
+          (async () => {
+            try {
+              const payload = (await cdp.send("Network.getResponseBody", {
+                requestId: params.requestId,
+              })) as { body: string; base64Encoded: boolean };
+              const text = payload.base64Encoded
+                ? Buffer.from(payload.body, "base64").toString("utf8")
+                : payload.body;
+              recordSseFromBody(url, text);
+            } catch {
+              /* infinite streams may never finish or reject body reads */
+            }
+          })(),
+        );
+      });
       page.on("request", (req: Request) => {
         const type = req.resourceType();
         if (type === "xhr" || type === "fetch" || type === "document") inFlight.add(req);
@@ -265,6 +401,40 @@ export function createEvidenceCollector(options: EvidenceOptions) {
         const contentType = (entry.responseHeaders?.["content-type"] ?? "").toLowerCase();
         if (contentType.includes("text/event-stream")) {
           inFlight.delete(req);
+          if (req.resourceType() !== "eventsource") {
+            const streamUrl = req.url();
+            ssePending.push(
+              (async () => {
+                try {
+                  await Promise.race([
+                    res.finished(),
+                    new Promise<void>((resolve) => setTimeout(resolve, SSE_BODY_TIMEOUT_MS)),
+                  ]);
+                } catch {
+                  return;
+                }
+                const base = streamUrl.split("?")[0];
+                if (
+                  sseEvents.some(
+                    (evt) => evt.url === streamUrl || evt.url.split("?")[0] === base,
+                  )
+                ) {
+                  return;
+                }
+                try {
+                  const buffer = await Promise.race([
+                    res.body(),
+                    new Promise<never>((_, reject) =>
+                      setTimeout(() => reject(new Error("sse-body-timeout")), SSE_BODY_TIMEOUT_MS),
+                    ),
+                  ]);
+                  recordSseFromBody(streamUrl, buffer.toString("utf8"));
+                } catch {
+                  /* infinite or aborted SSE streams are intentionally not captured */
+                }
+              })(),
+            );
+          }
           return;
         }
         networkPending.push(
@@ -315,6 +485,7 @@ export function createEvidenceCollector(options: EvidenceOptions) {
       await mkdir(runDir, { recursive: true });
       await writeNetworkLog();
       await writeWsLog();
+      await writeSseLog();
       if (context) {
         const tracePath = join(runDir, "trace.zip");
         await context.tracing.stop({ path: tracePath });

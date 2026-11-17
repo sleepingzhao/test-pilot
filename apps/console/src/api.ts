@@ -116,6 +116,8 @@ export type WsLog = {
   frames: WsFrame[];
 };
 
+export type ArtifactKind = "trace" | "screenshot" | "har" | "log" | "network" | "ws" | "sse";
+
 export type StoredRun = {
   runId: string;
   testId: string;
@@ -142,7 +144,10 @@ export type StoredRun = {
     expected?: unknown;
     actual?: unknown;
   }>;
-  artifacts: { dir: string; artifacts: Array<{ kind: string; path: string }> };
+  artifacts: {
+    dir: string;
+    artifacts: Array<{ kind: ArtifactKind; path: string }>;
+  };
   /** Present files for this run, computed by the API (missing after cleanup). */
   artifactsPresent?: Record<string, boolean>;
   cleanup?: {

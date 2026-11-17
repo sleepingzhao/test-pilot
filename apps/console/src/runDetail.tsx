@@ -38,6 +38,9 @@ export function listEvidenceRows(run: StoredRun): EvidenceRow[] {
   if (log) rows.push({ label: "运行清单", href: available(run, "log") ? artifactUrl(run, log) : null });
   const ws = artifactFileName(run, "ws");
   if (ws) rows.push({ label: "WebSocket", href: available(run, "ws") ? artifactUrl(run, ws) : null });
+  if (available(run, "sse")) {
+    rows.push({ label: "SSE", href: artifactUrlForFile(run, "sse.json") });
+  }
   return rows;
 }
 

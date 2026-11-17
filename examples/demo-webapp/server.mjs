@@ -277,6 +277,32 @@ export function createDemoServer() {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/sse") {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+      const payloads = [
+        '{"seq":1,"text":"测试sse-1"}',
+        '{"seq":2,"text":"测试sse-2"}',
+        '{"seq":3,"text":"测试sse-3"}',
+      ];
+      let index = 0;
+      const tick = () => {
+        if (index < payloads.length) {
+          res.write(`data: ${payloads[index]}\n\n`);
+          index += 1;
+          setTimeout(tick, 50);
+          return;
+        }
+        res.write("event: done\ndata: ok\n\n");
+        setTimeout(() => res.end(), 25);
+      };
+      tick();
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/api/items") {
       sendJson(res, 200, { items: [...items.values()] });
       return;
@@ -353,6 +379,7 @@ export function createDemoServer() {
     let path = url.pathname === "/" ? "/index.html" : url.pathname;
     if (path === "/files" || path === "/files/") path = "/files.html";
     if (path === "/chat" || path === "/chat/") path = "/chat.html";
+    if (path === "/sse" || path === "/sse/") path = "/sse.html";
     const filePath = join(root, path);
     try {
       const body = await readFile(filePath);

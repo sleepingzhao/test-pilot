@@ -460,3 +460,98 @@ test("rejects saveFromRef on a request step and without saveFields", () => {
     assert.match(issues.map((issue) => issue.message).join("\n"), /requires saveFields/);
   }
 });
+
+test("accepts valid two-actor IR", () => {
+  const result = validateTestIR({
+    id: "two-actors",
+    version: 1,
+    platform: "web",
+    baseUrl: "http://127.0.0.1:9",
+    actors: [
+      { id: "primary", loginSteps: [{ id: "lp", action: "navigate", path: "/" }] },
+      { id: "buyer", loginSteps: [{ id: "lb", action: "navigate", path: "/login" }] },
+    ],
+    steps: [
+      { id: "main", action: "wait" },
+      { id: "as-buyer", action: "click", target: { testId: "x" }, actor: "buyer" },
+    ],
+    assertions: [
+      { type: "ui", oracle: "human-approved", contains: "done ok" },
+      { type: "ui", oracle: "human-approved", contains: "buyer ok", actor: "buyer" },
+    ],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.deepEqual(validateSemantics(result.value), []);
+});
+
+test("rejects step actor without actors array", () => {
+  const result = validateTestIR({
+    id: "orphan-actor",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "s", action: "wait", actor: "buyer" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    const issues = validateSemantics(result.value);
+    assert.ok(issues.some((i) => i.path === "/steps/0/actor"));
+  }
+});
+
+test("rejects unknown actor on step", () => {
+  const result = validateTestIR({
+    id: "bad-actor-ref",
+    version: 1,
+    platform: "web",
+    actors: [{ id: "a" }],
+    steps: [{ id: "s", action: "wait", actor: "ghost" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    const issues = validateSemantics(result.value);
+    assert.ok(issues.some((i) => /unknown actor/.test(i.message)));
+  }
+});
+
+test("rejects duplicate actor id", () => {
+  const result = validateTestIR({
+    id: "dup-actors",
+    version: 1,
+    platform: "web",
+    actors: [{ id: "a" }, { id: "a" }],
+    steps: [{ id: "s", action: "wait" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    const issues = validateSemantics(result.value);
+    assert.ok(issues.some((i) => /duplicate actor id/.test(i.message)));
+  }
+});
+
+test("rejects actor baseUrl and baseUrlRef together", () => {
+  const result = validateTestIR({
+    id: "actor-url-both",
+    version: 1,
+    platform: "web",
+    actors: [
+      {
+        id: "a",
+        baseUrl: "http://127.0.0.1:1",
+        baseUrlRef: "staging-console",
+      },
+    ],
+    steps: [{ id: "s", action: "wait" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, false);
+});
+
+test("single-actor IR without actors unchanged", () => {
+  const doc = JSON.parse(readFileSync(join(fixturesDir, "user-create-duplicate-email.json"), "utf8"));
+  const result = validateTestIR(doc);
+  assert.equal(result.ok, true);
+  if (result.ok) assert.deepEqual(validateSemantics(result.value), []);
+});

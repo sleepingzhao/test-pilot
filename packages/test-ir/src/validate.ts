@@ -72,6 +72,124 @@ export function validateTestIR(doc: unknown): ValidationResult {
 
 const REQUEST_METHODS = new Set<RequestMethod>(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
+const ACTOR_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+function collectActorSemanticsIssues(ir: TestIR, issues: ValidationIssue[], base: URL | undefined): Set<string> {
+  const actorIds = new Set<string>();
+  const actors = ir.actors;
+  if (!actors?.length) {
+    for (const [i, step] of ir.steps.entries()) {
+      if (step.actor) {
+        issues.push({
+          path: `/steps/${i}/actor`,
+          message: "step.actor requires actors on the test IR",
+        });
+      }
+    }
+    for (const [i, step] of (ir.teardownSteps ?? []).entries()) {
+      if (step.actor) {
+        issues.push({
+          path: `/teardownSteps/${i}/actor`,
+          message: "teardown step actor is not supported; teardown always runs on primary",
+        });
+      }
+    }
+    for (const [i, assertion] of ir.assertions.entries()) {
+      if (assertion.actor) {
+        issues.push({
+          path: `/assertions/${i}/actor`,
+          message: "assertion.actor requires actors on the test IR",
+        });
+      }
+    }
+    return actorIds;
+  }
+
+  for (const [i, actor] of actors.entries()) {
+    if (!ACTOR_ID_PATTERN.test(actor.id)) {
+      issues.push({
+        path: `/actors/${i}/id`,
+        message: "actor id must match ^[a-z0-9][a-z0-9-]{0,31}$",
+      });
+    }
+    if (actorIds.has(actor.id)) {
+      issues.push({ path: `/actors/${i}/id`, message: `duplicate actor id: ${actor.id}` });
+    }
+    actorIds.add(actor.id);
+    if (actor.baseUrl && actor.baseUrlRef) {
+      issues.push({
+        path: `/actors/${i}`,
+        message: "actor accepts baseUrl or baseUrlRef, not both",
+      });
+    }
+    if (actor.baseUrl) {
+      try {
+        const url = new URL(actor.baseUrl);
+        if (url.protocol !== "http:" && url.protocol !== "https:") {
+          issues.push({ path: `/actors/${i}/baseUrl`, message: "actor baseUrl must be http or https" });
+        }
+      } catch {
+        issues.push({ path: `/actors/${i}/baseUrl`, message: "actor baseUrl is not a valid URL" });
+      }
+    }
+    const login = actor.loginSteps ?? [];
+    const loginIds = new Set<string>();
+    for (const [j, step] of login.entries()) {
+      if (step.actor) {
+        issues.push({
+          path: `/actors/${i}/loginSteps/${j}/actor`,
+          message: "loginSteps cannot set actor; they run in the actor's own context",
+        });
+      }
+      if (loginIds.has(step.id)) {
+        issues.push({
+          path: `/actors/${i}/loginSteps/${j}/id`,
+          message: `duplicate login step id within actor: ${step.id}`,
+        });
+      }
+      loginIds.add(step.id);
+    }
+    let actorBase: URL | undefined = base;
+    if (actor.baseUrl) {
+      try {
+        actorBase = new URL(actor.baseUrl);
+      } catch {
+        actorBase = base;
+      }
+    }
+    appendStepSemanticsIssues(issues, login, `/actors/${i}/loginSteps`, actorBase);
+  }
+
+  for (const [i, step] of ir.steps.entries()) {
+    if (!step.actor) continue;
+    if (!actorIds.has(step.actor)) {
+      issues.push({
+        path: `/steps/${i}/actor`,
+        message: `unknown actor id: ${step.actor}`,
+      });
+    }
+  }
+  for (const [i, step] of (ir.teardownSteps ?? []).entries()) {
+    if (step.actor) {
+      issues.push({
+        path: `/teardownSteps/${i}/actor`,
+        message: "teardown step actor is not supported; teardown always runs on primary",
+      });
+    }
+  }
+  for (const [i, assertion] of ir.assertions.entries()) {
+    if (!assertion.actor) continue;
+    if (!actorIds.has(assertion.actor)) {
+      issues.push({
+        path: `/assertions/${i}/actor`,
+        message: `unknown actor id: ${assertion.actor}`,
+      });
+    }
+  }
+
+  return actorIds;
+}
+
 /** Reject absolute request paths that can never be a same-origin http(s) call. */
 export function requestPathIssue(path: string): string | undefined {
   const trimmed = path.trim();
@@ -139,6 +257,19 @@ export function validateSemantics(ir: TestIR): ValidationIssue[] {
   const cleanup = ir.policy?.cleanup;
   const teardown = ir.teardownSteps ?? [];
   const stepIds = new Set<string>();
+  collectActorSemanticsIssues(ir, issues, base);
+  for (const actor of ir.actors ?? []) {
+    for (const step of actor.loginSteps ?? []) {
+      if (stepIds.has(step.id)) {
+        issues.push({
+          path: `/actors`,
+          message: `duplicate step id across steps, teardown, and loginSteps: ${step.id}`,
+        });
+      }
+      stepIds.add(step.id);
+    }
+  }
+
   for (const [i, step] of ir.steps.entries()) {
     if (stepIds.has(step.id)) {
       issues.push({ path: `/steps/${i}/id`, message: `duplicate step id: ${step.id}` });

@@ -46,7 +46,13 @@
       "type": "array",
       "items": { "$ref": "#/$defs/assertion" }
     },
-    "policy": { "$ref": "#/$defs/policy" }
+    "policy": { "$ref": "#/$defs/policy" },
+    "actors": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/actor" }
+    }
   },
   "$defs": {
     "locator": {
@@ -116,6 +122,11 @@
         "saveFromRef": {
           "type": "string",
           "minLength": 1
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
         }
       },
       "allOf": [
@@ -181,8 +192,47 @@
         "oracle": {
           "type": "string",
           "enum": ["human-approved", "requirement", "api-contract"]
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
         }
       }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+        },
+        "loginSteps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/step" }
+        },
+        "baseUrl": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^https?://[^\\s]+$"
+        },
+        "baseUrlRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["baseUrl"] },
+          "then": { "not": { "required": ["baseUrlRef"] } }
+        },
+        {
+          "if": { "required": ["baseUrlRef"] },
+          "then": { "not": { "required": ["baseUrl"] } }
+        }
+      ]
     },
     "policy": {
       "type": "object",

@@ -15,9 +15,18 @@ export interface Locator {
   css?: string;
 }
 
+export interface TestActor {
+  id: string;
+  loginSteps?: TestStep[];
+  baseUrl?: string;
+  baseUrlRef?: string;
+}
+
 export interface TestStep {
   id: string;
   action: StepAction;
+  /** When omitted, steps run as the primary actor. Requires `actors` on the IR. */
+  actor?: string;
   path?: string;
   target?: Locator;
   value?: string;
@@ -44,6 +53,8 @@ export interface TestStep {
 
 export interface TestAssertion {
   id?: string;
+  /** When omitted, assertion runs against the primary actor. Requires `actors` on the IR. */
+  actor?: string;
   type: "ui" | "api" | "db" | "event" | "agent" | "custom";
   provider?: string;
   configRef?: string;
@@ -74,6 +85,8 @@ export interface TestIR {
   teardownSteps?: TestStep[];
   assertions: TestAssertion[];
   policy?: TestPolicy;
+  /** Optional multi-browser-context actors; omit for legacy single-actor runs. */
+  actors?: TestActor[];
 }
 
 export type ValidationIssue = {

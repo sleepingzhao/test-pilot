@@ -1,4 +1,5 @@
-import { requestPathIssue, type Locator as TargetLocator, type TestIR, type TestStep } from "@testpilot/test-ir";
+import { join } from "node:path";
+import { requestPathIssue, type Locator as TargetLocator, type TestActor, type TestIR, type TestStep } from "@testpilot/test-ir";
 import { runAssertion, urlPathMatches, type AssertionContext } from "@testpilot/assertions";
 import type { DirectNetworkInput, NetworkEntry, RunArtifacts, WsFrame } from "@testpilot/evidence";
 import { classifyFailure, createEvidenceCollector, maxRunAttempts, redactForEvidence, redactStringBody, redactStrings, shouldRetryAfterFailure } from "@testpilot/evidence";
@@ -23,6 +24,8 @@ export type StepResult = {
   message?: string;
   /** Basename of step screenshot when policy.screenshots is "always". */
   screenshot?: string;
+  /** Set when the step ran on a non-primary actor context. */
+  actor?: string;
 };
 
 export type CleanupResult = {
@@ -49,6 +52,8 @@ export type RunResult = {
     attemptCount: number;
     flakeRecovery?: boolean;
   };
+  /** `multi` when the IR lists 2+ actors; `single` is the explicit single-actor fallback. */
+  actorMode?: "multi" | "single";
   /** Visible success/alerts right after the steps; used to derive a real success assertion. */
   finalSignals?: string[];
   cleanup?: CleanupResult;
@@ -415,6 +420,57 @@ function mergeRunStatus(primaryStatus: RunStatus, cleanup: CleanupResult | undef
   return primaryStatus;
 }
 
+type ResolvedActor = {
+  id: string;
+  loginSteps: TestStep[];
+  baseUrl?: string;
+  baseUrlRef?: string;
+};
+
+function resolveActorDefinitions(ir: TestIR): ResolvedActor[] {
+  if (!ir.actors?.length) {
+    return [{ id: "primary", loginSteps: [] }];
+  }
+  const primaryEntry = ir.actors.find((a) => a.id === "primary");
+  const primary: ResolvedActor = {
+    id: "primary",
+    loginSteps: primaryEntry?.loginSteps ?? [],
+    baseUrl: primaryEntry?.baseUrl ?? ir.baseUrl,
+    baseUrlRef: primaryEntry?.baseUrlRef ?? ir.baseUrlRef,
+  };
+  const others = ir.actors.filter((a) => a.id !== "primary").map((a) => ({
+    id: a.id,
+    loginSteps: a.loginSteps ?? [],
+    baseUrl: a.baseUrl,
+    baseUrlRef: a.baseUrlRef,
+  }));
+  return [primary, ...others];
+}
+
+function resolveActorBaseUrl(actor: Pick<TestActor, "baseUrl" | "baseUrlRef">, ir: TestIR, env: RunEnvironment): string {
+  if (actor.baseUrl) return actor.baseUrl;
+  if (actor.baseUrlRef && env.baseUrlRefs?.[actor.baseUrlRef]) {
+    return env.baseUrlRefs[actor.baseUrlRef];
+  }
+  return resolveBaseUrl(ir, env);
+}
+
+function actorModeForIr(ir: TestIR): "multi" | "single" {
+  return ir.actors && ir.actors.length >= 2 ? "multi" : "single";
+}
+
+type ActorSession = {
+  id: string;
+  context: BrowserContext;
+  page: Page;
+  baseUrl: string;
+  evidence: ReturnType<typeof createEvidenceCollector>;
+};
+
+function lookupActorSession(sessions: Map<string, ActorSession>, actorId: string): ActorSession | undefined {
+  return sessions.get(actorId);
+}
+
 export async function runTestIR(ir: TestIR, options: RunOptions): Promise<RunResult> {
   const maxAttempts = maxRunAttempts(ir.policy?.retry);
   let last: RunResult | undefined;
@@ -433,23 +489,84 @@ export async function runTestIR(ir: TestIR, options: RunOptions): Promise<RunRes
   return last!;
 }
 
+async function runMainStep(
+  ir: TestIR,
+  step: TestStep,
+  sessions: Map<string, ActorSession>,
+  steps: StepResult[],
+  refs: Record<string, string>,
+  env: RunEnvironment,
+  runId: string,
+  vars: Record<string, string>,
+  templateSecrets: string[],
+): Promise<StepResult> {
+  const actorId = step.actor ?? "primary";
+  const session = lookupActorSession(sessions, actorId);
+  if (!session) {
+    return {
+      stepId: step.id,
+      status: "failed",
+      durationMs: 0,
+      message: `unknown actor: ${actorId}`,
+      ...(actorId !== "primary" ? { actor: actorId } : {}),
+    };
+  }
+  const { page, context, baseUrl, evidence } = session;
+  const executed = await executeStep(
+    page,
+    context,
+    step,
+    baseUrl,
+    refs,
+    env,
+    runId,
+    vars,
+    templateSecrets,
+    evidence.recordNetworkEntry,
+  );
+  const result: StepResult = { ...executed };
+  if (actorId !== "primary") result.actor = actorId;
+  if (result.status !== "failed" && step.saveFromRef && step.saveFields) {
+    try {
+      const spec = resolveRequestRef(step.saveFromRef, env);
+      if (!spec) throw new Error(`unknown requestRef: ${step.saveFromRef}`);
+      const matches = (entry: NetworkEntry) =>
+        urlPathMatches(entry.url, spec.urlIncludes) &&
+        (!spec.method || entry.method.toUpperCase() === spec.method.toUpperCase());
+      const captured = await evidence.waitForNetworkEntry(matches, 10_000);
+      if (!captured) throw new Error(`没有捕获到 ${step.saveFromRef} 的响应`);
+      const entries = evidence.getNetworkLog().filter(matches);
+      const entry = entries[entries.length - 1];
+      if (!entry?.responseBody) {
+        throw new Error(`${step.saveFromRef} 的响应体为空或过大，无法保存字段`);
+      }
+      assignResponseVariables(step, entry.responseBody, vars);
+    } catch (err) {
+      result.status = "failed";
+      result.message = err instanceof Error ? err.message : String(err);
+    }
+  }
+  if (result.status !== "failed" && (ir.policy?.screenshots ?? "on-failure") === "always") {
+    const shot = await evidence.captureStep(page, result.stepId, steps.length + 1);
+    if (shot) result.screenshot = shot;
+  }
+  return result;
+}
+
 async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult> {
   const wallStart = Date.now();
   const runId = options.runId ?? `run_${Date.now()}`;
   const startedAt = new Date().toISOString();
-  const baseUrl = resolveBaseUrl(ir, options.env);
+  const actorMode = actorModeForIr(ir);
   const refs = resolveValueRefs(ir, options.env);
   resolveFixtureRefs(ir.fixture, options.env);
 
-  const evidence = createEvidenceCollector({
-    runId,
-    dir: options.artifactsDir ?? "artifacts",
-    screenshots: ir.policy?.screenshots ?? "on-failure",
-  });
+  const artifactsRoot = options.artifactsDir ?? "artifacts";
+  const screenshotPolicy = ir.policy?.screenshots ?? "on-failure";
+  const actorDefs = resolveActorDefinitions(ir);
 
   let browser: Browser | undefined;
-  let context: BrowserContext | undefined;
-  let page: Page | undefined;
+  const sessions = new Map<string, ActorSession>();
   const steps: StepResult[] = [];
   const assertionResults: Awaited<ReturnType<typeof runAssertion>>[] = [];
   let finalSignals: string[] | undefined;
@@ -458,68 +575,88 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
   const vars: Record<string, string> = {};
   const templateSecrets: string[] = [];
 
+  const primaryBaseUrl = resolveActorBaseUrl(
+    { baseUrl: actorDefs[0]?.baseUrl ?? ir.baseUrl, baseUrlRef: actorDefs[0]?.baseUrlRef ?? ir.baseUrlRef },
+    ir,
+    options.env,
+  );
+
   try {
     browser = await chromium.launch({ headless: options.headless ?? true });
-    context = await browser.newContext();
-    page = await context.newPage();
-    await evidence.attachPage(context, page);
+    for (const def of actorDefs) {
+      const baseUrl = resolveActorBaseUrl(def, ir, options.env);
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      const evidence =
+        def.id === "primary"
+          ? createEvidenceCollector({ runId, dir: artifactsRoot, screenshots: screenshotPolicy })
+          : createEvidenceCollector({
+              runId: def.id,
+              dir: join(artifactsRoot, runId, "actors"),
+              screenshots: screenshotPolicy,
+            });
+      await evidence.attachPage(context, page);
+      sessions.set(def.id, { id: def.id, context, page, baseUrl, evidence });
+    }
 
-    for (const step of ir.steps) {
-      const executed = await executeStep(
-        page,
-        context,
-        step,
-        baseUrl,
-        refs,
-        options.env,
-        runId,
-        vars,
-        templateSecrets,
-        evidence.recordNetworkEntry,
-      );
-      const result: StepResult = { ...executed };
-      if (result.status !== "failed" && step.saveFromRef && step.saveFields) {
-        try {
-          const spec = resolveRequestRef(step.saveFromRef, options.env);
-          if (!spec) throw new Error(`unknown requestRef: ${step.saveFromRef}`);
-          const matches = (entry: NetworkEntry) =>
-            urlPathMatches(entry.url, spec.urlIncludes) &&
-            (!spec.method || entry.method.toUpperCase() === spec.method.toUpperCase());
-          const captured = await evidence.waitForNetworkEntry(matches, 10_000);
-          if (!captured) throw new Error(`没有捕获到 ${step.saveFromRef} 的响应`);
-          const entries = evidence.getNetworkLog().filter(matches);
-          const entry = entries[entries.length - 1];
-          if (!entry?.responseBody) {
-            throw new Error(`${step.saveFromRef} 的响应体为空或过大，无法保存字段`);
-          }
-          assignResponseVariables(step, entry.responseBody, vars);
-        } catch (err) {
-          result.status = "failed";
-          result.message = err instanceof Error ? err.message : String(err);
+    const primarySession = sessions.get("primary")!;
+
+    for (const def of actorDefs) {
+      const session = sessions.get(def.id)!;
+      for (const loginStep of def.loginSteps) {
+        const executed = await executeStep(
+          session.page,
+          session.context,
+          loginStep,
+          session.baseUrl,
+          refs,
+          options.env,
+          runId,
+          vars,
+          templateSecrets,
+          session.evidence.recordNetworkEntry,
+        );
+        if (executed.status === "failed") {
+          status = "failed";
+          const loginResult: StepResult = {
+            ...executed,
+            message: `[actor:${def.id}] ${executed.message ?? "login step failed"}`,
+            ...(def.id !== "primary" ? { actor: def.id } : {}),
+          };
+          steps.push(loginResult);
+          await session.evidence.captureFailure(session.page, loginStep.id);
+          break;
         }
       }
-      if (result.status !== "failed" && (ir.policy?.screenshots ?? "on-failure") === "always") {
-        const shot = await evidence.captureStep(page, result.stepId, steps.length + 1);
-        if (shot) result.screenshot = shot;
-      }
-      steps.push(result);
-      if (result.status === "failed") {
-        status = "failed";
-        await evidence.captureFailure(page, result.stepId);
-        break;
+      if (status === "failed") break;
+    }
+
+    if (status === "passed") {
+      for (const step of ir.steps) {
+        const result = await runMainStep(ir, step, sessions, steps, refs, options.env, runId, vars, templateSecrets);
+        steps.push(result);
+        if (result.status === "failed") {
+          status = "failed";
+          const failSession = lookupActorSession(sessions, step.actor ?? "primary") ?? primarySession;
+          await failSession.evidence.captureFailure(failSession.page, result.stepId);
+          break;
+        }
       }
     }
 
     if (status === "passed") {
       if (ir.assertions.some((a) => a.type === "api")) {
-        await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => undefined);
+        await primarySession.page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => undefined);
         for (const assertion of ir.assertions) {
           if (assertion.type !== "api" || !assertion.requestRef) continue;
+          const actorId = assertion.actor ?? "primary";
+          const session = lookupActorSession(sessions, actorId);
+          if (!session) continue;
           const spec = resolveRequestRef(assertion.requestRef, options.env);
           if (!spec) continue;
           const expect = (assertion.expect ?? {}) as Record<string, unknown>;
           const expectsAbsence = expect.absent === true || expect.requestCount === 0;
-          await evidence.waitForNetworkEntry(
+          await session.evidence.waitForNetworkEntry(
             (entry) =>
               urlPathMatches(entry.url, spec.urlIncludes) &&
               (!spec.method || entry.method.toUpperCase() === spec.method.toUpperCase()),
@@ -527,36 +664,51 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
           );
         }
       }
-      await evidence.waitForNetworkCapture();
-      const networkLog = evidence.getNetworkLog();
-      finalSignals = await captureFinalSignals(page);
+      for (const session of sessions.values()) {
+        await session.evidence.waitForNetworkCapture();
+      }
+      finalSignals = await captureFinalSignals(primarySession.page);
       const dbClient = buildReadonlyDbClient(options.env);
       const traceClient = buildAgentTraceClient(options.env);
-      const assertionCtx: AssertionContext = {
-        page,
-        runId,
-        network: networkLog,
-        wsFrames: evidence.getWebSocketFrames(),
-        waitForWsFrames: async (predicate: (frame: WsFrame) => boolean, timeoutMs: number) => {
-          const ok = await evidence.waitForWebSocketFrame((frame) => {
-            assertionCtx.wsFrames = evidence.getWebSocketFrames();
-            return predicate(frame);
-          }, timeoutMs);
-          assertionCtx.wsFrames = evidence.getWebSocketFrames();
-          return ok;
-        },
-        resolveRequestRef: (ref: string) => resolveRequestRef(ref, options.env),
-        db: dbClient,
-        resolveDbConfig: (ref: string) => getDbConfigBundle(ref),
-        traces: traceClient,
-        resolveAgentConfig: (ref: string) => getAgentConfigBundle(ref),
-      };
       for (const assertion of ir.assertions) {
+        const actorId = assertion.actor ?? "primary";
+        const session = lookupActorSession(sessions, actorId);
+        if (!session) {
+          const outcome = {
+            assertionId: assertion.id ?? "assertion",
+            passed: false,
+            message: `unknown actor: ${actorId}`,
+            errorKind: "ASSERTION_ORACLE",
+          } as Awaited<ReturnType<typeof runAssertion>>;
+          assertionResults.push(outcome);
+          status = "failed";
+          continue;
+        }
+        const networkLog = session.evidence.getNetworkLog();
+        const assertionCtx: AssertionContext = {
+          page: session.page,
+          runId,
+          network: networkLog,
+          wsFrames: session.evidence.getWebSocketFrames(),
+          waitForWsFrames: async (predicate: (frame: WsFrame) => boolean, timeoutMs: number) => {
+            const ok = await session.evidence.waitForWebSocketFrame((frame) => {
+              assertionCtx.wsFrames = session.evidence.getWebSocketFrames();
+              return predicate(frame);
+            }, timeoutMs);
+            assertionCtx.wsFrames = session.evidence.getWebSocketFrames();
+            return ok;
+          },
+          resolveRequestRef: (ref: string) => resolveRequestRef(ref, options.env),
+          db: dbClient,
+          resolveDbConfig: (ref: string) => getDbConfigBundle(ref),
+          traces: traceClient,
+          resolveAgentConfig: (ref: string) => getAgentConfigBundle(ref),
+        };
         const outcome = redactAssertionForEvidence(await runAssertion(assertion, assertionCtx));
         assertionResults.push(outcome);
         if (!outcome.passed) {
           status = "failed";
-          await evidence.captureFailure(page, outcome.assertionId);
+          await session.evidence.captureFailure(session.page, outcome.assertionId);
         }
       }
     }
@@ -565,21 +717,22 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
     runNotes = err instanceof Error ? err.message : String(err);
   }
 
+  const primarySession = sessions.get("primary");
   let cleanup: CleanupResult | undefined;
   const primaryStatusBeforeCleanup = status;
   if (shouldRunTeardown(ir, primaryStatusBeforeCleanup)) {
-    if (browserUsable(browser, context, page)) {
+    if (browserUsable(browser, primarySession?.context, primarySession?.page)) {
       cleanup = await runTeardown(
         ir,
-        page!,
-        context!,
-        baseUrl,
+        primarySession!.page,
+        primarySession!.context,
+        primaryBaseUrl,
         refs,
         options.env,
         runId,
         vars,
         templateSecrets,
-        evidence.recordNetworkEntry,
+        primarySession!.evidence.recordNetworkEntry,
       );
     } else {
       cleanup = {
@@ -607,7 +760,13 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
   const failureKind = mergeFailureKind(primaryStatusBeforeCleanup, primaryFailureKind, cleanup);
 
   try {
-    const artifacts = await evidence.finalize(status);
+    const primaryEvidence = primarySession?.evidence ?? sessions.values().next().value?.evidence;
+    const artifacts = primaryEvidence ? await primaryEvidence.finalize(status) : { runId, dir: join(artifactsRoot, runId), artifacts: [] };
+    for (const session of sessions.values()) {
+      if (session.id === "primary") continue;
+      const actorArtifacts = await session.evidence.finalize(status);
+      artifacts.artifacts.push(...actorArtifacts.artifacts);
+    }
     return {
       runId,
       testId: ir.id,
@@ -624,6 +783,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         failureKind,
         attemptCount: 1,
       },
+      actorMode,
       finalSignals,
       cleanup,
     };

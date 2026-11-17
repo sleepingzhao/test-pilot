@@ -149,7 +149,7 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 | Management API | `services/test-management` |
 | Demo + 种子用例 | `examples/demo-webapp` |
 
-当前进度见 [ROADMAP.md](ROADMAP.md) §0.1：业务接口直连、文件/媒体机制、WS 证据与运行详情 WS 帧入口（V7-6b）、**SSE 证据 `sse.json`（V7-1b）**、测试数据清理（V7-7）、命名 API 环境（V7-0f）、cURL 导入（V7-0h）、OpenAPI 导入（V7-0i）、**接口用例审阅编辑（V7-0g）**、步骤截图时间线（V7-9a）、画像机制接线（V7-5e）、**生成期录制 AI 定位（V7-9b，默认关闭）** 已完成；下一步见 ROADMAP P1 backlog。
+当前进度见 [ROADMAP.md](ROADMAP.md) §0.1：业务接口直连、文件/媒体机制、WS 证据与运行详情 WS 帧入口（V7-6b）、SSE 证据 `sse.json`（V7-1b）、**多账号多 context 执行核心（V7-2a，`actorMode`）**、测试数据清理（V7-7）、命名 API 环境（V7-0f）、cURL / OpenAPI 导入、接口用例审阅编辑（V7-0g）、步骤截图时间线（V7-9a）、画像机制接线（V7-5e）、生成期录制 AI 定位（V7-9b，默认关闭）已完成；下一步 V7-2b 控制台多账号与 P1 V7-4。
 
 视觉能力边界见 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md)：视觉只用于生成期定位建议与证据；已批准的回归保持零 LLM。DeepSeek Flash 已支持图像理解，可作为视觉模型候选。
 

@@ -48,6 +48,18 @@ test("collectLocatorCandidates prefers stable selectors", async () => {
     for (const c of candidates) {
       assert.equal(c.css.includes(">"), false);
     }
+    const resolved = await page.evaluate(
+      (items: Array<{ css: string; tag: string }>) =>
+        items.map((item) => {
+          const el = document.querySelector(item.css);
+          return { css: item.css, ok: Boolean(el), tag: el?.tagName.toLowerCase() };
+        }),
+      candidates.map((c) => ({ css: c.css, tag: c.tag })),
+    );
+    for (const item of resolved) {
+      assert.equal(item.ok, true, item.css);
+      assert.equal(item.tag, candidates.find((c) => c.css === item.css)?.tag, item.css);
+    }
   } finally {
     await page.close();
     await browser.close();

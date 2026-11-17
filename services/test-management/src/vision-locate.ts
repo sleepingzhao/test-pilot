@@ -62,6 +62,12 @@ const COLLECTOR_SOURCE = String.raw`() => {
     return undefined;
   }
 
+  function segment(node, parent) {
+    const tag = node.tagName.toLowerCase();
+    const sameTag = Array.from(parent.children).filter((c) => c.tagName.toLowerCase() === tag);
+    return tag + ":nth-of-type(" + (sameTag.indexOf(node) + 1) + ")";
+  }
+
   function stableCss(el) {
     const testId = el.getAttribute("data-testid");
     if (testId) return '[data-testid="' + escapeAttr(testId) + '"]';
@@ -71,41 +77,21 @@ const COLLECTOR_SOURCE = String.raw`() => {
     }
     const segments = [];
     let node = el;
-  branchWalk:
     for (let depth = 0; depth < MAX_DEPTH && node && node !== document.body; depth++) {
       const parent = node.parentElement;
       if (!parent) break;
-      const anchorId = parent.id;
+      segments.unshift(segment(node, parent));
       const anchorTestId = parent.getAttribute?.("data-testid");
-      if ((anchorId && document.querySelectorAll("#" + CSS.escape(anchorId)).length === 1) || anchorTestId) {
-        const anchor =
-          anchorTestId != null
-            ? '[data-testid="' + escapeAttr(anchorTestId) + '"]'
-            : "#" + CSS.escape(anchorId);
-        const tag = node.tagName.toLowerCase();
-        const sameTag = Array.from(parent.children).filter((c) => c.tagName.toLowerCase() === tag);
-        const idx = sameTag.indexOf(node) + 1;
-        segments.unshift(tag + ":nth-of-type(" + idx + ")");
-        let walker = node.parentElement;
-        for (let d = 0; d < depth && walker && walker !== document.body; d++) {
-          const wTag = walker.tagName.toLowerCase();
-          const sibs = Array.from(walker.parentElement?.children || []).filter(
-            (c) => c.tagName.toLowerCase() === wTag,
-          );
-          const wIdx = sibs.indexOf(walker) + 1;
-          segments.unshift(wTag + ":nth-of-type(" + wIdx + ")");
-          walker = walker.parentElement;
-        }
-        return anchor + " " + segments.join(" ");
+      if (anchorTestId) {
+        return '[data-testid="' + escapeAttr(anchorTestId) + '"] ' + segments.join(" ");
       }
-      const tag = node.tagName.toLowerCase();
-      const sameTag = Array.from(parent.children).filter((c) => c.tagName.toLowerCase() === tag);
-      const idx = sameTag.indexOf(node) + 1;
-      segments.unshift(tag + ":nth-of-type(" + idx + ")");
+      const anchorId = parent.id;
+      if (anchorId && document.querySelectorAll("#" + CSS.escape(anchorId)).length === 1) {
+        return "#" + CSS.escape(anchorId) + " " + segments.join(" ");
+      }
       node = parent;
     }
-    if (segments.length) return segments.join(" ");
-    return el.tagName.toLowerCase();
+    return segments.length ? segments.join(" ") : el.tagName.toLowerCase();
   }
 
   const nodes = Array.from(document.querySelectorAll(selector));

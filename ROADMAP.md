@@ -34,7 +34,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | Test Intelligence Layer | LLM Provider、Context Engine、失败诊断可用；Test Generator 覆盖需求→草稿与能力探测 | 风险分析、主动场景探索未做；机制包尚未接入生成链路 |
 | Test IR + Assertion Engine | IR v1；navigate/click/fill/press/wait/select/selectCascader/request/upload；`policy.cleanup` + `teardownSteps`；5 个断言 Provider（ui / captured-http / postgres-readonly / otel-trace / ws）；负向探针 5 路 | 核心最强；数据隔离/自动生成仍缺；自修复仅建议 |
 | 平台层 | Web（Playwright）可用；Android / iOS / Harmony 仅有类型占位 | 与架构图差距最大，后置 |
-| Execution & Observability | 批次调度、并发、恢复、Trace / network / screenshot / ws 证据、步骤截图时间线与失败直达、测试数据清理、flake、基线可用 | WS 证据控制台入口（V7-6b）；CI 未接 |
+| Execution & Observability | 批次调度、并发、恢复、Trace / network / screenshot / ws 证据、WS 帧查看、步骤截图时间线与失败直达、测试数据清理、flake、基线可用 | 数据隔离/自动生成仍缺；CI 未接 |
 
 概念图输入侧：自然语言 / PRD ✓、人工录制 ✓、**OpenAPI ✗**、**Git Diff ✗**。探索模式目前只有结构化采集 + 能力探测；视觉探索按 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md) 后置到 V7-9c，且不参与回归门禁。
 

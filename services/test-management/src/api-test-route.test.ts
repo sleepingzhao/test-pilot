@@ -1,12 +1,110 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import sensible from "@fastify/sensible";
 import Fastify from "fastify";
+import { computeIRHash } from "@testpilot/test-ir";
+import { computeAssertionConfigHash } from "@testpilot/fixtures";
 import { registerRoutes } from "./routes.js";
 import { FileStore } from "./store.js";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+function configHash() {
+  return computeAssertionConfigHash(repoRoot);
+}
+
+test("PUT /api/tests/:testId edits API IR, resets approval, keeps ir.id", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-api-put-"));
+  const store = new FileStore(join(root, "data"));
+  await store.init();
+  const app = Fastify();
+  await app.register(sensible);
+  registerRoutes(app, store, join(root, "artifacts"), join(root, "data"));
+  await app.ready();
+  try {
+    const create = await app.inject({
+      method: "POST",
+      url: "/api/api-tests",
+      payload: {
+        title: "可编辑",
+        target: "custom",
+        customUrl: "http://127.0.0.1:9",
+        method: "GET",
+        path: "/api/health",
+        expectStatus: 200,
+      },
+    });
+    assert.equal(create.statusCode, 200, create.body);
+    const created = create.json() as { test: { id: string; ir: { id: string; steps: unknown[] } } };
+    const testId = created.test.id;
+
+    const ir = created.test.ir;
+    const hash = computeIRHash(ir);
+    const approved = await app.inject({
+      method: "POST",
+      url: `/api/tests/${testId}/approve`,
+      payload: { irHash: hash, assertionConfigHash: configHash() },
+      headers: { "x-testpilot-actor": "qa" },
+    });
+    assert.equal(approved.statusCode, 200, approved.body);
+
+    const nextIr = {
+      ...ir,
+      steps: [
+        {
+          ...(ir.steps[0] as object),
+          path: "/api/items",
+        },
+      ],
+      teardownSteps: [
+        { id: "cleanup", action: "request", method: "DELETE", path: "/api/items/1" },
+      ],
+      policy: { ...(ir as { policy?: object }).policy, cleanup: "always" },
+    };
+    const put = await app.inject({
+      method: "PUT",
+      url: `/api/tests/${testId}`,
+      payload: { ir: nextIr },
+    });
+    assert.equal(put.statusCode, 200, put.body);
+    const body = put.json() as {
+      approvalStatus: string;
+      ir: { id: string; policy?: { cleanup?: string }; teardownSteps?: unknown[] };
+    };
+    assert.equal(body.approvalStatus, "draft");
+    assert.equal(body.ir.id, testId);
+    assert.equal(body.ir.policy?.cleanup, "always");
+    assert.equal(body.ir.teardownSteps?.length, 1);
+
+    const bad = await app.inject({
+      method: "PUT",
+      url: `/api/tests/${testId}`,
+      payload: {
+        ir: {
+          ...nextIr,
+          assertions: [
+            {
+              id: "response",
+              type: "api",
+              provider: "captured-http",
+              stepRef: "call",
+              expect: { statusCode: 12 },
+              oracle: "api-contract",
+            },
+          ],
+        },
+      },
+    });
+    assert.equal(bad.statusCode, 400, bad.body);
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("POST /api/api-tests with cleanup saves teardown and policy", async () => {
   const root = await mkdtemp(join(tmpdir(), "testpilot-api-test-"));

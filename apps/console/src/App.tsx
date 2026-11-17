@@ -12,6 +12,7 @@ import type { TestStep } from "@testpilot/test-ir/step-edit";
 import { StepEditorPanel } from "./StepEditorPanel";
 import { RequirementFlowView } from "./RequirementFlowView";
 import { ApiTestView } from "./ApiTestView";
+import { ApiTestEditPanel } from "./ApiTestEditPanel";
 import { SystemProfileView } from "./SystemProfileView";
 import { RunDetailView } from "./RunDetailView";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -720,6 +721,21 @@ export function App() {
   const updateReviewTeardown = (next: TestStep[]) => {
     setReviewTeardown(next);
     markReviewDirty();
+  };
+
+  const applyApiTestSaved = async (updated: StoredTest) => {
+    setEditTest(updated);
+    setReviewSteps([...(updated.ir.steps ?? [])] as TestStep[]);
+    setReviewTeardown([...(updated.ir.teardownSteps ?? [])] as TestStep[]);
+    const policyCleanup = updated.ir.policy?.cleanup;
+    setCleanupPolicy(
+      policyCleanup === "on-success" || policyCleanup === "always" ? policyCleanup : "none",
+    );
+    const apiA = updated.ir.assertions?.find((x) => (x as IrAssertion).type === "api") as IrAssertion | undefined;
+    setApiExpectJson(apiA?.expect ? JSON.stringify(apiA.expect, null, 2) : "");
+    setReviewDirty(false);
+    setTrialResult(null);
+    await refresh();
   };
 
   const buildReviewIr = () => {
@@ -1829,6 +1845,9 @@ export function App() {
                   ))}
                 </ul>
               )}
+              {editTest.sourceChannel === "api" ? (
+                <ApiTestEditPanel test={editTest} onSaved={(t) => void applyApiTestSaved(t)} />
+              ) : null}
               <StepEditorPanel steps={reviewSteps} onChange={updateReviewSteps} />
 
               <section className="review-section">
@@ -1942,24 +1961,30 @@ export function App() {
                     </>
                   )}
                 </div>
-                <div className="field field-last">
-                  <label>API expect（JSON，可选）</label>
-                  <p className="hint-inline">
-                    支持 <code>statusCode</code>、<code>responseJsonBody</code>（响应 JSON）、
-                    <code>responseBodyContains</code>（响应子串）、<code>requestJsonBody</code>（请求体）。
-                    例：{`{"statusCode":201,"responseJsonBody":{"ok":true}}`}
+                {editTest.sourceChannel !== "api" ? (
+                  <div className="field field-last">
+                    <label>API expect（JSON，可选）</label>
+                    <p className="hint-inline">
+                      支持 <code>statusCode</code>、<code>responseJsonBody</code>（响应 JSON）、
+                      <code>responseBodyContains</code>（响应子串）、<code>requestJsonBody</code>（请求体）。
+                      例：{`{"statusCode":201,"responseJsonBody":{"ok":true}}`}
+                    </p>
+                    <textarea
+                      className="textarea"
+                      rows={4}
+                      value={apiExpectJson}
+                      onChange={(e) => {
+                        setApiExpectJson(e.target.value);
+                        markReviewDirty();
+                      }}
+                      placeholder='{"statusCode": 201, "requestBodyContains": "@example.com"}'
+                    />
+                  </div>
+                ) : (
+                  <p className="hint-inline field-last">
+                    接口断言请在上方「接口请求」表单中编辑；保存后会重置为草稿，需重新批准。
                   </p>
-                  <textarea
-                    className="textarea"
-                    rows={4}
-                    value={apiExpectJson}
-                    onChange={(e) => {
-                      setApiExpectJson(e.target.value);
-                      markReviewDirty();
-                    }}
-                    placeholder='{"statusCode": 201, "requestBodyContains": "@example.com"}'
-                  />
-                </div>
+                )}
               </section>
 
               <section className="review-section">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type StoredRun } from "./api.js";
+import { api, type StoredRun, type WsLog } from "./api.js";
 import { artifactUrlForFile, formatJsonBrief, listEvidenceRows, runDetailHeadline } from "./runDetail.js";
 import { failureKindLabel } from "./stepSummary.js";
 
@@ -17,10 +17,20 @@ type BatchSummary = {
   status: string;
 };
 
+function shouldLoadWsLog(run: StoredRun): boolean {
+  if (run.artifactsPresent?.ws === false) return false;
+  return run.artifacts.artifacts.some((a) => a.kind === "ws") || run.artifactsPresent?.ws === true;
+}
+
+function wsPayloadPreview(payload: string, max = 240): string {
+  return payload.length > max ? `${payload.slice(0, max)}…` : payload;
+}
+
 export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
   const [run, setRun] = useState<StoredRun | null>(null);
   const [batch, setBatch] = useState<BatchSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [wsLog, setWsLog] = useState<WsLog | "loading" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +58,26 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
       cancelled = true;
     };
   }, [runId]);
+
+  useEffect(() => {
+    if (!run || !shouldLoadWsLog(run)) {
+      setWsLog(null);
+      return;
+    }
+    let cancelled = false;
+    setWsLog("loading");
+    void (async () => {
+      try {
+        const res = await api<{ ws: WsLog }>(`/api/runs/${run.runId}/ws`);
+        if (!cancelled) setWsLog(res.ws);
+      } catch {
+        if (!cancelled) setWsLog(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [run]);
 
   if (error) {
     return (
@@ -237,6 +267,62 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
                 <li className="run-step-muted">未配置清理</li>
               ) : null}
             </ol>
+          </div>
+        ) : null}
+
+        {wsLog !== null ? (
+          <div className="card-panel run-detail-ws">
+            <h3>WebSocket 帧</h3>
+            {wsLog === "loading" ? (
+              <p className="hint-inline">加载 WebSocket 帧…</p>
+            ) : (
+              <>
+                {(() => {
+                  const sent = wsLog.frames.filter((f) => f.direction === "sent").length;
+                  const recv = wsLog.frames.filter((f) => f.direction === "received").length;
+                  const parts = [`发送 ${sent}`, `接收 ${recv}`];
+                  if (wsLog.dropped > 0) parts.push(`丢弃 ${wsLog.dropped}`);
+                  parts.push(`上限 ${wsLog.limit}`);
+                  return <p className="run-detail-meta ws-frame-summary">{parts.join(" · ")}</p>;
+                })()}
+                {wsLog.note ? <p className="stat-note">{wsLog.note}</p> : null}
+                <p className="stat-note">帧内容已按证据规则脱敏</p>
+                {wsLog.frames.length === 0 ? (
+                  <p className="run-step-muted">本次运行没有采集到 WebSocket 帧</p>
+                ) : (
+                  <ol className="ws-frame-list">
+                    {wsLog.frames.map((frame, index) => (
+                      <li key={`${frame.at}-${frame.direction}-${index}`} className="ws-frame-row">
+                        <div className="ws-frame-head">
+                          <span
+                            className={`ws-dir-badge ws-dir-${frame.direction === "sent" ? "out" : "in"}`}
+                          >
+                            {frame.direction === "sent" ? "发送" : "接收"}
+                          </span>
+                          <span className="ws-frame-time">
+                            {new Date(frame.at).toLocaleTimeString()}
+                          </span>
+                          <span className="ws-frame-size">{frame.size} B</span>
+                          <span className="ws-frame-url" title={frame.url}>
+                            {frame.url}
+                          </span>
+                        </div>
+                        {frame.payload.length > 240 ? (
+                          <details className="ws-frame-payload">
+                            <summary>
+                              <pre className="ws-payload-pre">{wsPayloadPreview(frame.payload)}</pre>
+                            </summary>
+                            <pre className="ws-payload-pre">{frame.payload}</pre>
+                          </details>
+                        ) : (
+                          <pre className="ws-payload-pre">{frame.payload}</pre>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </>
+            )}
           </div>
         ) : null}
 

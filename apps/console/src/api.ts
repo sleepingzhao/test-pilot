@@ -86,6 +86,21 @@ export type StoredTest = {
   updatedAt: string;
 };
 
+export type WsFrame = {
+  url: string;
+  direction: "sent" | "received";
+  size: number;
+  payload: string;
+  at: string;
+};
+
+export type WsLog = {
+  limit: number;
+  dropped: number;
+  note?: string;
+  frames: WsFrame[];
+};
+
 export type StoredRun = {
   runId: string;
   testId: string;

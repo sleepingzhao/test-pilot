@@ -36,6 +36,8 @@ export function listEvidenceRows(run: StoredRun): EvidenceRow[] {
   if (har) rows.push({ label: "HAR", href: available(run, "har") ? artifactUrl(run, har) : null });
   const log = artifactFileName(run, "log");
   if (log) rows.push({ label: "运行清单", href: available(run, "log") ? artifactUrl(run, log) : null });
+  const ws = artifactFileName(run, "ws");
+  if (ws) rows.push({ label: "WebSocket", href: available(run, "ws") ? artifactUrl(run, ws) : null });
   return rows;
 }
 

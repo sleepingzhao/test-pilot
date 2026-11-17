@@ -1838,6 +1838,62 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     return { ...redactRunForApi(run), artifactsPresent: artifactPresence(run, artifactsRoot) };
   });
 
+  app.get("/api/runs/:runId/ws", async (req, reply) => {
+    const { runId } = req.params as { runId: string };
+    if (!isSafeRunId(runId)) return reply.notFound("run not found");
+    const run = await store.getRun(runId);
+    if (!run) return reply.notFound("run not found");
+
+    const wsArtifact = run.artifacts?.artifacts?.find((a) => a.kind === "ws");
+    if (!wsArtifact?.path) {
+      return reply.notFound("此运行没有 WebSocket 证据（ws.json）");
+    }
+
+    const root = resolve(artifactsRoot);
+    const rawRunDir = run.artifacts?.dir ?? join(root, "runs", runId);
+    const runDir = resolve(isAbsolute(rawRunDir) ? rawRunDir : resolve(root, "..", rawRunDir));
+    if (runDir === root || !isWithin(root, runDir)) {
+      return reply.notFound("WebSocket 证据文件不存在");
+    }
+
+    const filePath = resolve(
+      isAbsolute(wsArtifact.path) ? wsArtifact.path : join(runDir, wsArtifact.path),
+    );
+    if (!isWithin(runDir, filePath) || !existsSync(filePath)) {
+      return reply.notFound("WebSocket 证据文件不存在");
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readFile(filePath, "utf8"));
+    } catch {
+      return reply.code(502).send({ error: "ws.json 无法解析" });
+    }
+
+    if (typeof parsed !== "object" || parsed === null) {
+      return reply.code(502).send({ error: "ws.json 无法解析" });
+    }
+    const body = parsed as Record<string, unknown>;
+    if (typeof body.limit !== "number" || typeof body.dropped !== "number" || !Array.isArray(body.frames)) {
+      return reply.code(502).send({ error: "ws.json 无法解析" });
+    }
+
+    return {
+      ws: {
+        limit: body.limit,
+        dropped: body.dropped,
+        note: typeof body.note === "string" ? body.note : undefined,
+        frames: body.frames as Array<{
+          url: string;
+          direction: "sent" | "received";
+          size: number;
+          payload: string;
+          at: string;
+        }>,
+      },
+    };
+  });
+
   app.get("/api/runs/:runId/diagnose", async (req, reply) => {
     const { runId } = req.params as { runId: string };
     if (!isSafeRunId(runId)) return reply.notFound("run not found");

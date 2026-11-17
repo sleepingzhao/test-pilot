@@ -22,7 +22,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 **当前方向：Web 业务系统优先。** 先把「测试人员安全接入一个业务系统 → 生成/审阅用例 → 跑出可信证据 → 清理测试数据」做通。移动端、CI、多项目/RBAC、平台化暂不投入；实时与 Agent 在业务接入闭环之后继续。
 
-**当前唯一开工任务：V7-6b WS 证据入口。** V7-5e 已验收（2026-11-12）；随后 V7-0i，再回到 V7-9b 生成期视觉定位（DeepSeek Flash 已支持图像理解，可复用现有 OpenAI 兼容端点）。视觉能力边界见 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md)：视觉只用于生成期与证据期，已批准回归保持零 LLM。
+**当前唯一开工任务：V7-0i OpenAPI 导入。** V7-6b 已验收（2026-11-17）：运行详情 WebSocket 帧卡片 + `GET /api/runs/:runId/ws`；随后回到 V7-9b 生成期视觉定位（DeepSeek Flash 已支持图像理解，可复用现有 OpenAI 兼容端点）。视觉能力边界见 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md)：视觉只用于生成期与证据期，已批准回归保持零 LLM。
 
 **本阶段要证明的事：** 一条业务系统的正常功能回归，可以被人审阅、能在失败时给出证据、能在通过后不留下脏数据。
 
@@ -34,7 +34,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | Test Intelligence Layer | LLM Provider、Context Engine、失败诊断可用；Test Generator 覆盖需求→草稿与能力探测 | 风险分析、主动场景探索未做；机制包尚未接入生成链路 |
 | Test IR + Assertion Engine | IR v1；navigate/click/fill/press/wait/select/selectCascader/request/upload；`policy.cleanup` + `teardownSteps`；5 个断言 Provider（ui / captured-http / postgres-readonly / otel-trace / ws）；负向探针 5 路 | 核心最强；数据隔离/自动生成仍缺；自修复仅建议 |
 | 平台层 | Web（Playwright）可用；Android / iOS / Harmony 仅有类型占位 | 与架构图差距最大，后置 |
-| Execution & Observability | 批次调度、并发、恢复、Trace / network / screenshot / ws 证据、步骤截图时间线与失败直达、测试数据清理、flake、基线可用 | WS 证据无控制台入口；CI 未接 |
+| Execution & Observability | 批次调度、并发、恢复、Trace / network / screenshot / ws 证据、步骤截图时间线与失败直达、测试数据清理、flake、基线可用 | WS 证据控制台入口（V7-6b）；CI 未接 |
 
 概念图输入侧：自然语言 / PRD ✓、人工录制 ✓、**OpenAPI ✗**、**Git Diff ✗**。探索模式目前只有结构化采集 + 能力探测；视觉探索按 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md) 后置到 V7-9c，且不参与回归门禁。
 
@@ -67,7 +67,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 - [x] 1. **V7-0f 命名 API 环境与鉴权头**（2026-11-11）：`api-envs.json` + `allowWrite` + `GET /api/api-envs` + 控制台选择器；`api-envs.ts` / `api-envs.test.ts` / `api-test-route.test.ts`；`pnpm verify` 全绿；浏览器：只读环境仅 GET/HEAD、无 header 值泄漏。
 - [x] 2. **V7-0h cURL 导入**（2026-11-11）：`@testpilot/test-ir/curl-import` 本地解析；控制台「从 cURL 导入」预填表单；鉴权头/` -u`/`--oauth2-bearer` 丢弃并警告；`curl-import.test.ts`；`pnpm verify` 全绿；Playwright 浏览器：`/api/items` + `Authorization: Bearer SECRET123` → 选 `local-demo-ro`、path `/api/items`、请求头仅 `Accept`、警告含 Authorization 名且无密钥；只读环境 POST→GET + 警告；非法输入 `看起来不是 cURL 命令` 且不改动表单。
 - [x] 3. **V7-5e 机制接线**（2026-11-12）：画像 → `GET /api/detect/:id/mechanisms` + `POST /api/mechanisms/file-media/draft`；控制台「可测机制」卡片（可生成草稿 / 缺条件 + blockers）；草稿 `sourceChannel: "mechanism"`、不自动批准；练习环境默认 `DELETE /api/files/{{uploadedId}}` teardown，UI 上传响应经 `saveFromRef` 取值，试跑后 `GET /api/files` 为空；`mechanisms.test.ts` + `mechanism-routes.test.ts` + `ui-response-capture.test.ts`；浏览器：生成草稿并打开审阅、审阅显示 teardown；`pnpm verify` 全绿。
-- [ ] 4. **V7-6b WS 证据入口**：运行详情可打开 `ws.json`，显示收发帧摘要。
+- [x] 4. **V7-6b WS 证据入口**（2026-11-17）：`GET /api/runs/:runId/ws` 读注册 `ws.json`；运行详情「WebSocket 帧」卡片（收发/丢弃/上限、方向、脱敏 payload）；证据行链 `ws.json`；`run-ws.test.ts`；Playwright：试跑 `run_mwkvbodr_06af0ab1` 卡片 `发送 1 · 接收 1 · 上限 200`、无 ws 用例无空卡片；`pnpm verify` 全绿。
 - [ ] 5. **V7-0i OpenAPI 导入**：OpenAPI 3.x（JSON/YAML）选 operation → 预填接口用例。
 
 ### 借鉴 Midscene（2026-11-12，[ADR-011](docs/adr/ADR-011-midscene-visual-assist.md)）
@@ -495,7 +495,7 @@ interface MechanismPack {
 - [x] V7-0f 命名 API 环境与鉴权头（2026-11-11）— `docs/api-envs.example.json` + gitignore `api-envs.json` + `TESTPILOT_API_ENVS_FILE`；`GET /api/api-envs` 仅返回 headerNames；`POST /api/api-tests` 支持 `envId`、头合并、`allowWrite` 写方法门禁（含 cleanup）；控制台环境选择与只读方法限制；`api-envs.test.ts` + 扩展 `api-test-route.test.ts`；Playwright 浏览器抽检；`pnpm verify` 全绿
 - [x] V7-0h cURL 导入（2026-11-11）— `packages/test-ir/src/curl-import.ts` + subpath export；shell 风格 tokenizer；丢弃鉴权头/`-u`/`--oauth2-bearer`；`curl-import.test.ts` 正反例 + 安全断言；控制台 `ApiTestView` 折叠导入区 + 环境/只读方法联动；`pnpm --filter @testpilot/test-ir test` / `build`、`pnpm --filter @testpilot/console typecheck`、`pnpm verify` 全绿；Playwright 抽检见 §0.1 执行顺序项 2
 - [x] V7-5e 机制接线（2026-11-12）— `services/test-management/src/mechanisms.ts` + `GET /api/detect/:id/mechanisms` / `POST /api/mechanisms/file-media/draft`；试点/真实 `runnable: false` + 只读 blocker，草稿 `sourceChannel: "mechanism"`、`approvalStatus: "draft"`；练习环境默认 cleanup + `saveFromRef` 捕获上传响应 → `DELETE /api/files/{{uploadedId}}`；`files-upload` 默认 requestRef；控制台 `SystemProfileView`「可测机制」卡片与高级清理字段；`mechanisms.test.ts` + `mechanism-routes.test.ts` + `ui-response-capture.test.ts`；浏览器：生成草稿、审阅显示 teardown、试跑后 demo 无残留文件；`pnpm verify` 全绿
-- [ ] V7-6b WS 证据入口 — 运行详情可打开 `ws.json`，显示收发帧摘要、方向、截断/丢弃数量；仍按现有脱敏规则
+- [x] V7-6b WS 证据入口（2026-11-17）— `GET /api/runs/:runId/ws`；运行详情 WebSocket 帧卡片 + 证据 `ws.json` 链接；`run-ws.test.ts`；浏览器试跑 `run_mwkvbodr_06af0ab1`；`pnpm verify` 全绿
 - [ ] V7-0i OpenAPI 导入 — OpenAPI 3.x（JSON/YAML）选择 operation → 预填接口用例；只在本地解析，不上传外部；生成草稿，不自动批准
 - [x] V7-9a 步骤截图时间线与失败回放（借鉴 Midscene，2026-11-12）— `policy.screenshots: "always"` 下每步落图并记入 `StepResult.screenshot`/manifest；控制台时间线缩略图、点击看原图、「跳到失败步骤」；`on-failure`/`never` 不变；三种策略测试 + 浏览器实测
 

@@ -72,7 +72,7 @@ pnpm dev              # 会先全量 build，避免 workspace 包引用旧 dist
 - 断言：沿用 `api` / `captured-http`；`stepRef` 直接绑定 `request` 步骤 id，无需额外映射；页面操作触发的请求继续用 `requestRef`（默认映射或运行环境 `requestRefs`）。
 - 证据：请求/响应写入 `network.json`，Authorization/Cookie 脱敏；请求体/响应体沿用 8 KB / 4 KB 截断。
 - 限制：仅同源（跨域接口需后续白名单）；暂不支持文件上传；试点/真实接口在控制台需后续明确授权。
-- 控制台：**创建 → 接口测试**，可折叠「从 cURL 导入」在浏览器本地解析并预填表单（鉴权头会忽略，敏感值不进请求头草稿）；填写方法/路径/请求头/请求体与断言后「生成草稿并试跑」；草稿需人工审阅批准，批准后才进入回归。
+- 控制台：**创建 → 接口测试**，可折叠「从 cURL 导入」或「从 OpenAPI 导入」（浏览器本地解析 JSON/YAML，选 operation 预填；文档不上传、外部 $ref 不解析）；鉴权头会忽略；填写方法/路径/请求头/请求体与断言后「生成草稿并试跑」；草稿需人工审阅批准，批准后才进入回归。
 - 示例：`examples/demo-webapp/tests/api-*.json`，已加入 `pnpm smoke:demo`。
 
 ### 文件/媒体机制（V7-5）
@@ -149,7 +149,7 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 | Management API | `services/test-management` |
 | Demo + 种子用例 | `examples/demo-webapp` |
 
-当前进度见 [ROADMAP.md](ROADMAP.md) §0.1：业务接口直连、文件/媒体机制、WS 证据与运行详情 WS 帧入口（V7-6b）、测试数据清理（V7-7）、命名 API 环境（V7-0f）、cURL 导入（V7-0h）、步骤截图时间线（V7-9a）、画像机制接线（V7-5e，含上传后自动清理）已完成；下一步 **V7-0i OpenAPI 导入**，随后生成期视觉定位（V7-9b）。
+当前进度见 [ROADMAP.md](ROADMAP.md) §0.1：业务接口直连、文件/媒体机制、WS 证据与运行详情 WS 帧入口（V7-6b）、测试数据清理（V7-7）、命名 API 环境（V7-0f）、cURL 导入（V7-0h）、OpenAPI 导入（V7-0i）、步骤截图时间线（V7-9a）、画像机制接线（V7-5e，含上传后自动清理）已完成；下一步 **V7-9b 生成期视觉定位**。
 
 视觉能力边界见 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md)：视觉只用于生成期定位建议与证据；已批准的回归保持零 LLM。DeepSeek Flash 已支持图像理解，可作为视觉模型候选。
 

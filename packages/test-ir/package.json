@@ -18,19 +18,27 @@
       "types": "./dist/curl-import.d.ts",
       "import": "./dist/curl-import.js"
     },
+    "./openapi-import": {
+      "types": "./dist/openapi-import.d.ts",
+      "import": "./dist/openapi-import.js"
+    },
     "./schema": "./schema/test-ir.v1.schema.json"
   },
-  "files": ["dist", "schema"],
+  "files": [
+    "dist",
+    "schema"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/validate.test.ts src/hash.test.ts src/step-edit.test.ts src/curl-import.test.ts",
+    "test": "node --import tsx --test src/validate.test.ts src/hash.test.ts src/step-edit.test.ts src/curl-import.test.ts src/openapi-import.test.ts",
     "validate": "node dist/cli-validate.js",
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {
     "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1"
+    "ajv-formats": "^3.0.1",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

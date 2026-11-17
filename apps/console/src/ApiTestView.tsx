@@ -1,5 +1,6 @@
 import { parseCurlCommand } from "@testpilot/test-ir/curl-import";
-import { useEffect, useState } from "react";
+import { buildOpenApiRequest, parseOpenApi, type OpenApiOperation } from "@testpilot/test-ir/openapi-import";
+import { useEffect, useRef, useState } from "react";
 import type { PublicApiEnv, StoredRun, StoredTest } from "./api";
 import { api } from "./api";
 import { failureKindLabel, summarizeAssertion } from "./stepSummary";
@@ -86,6 +87,14 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
   const [curlText, setCurlText] = useState("");
   const [curlImportError, setCurlImportError] = useState<string | null>(null);
   const [curlImportWarnings, setCurlImportWarnings] = useState<string[]>([]);
+  const [openapiText, setOpenapiText] = useState("");
+  const [openapiParseError, setOpenapiParseError] = useState<string | null>(null);
+  const [openapiImportError, setOpenapiImportError] = useState<string | null>(null);
+  const [openapiImportWarnings, setOpenapiImportWarnings] = useState<string[]>([]);
+  const [openapiMeta, setOpenapiMeta] = useState<{ title?: string; version?: string } | null>(null);
+  const [openapiOperations, setOpenapiOperations] = useState<OpenApiOperation[]>([]);
+  const [openapiOperationKey, setOpenapiOperationKey] = useState("");
+  const openapiFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void api<{ envs: PublicApiEnv[] }>("/api/api-envs")
@@ -153,6 +162,94 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
     setCurlImportWarnings(importWarnings);
     setError(null);
     setResult(null);
+  };
+
+  const parseOpenApiDocument = () => {
+    setOpenapiParseError(null);
+    setOpenapiImportError(null);
+    setOpenapiImportWarnings([]);
+    setOpenapiMeta(null);
+    setOpenapiOperations([]);
+    setOpenapiOperationKey("");
+
+    const parsed = parseOpenApi(openapiText);
+    if (!parsed.ok) {
+      setOpenapiParseError(parsed.error);
+      return;
+    }
+    setOpenapiMeta({ title: parsed.title, version: parsed.version });
+    setOpenapiOperations(parsed.operations);
+    if (parsed.operations.length > 0) {
+      setOpenapiOperationKey(parsed.operations[0]!.key);
+    }
+  };
+
+  const applyOpenApiImport = () => {
+    setOpenapiImportError(null);
+    setOpenapiImportWarnings([]);
+    if (!openapiOperationKey) {
+      setOpenapiImportError("请先解析文档并选择一个操作");
+      return;
+    }
+
+    const built = buildOpenApiRequest(openapiText, openapiOperationKey);
+    if (!built.ok) {
+      setOpenapiImportError(built.error);
+      return;
+    }
+
+    const importWarnings = [...built.request.warnings];
+    let nextMethod = built.request.method;
+    const allowedMethods = new Set<string>(METHODS);
+    if (!allowedMethods.has(nextMethod)) {
+      nextMethod = "GET";
+    }
+
+    let envReadOnlyAfterImport = false;
+    if (built.request.serverUrl) {
+      const origin = urlOrigin(built.request.serverUrl);
+      if (origin) {
+        const matchedEnv = configuredEnvs.find((item) => urlOrigin(item.baseUrl) === origin);
+        const demoOrigin = urlOrigin(demoUrl);
+        if (matchedEnv) {
+          setTarget("configured");
+          setEnvId(matchedEnv.id);
+          envReadOnlyAfterImport = !matchedEnv.allowWrite;
+        } else if (demoOrigin && demoOrigin === origin) {
+          setTarget("demo");
+        } else {
+          setTarget("custom");
+          setCustomUrl(origin);
+        }
+      }
+    } else {
+      importWarnings.push("文档未提供绝对服务器地址，请手动选择目标环境");
+    }
+
+    if (envReadOnlyAfterImport && WRITE_METHODS.has(nextMethod)) {
+      nextMethod = "GET";
+      importWarnings.push("该环境只读，已改用 GET");
+    }
+
+    setMethod(nextMethod as (typeof METHODS)[number]);
+    setPath(built.request.path);
+    const headerLines = Object.entries(built.request.headers).map(
+      ([name, value]) => `${name}: ${value}`,
+    );
+    setHeadersText(headerLines.length ? headerLines.join("\n") : "");
+    setBodyText(built.request.body ?? "");
+    setOpenapiImportWarnings(importWarnings);
+    setError(null);
+    setResult(null);
+  };
+
+  const onOpenApiFileChange = (file: File | undefined) => {
+    if (!file) return;
+    void file.text().then((text) => {
+      setOpenapiText(text);
+      setOpenapiParseError(null);
+      setOpenapiImportError(null);
+    });
   };
 
   const submit = async () => {
@@ -281,6 +378,83 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
         {curlImportWarnings.length > 0 ? (
           <ul className="stat-note api-curl-import-warnings">
             {curlImportWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
+
+        <details className="api-openapi-import">
+          <summary>从 OpenAPI 导入（可选）</summary>
+          <p className="hint-inline">只在浏览器本地解析；不会上传文档或外部引用。</p>
+          <div className="field">
+            <label htmlFor="api-openapi-import">OpenAPI 3.x（JSON 或 YAML）</label>
+            <textarea
+              id="api-openapi-import"
+              rows={6}
+              value={openapiText}
+              onChange={(e) => setOpenapiText(e.target.value)}
+              placeholder="openapi: 3.0.0"
+              spellCheck={false}
+            />
+          </div>
+          <div className="field-row">
+            <button type="button" className="btn-small" onClick={parseOpenApiDocument}>
+              解析文档
+            </button>
+            <button
+              type="button"
+              className="btn-small"
+              onClick={() => openapiFileRef.current?.click()}
+            >
+              从本地文件读取
+            </button>
+            <input
+              ref={openapiFileRef}
+              type="file"
+              accept=".json,.yaml,.yml"
+              hidden
+              onChange={(e) => onOpenApiFileChange(e.target.files?.[0])}
+            />
+          </div>
+          {openapiMeta || openapiOperations.length > 0 ? (
+            <div className="openapi-parse-result">
+              {openapiMeta?.title ? (
+                <p className="run-detail-meta">
+                  {openapiMeta.title}
+                  {openapiMeta.version ? ` · v${openapiMeta.version}` : ""}
+                </p>
+              ) : null}
+              {openapiOperations.length > 0 ? (
+                <div className="field">
+                  <label htmlFor="api-openapi-operation">操作</label>
+                  <select
+                    id="api-openapi-operation"
+                    value={openapiOperationKey}
+                    onChange={(e) => setOpenapiOperationKey(e.target.value)}
+                  >
+                    {openapiOperations.map((op) => (
+                      <option key={op.key} value={op.key}>
+                        {op.key}
+                        {op.summary ? ` · ${op.summary}` : ""}
+                        {op.deprecated ? " (deprecated)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <p className="stat-note">文档中没有可导入的 HTTP 操作。</p>
+              )}
+              <button type="button" className="btn-small" onClick={applyOpenApiImport}>
+                填入表单
+              </button>
+            </div>
+          ) : null}
+        </details>
+        {openapiParseError ? <p className="diagnose-msg">{openapiParseError}</p> : null}
+        {openapiImportError ? <p className="diagnose-msg">{openapiImportError}</p> : null}
+        {openapiImportWarnings.length > 0 ? (
+          <ul className="stat-note api-openapi-import-warnings">
+            {openapiImportWarnings.map((warning) => (
               <li key={warning}>{warning}</li>
             ))}
           </ul>

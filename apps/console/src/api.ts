@@ -171,6 +171,8 @@ export type StoredRun = {
   actorMode?: "multi" | "single";
   /** Present when the run enforced real-environment read-only network guard. */
   readOnly?: boolean;
+  /** Browser requests aborted by the read-only guard. */
+  readOnlyBlockedRequests?: number;
   steps: Array<{
     stepId: string;
     status: string;

@@ -56,6 +56,8 @@ export type RunResult = {
   actorMode?: "multi" | "single";
   /** Set when `readOnlyNetwork` blocked mutating traffic against a real target. */
   readOnly?: boolean;
+  /** Browser requests aborted by the read-only route guard (UI-triggered writes). */
+  readOnlyBlockedRequests?: number;
   /** Visible success/alerts right after the steps; used to derive a real success assertion. */
   finalSignals?: string[];
   cleanup?: CleanupResult;
@@ -359,8 +361,9 @@ function shouldRunTeardown(ir: TestIR, primaryStatus: RunStatus): boolean {
 
 function classifyCleanupFailure(messages: string[]): { errorKind: string; message: string } {
   const combined = messages.filter(Boolean).join("; ") || "teardown step failed";
+  const blockedByReadOnly = messages.some((m) => m.startsWith("只读模式："));
   const kind = classifyFailure({ stepError: combined });
-  const errorKind = kind === "ENVIRONMENT" ? "ENVIRONMENT" : "TEST_DATA";
+  const errorKind = blockedByReadOnly || kind === "ENVIRONMENT" ? "ENVIRONMENT" : "TEST_DATA";
   return { errorKind, message: `cleanup failed: ${combined}` };
 }
 
@@ -388,9 +391,15 @@ async function runTeardown(
   vars: Record<string, string>,
   secrets: string[],
   recordNetworkEntry: (input: DirectNetworkInput) => void,
+  readOnlyNetwork?: boolean,
 ): Promise<CleanupResult> {
   const steps: StepResult[] = [];
   for (const step of ir.teardownSteps ?? []) {
+    const blocked = readOnlyNetwork ? readOnlyBlockedMessage(step) : undefined;
+    if (blocked) {
+      steps.push({ stepId: step.id, status: "failed", durationMs: 0, message: blocked });
+      continue;
+    }
     const result = await executeStep(
       page,
       context,
@@ -496,6 +505,16 @@ function isReadOnlyPolicyBlock(message?: string): boolean {
   return message.startsWith("只读模式：") || /read-only:\s*websocket send blocked/i.test(message);
 }
 
+function readOnlyBlockedMessage(step: TestStep): string | undefined {
+  if (step.action === "upload") return "只读模式：已阻止文件上传";
+  if (step.action === "request" && step.method && !isReadOnlySafeRequestMethod(step.method)) {
+    return `只读模式：已阻止写请求 ${step.method} ${step.path ?? "/"}`;
+  }
+  return undefined;
+}
+
+type ReadOnlyGuardStats = { blockedRequests: number };
+
 function applyReadOnlyWebSocketGuardInPage(): void {
   const g = globalThis as typeof globalThis & { __testpilotReadOnlyWs?: boolean };
   if (g.__testpilotReadOnlyWs) return;
@@ -510,13 +529,18 @@ function applyReadOnlyWebSocketGuardInPage(): void {
  * Real-environment read-only guard: abort non-safe HTTP in the browser and block WS sends.
  * Must run after login (which may need form POST) and before test steps.
  */
-async function installReadOnlyNetworkGuard(context: BrowserContext, page: Page): Promise<void> {
+async function installReadOnlyNetworkGuard(
+  context: BrowserContext,
+  page: Page,
+  stats?: ReadOnlyGuardStats,
+): Promise<void> {
   await context.route("**/*", (route) => {
     const method = route.request().method().toUpperCase();
     if (READ_ONLY_HTTP_METHODS.has(method)) {
       void route.continue();
       return;
     }
+    if (stats) stats.blockedRequests += 1;
     void route.abort("blockedbyclient");
   });
   await context.addInitScript(applyReadOnlyWebSocketGuardInPage);
@@ -565,22 +589,13 @@ async function runMainStep(
     };
   }
   if (readOnlyNetwork) {
-    if (step.action === "upload") {
+    const blocked = readOnlyBlockedMessage(step);
+    if (blocked) {
       return {
         stepId: step.id,
         status: "failed",
         durationMs: 0,
-        message: "只读模式：已阻止文件上传",
-        ...(actorId !== "primary" ? { actor: actorId } : {}),
-      };
-    }
-    if (step.action === "request" && step.method && !isReadOnlySafeRequestMethod(step.method)) {
-      const path = step.path ?? "/";
-      return {
-        stepId: step.id,
-        status: "failed",
-        durationMs: 0,
-        message: `只读模式：已阻止写请求 ${step.method} ${path}`,
+        message: blocked,
         ...(actorId !== "primary" ? { actor: actorId } : {}),
       };
     }
@@ -648,6 +663,9 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
   let status: RunStatus = "passed";
   let runNotes: string | undefined;
   let loginHookFailed = false;
+  const readOnlyStats: ReadOnlyGuardStats | undefined = options.readOnlyNetwork
+    ? { blockedRequests: 0 }
+    : undefined;
   const vars: Record<string, string> = {};
   const templateSecrets: string[] = [];
 
@@ -731,7 +749,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
   // Login hook may POST credentials; actor loginSteps may POST too — guard applies to test steps only.
   if (status === "passed" && options.readOnlyNetwork) {
     for (const session of sessions.values()) {
-      await installReadOnlyNetworkGuard(session.context, session.page);
+      await installReadOnlyNetworkGuard(session.context, session.page, readOnlyStats);
     }
   }
 
@@ -856,6 +874,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         vars,
         templateSecrets,
         primarySession!.evidence.recordNetworkEntry,
+        options.readOnlyNetwork,
       );
     } else {
       cleanup = {
@@ -873,10 +892,11 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
   const failedAssertion = assertionResults.find((a) => !a.passed);
   const failMsg = steps.find((s) => s.message)?.message ?? failedAssertion?.message;
   const readOnlyStepBlocked = steps.some((s) => s.status === "failed" && isReadOnlyPolicyBlock(s.message));
+  const readOnlyBlockedRequests = readOnlyStats?.blockedRequests ?? 0;
   const primaryFailureKind =
     primaryStatusBeforeCleanup === "passed"
       ? undefined
-      : loginHookFailed || readOnlyStepBlocked
+      : loginHookFailed || readOnlyStepBlocked || readOnlyBlockedRequests > 0
         ? "ENVIRONMENT"
         : failedAssertion?.errorKind ??
           classifyFailure({
@@ -884,6 +904,10 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
             assertionMessage: failedAssertion?.message ?? failMsg,
           });
   const failureKind = mergeFailureKind(primaryStatusBeforeCleanup, primaryFailureKind, cleanup);
+  if (status !== "passed" && readOnlyBlockedRequests > 0) {
+    const note = `只读模式：已阻止 ${readOnlyBlockedRequests} 个写请求，断言结果可能受此影响`;
+    runNotes = runNotes ? `${runNotes}; ${note}` : note;
+  }
 
   try {
     const primaryEvidence = primarySession?.evidence ?? sessions.values().next().value?.evidence;
@@ -911,6 +935,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
       },
       actorMode,
       ...(options.readOnlyNetwork ? { readOnly: true } : {}),
+      ...(readOnlyBlockedRequests > 0 ? { readOnlyBlockedRequests } : {}),
       finalSignals,
       cleanup,
     };

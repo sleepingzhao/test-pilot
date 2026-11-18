@@ -29,12 +29,13 @@ function listen(server: Server): Promise<number> {
 type ServerMetrics = {
   getCount: number;
   postCount: number;
+  deleteCount: number;
   loginPostCount: number;
   wsClientMessages: string[];
 };
 
 function createReadOnlyFixture(): { server: Server; metrics: ServerMetrics } {
-  const metrics: ServerMetrics = { getCount: 0, postCount: 0, loginPostCount: 0, wsClientMessages: [] };
+  const metrics: ServerMetrics = { getCount: 0, postCount: 0, deleteCount: 0, loginPostCount: 0, wsClientMessages: [] };
   const server = createServer((req, res) => {
     void (async () => {
       const url = req.url ?? "/";
@@ -66,6 +67,12 @@ function createReadOnlyFixture(): { server: Server; metrics: ServerMetrics } {
         await readBody(req);
         res.writeHead(201, { "content-type": "application/json" });
         res.end(JSON.stringify({ saved: true }));
+        return;
+      }
+      if (url === "/api/write" && req.method === "DELETE") {
+        metrics.deleteCount += 1;
+        res.writeHead(204);
+        res.end();
         return;
       }
       if (url === "/" && req.method === "GET") {
@@ -200,6 +207,54 @@ test("readOnlyNetwork: click-initiated POST is aborted by route guard", async ()
     );
     assert.equal(run.status, "passed");
     assert.equal(metrics.postCount, 0);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("readOnlyNetwork: assertion failure after a blocked UI write is ENVIRONMENT", async () => {
+  const { server, metrics } = createReadOnlyFixture();
+  const port = await listen(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const run = await runTestIR(
+      {
+        ...baseIr(baseUrl, [
+          { id: "open", action: "navigate", path: "/" },
+          { id: "click-post", action: "click", target: { testId: "post-btn" } },
+        ]),
+        assertions: [{ id: "saved", type: "ui", contains: "saved", oracle: "human-approved" }],
+      },
+      { env: { baseUrl }, headless: true, readOnlyNetwork: true },
+    );
+    assert.equal(run.status, "failed");
+    assert.equal(metrics.postCount, 0);
+    assert.ok((run.readOnlyBlockedRequests ?? 0) > 0);
+    assert.equal(run.metrics.failureKind, "ENVIRONMENT");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("readOnlyNetwork: teardown request step cannot bypass the guard", async () => {
+  const { server, metrics } = createReadOnlyFixture();
+  const port = await listen(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const run = await runTestIR(
+      {
+        ...baseIr(baseUrl, [{ id: "open", action: "navigate", path: "/" }]),
+        policy: { screenshots: "never", cleanup: "always" },
+        teardownSteps: [{ id: "cleanup", action: "request", method: "DELETE", path: "/api/write" }],
+      },
+      { env: { baseUrl }, headless: true, readOnlyNetwork: true },
+    );
+    assert.equal(metrics.deleteCount, 0);
+    assert.equal(run.status, "failed");
+    assert.equal(run.cleanup?.status, "failed");
+    assert.equal(run.cleanup?.steps[0]?.status, "failed");
+    assert.match(run.cleanup?.steps[0]?.message ?? "", /只读模式：已阻止写请求 DELETE/);
+    assert.equal(run.metrics.failureKind, "ENVIRONMENT");
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

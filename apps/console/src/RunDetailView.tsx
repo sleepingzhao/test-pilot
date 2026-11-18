@@ -147,6 +147,12 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
               <span className="badge subtle">只读执行</span>
             </>
           ) : null}
+          {run.readOnlyBlockedRequests ? (
+            <>
+              {" · "}
+              <span className="badge warn">已阻止 {run.readOnlyBlockedRequests} 个写请求</span>
+            </>
+          ) : null}
         </p>
         <p className="run-detail-meta">
           {new Date(run.completedAt).toLocaleString()} · <code>{run.runId}</code>

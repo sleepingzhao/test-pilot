@@ -33,11 +33,11 @@
 
 2. [x] **V7-12b 生产只读门禁（P0）**
    真实环境默认拒绝写请求、上传和有副作用的 UI 步骤；只有显式 `allowMutation` 才放行；审批与审计可见。
-   _证据：`pnpm --filter @testpilot/test-ir test`、`pnpm --filter @testpilot/runner-web test`（含 `read-only.test.ts`）、`pnpm --filter @testpilot/test-management test`（`run-options.test.ts`）、`pnpm verify`。IR `policy.allowMutation`；`runOptionsFor` → `readOnlyNetwork`；teardown 写请求同样拦截；UI 触发写请求被拦截时失败归 `ENVIRONMENT` 并记录拦截数；控制台审阅/运行详情徽章；`RunResult.readOnly`/`readOnlyBlockedRequests`。仅本地 HTTP/WS 夹具验证，未对 real.example.com 试跑。仍建议生产账号本身只读——路由/WS 门禁不能替代服务端权限。_
+   _证据：`pnpm --filter @testpilot/test-ir test`、`pnpm --filter @testpilot/runner-web test`（含 `read-only.test.ts`）、`pnpm --filter @testpilot/test-management test`（`run-options.test.ts`）、`pnpm verify`。IR `policy.allowMutation`；`runOptionsFor` → `readOnlyNetwork`；teardown 写请求同样拦截；UI 触发写请求被拦截时失败归 `ENVIRONMENT` 并记录拦截数；控制台审阅/运行详情徽章；`RunResult.readOnly`/`readOnlyBlockedRequests`。仅本地 HTTP/WS 夹具验证，未对生产站点试跑。仍建议生产账号本身只读——路由/WS 门禁不能替代服务端权限。_
 
 3. [x] **V7-12c 生产证据策略（P0）**
    真实环境默认不落截图/Trace/响应正文，或明确保留期与 PII 提示；证据仍可下载。
-   _证据：`runOptionsFor` 对真实源设 `realTarget`；证据采集器强制无截图、无 Trace，`network.json` 去 query/请求体/响应体/头，`ws.json` 去 payload 与 query，`sse.json` 去 data；断言仍在内存使用原始数据。测试：`pnpm --filter @testpilot/evidence test`（`real target ...`）、`pnpm --filter @testpilot/runner-web test`（`realTarget evidence policy ...`）；控制台运行详情「证据已脱敏」徽章已浏览器验证。未对 real.example.com 实测。_
+   _证据：`runOptionsFor` 对真实源设 `realTarget`；证据采集器强制无截图、无 Trace，`network.json` 去 query/请求体/响应体/头，`ws.json` 去 payload 与 query，`sse.json` 去 data；断言仍在内存使用原始数据。测试：`pnpm --filter @testpilot/evidence test`（`real target ...`）、`pnpm --filter @testpilot/runner-web test`（`realTarget evidence policy ...`）；控制台运行详情「证据已脱敏」徽章已浏览器验证。未对生产站点实测。_
 
 4. [ ] **V7-12d 只读回归模板（P0）**
    登录 → 列表 → 搜索 → 筛选 → 详情，5–8 条已批准用例；批量跑通；生产只跑只读。
@@ -87,7 +87,7 @@ Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
 | 用途 | 变量 |
 |---|---|
 | LLM（文本） | `TESTPILOT_LLM_API_KEY`、`TESTPILOT_LLM_BASE_URL`、`TESTPILOT_LLM_MODEL` |
-| 真实环境 real.example.com | `TESTPILOT_REAL_BASE_URL`、`TESTPILOT_ENV_REAL_ENTERPRISE_ID`、`TESTPILOT_ENV_REAL_USER_ID`、`TESTPILOT_ENV_REAL_PASSWORD` |
+| 真实环境 | `TESTPILOT_REAL_BASE_URL`、`TESTPILOT_ENV_REAL_ENTERPRISE_ID`、`TESTPILOT_ENV_REAL_USER_ID`、`TESTPILOT_ENV_REAL_PASSWORD` |
 | 真实环境第二账号 | `TESTPILOT_ENV_REAL_ALT_ENTERPRISE_ID`、`TESTPILOT_ENV_REAL_ALT_USER_ID`、`TESTPILOT_ENV_REAL_ALT_PASSWORD`（IR `actors[].account: "alt"`） |
 | 业务试点 | `TESTPILOT_PILOT_BASE_URL`、`TESTPILOT_ENV_ADMIN_PHONE`、`TESTPILOT_ENV_ADMIN_PASSWORD` |
 | 目标白名单 | `TESTPILOT_ALLOWED_TARGETS`（加入真实/试点域名的 origin） |

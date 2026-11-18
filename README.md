@@ -37,7 +37,7 @@ pnpm start     # 生产式单端口：http://127.0.0.1:8787（API 托管控制�
 - **测试数据清理**：`policy.cleanup` + `teardownSteps`，失败也按策略清理。
 - **系统画像**：规则 + LLM 识别能力与未知项；真实环境只做只读画像。
 
-## 生产环境（real.example.com）
+## 生产环境
 
 已完成：真实环境自动登录、双账号（`actors[].account`）、默认只读网络门禁、真实环境证据脱敏。
 

@@ -71,6 +71,7 @@
       <h1>聊天</h1>
       <p class="lede">发送一条文本，房间里的连接都会收到。</p>
       <p data-testid="chat-status">未连接</p>
+      <p data-testid="chat-reconnects" class="stat-note" style="font-size:13px;color:var(--muted);margin:0 0 12px;">0</p>
       <ul data-testid="chat-list"></ul>
       <div class="composer">
         <input data-testid="chat-composer" type="text" aria-label="消息" />
@@ -81,28 +82,35 @@
     <script>
       const params = new URLSearchParams(location.search);
       const user = params.get("user") || "测试用户";
-      const socketQuery = params.get("drop") === "1" ? "?drop=1" : "";
+      const reconnectEnabled = params.get("reconnect") === "1";
+      const maxReconnectAttempts = 3;
+      let reconnectAttempts = 0;
+      let intentionalClose = false;
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(proto + "://" + location.host + "/ws/chat" + socketQuery);
       const status = document.querySelector('[data-testid="chat-status"]');
+      const reconnectCounter = document.querySelector('[data-testid="chat-reconnects"]');
       const list = document.querySelector('[data-testid="chat-list"]');
       const composer = document.querySelector('[data-testid="chat-composer"]');
       const pending = [];
       const RED_PIXEL_PNG =
         "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFgAI/Al6c3wAAAABJRU5ErkJggg==";
 
-      function flush() {
-        while (pending.length && ws.readyState === WebSocket.OPEN) ws.send(pending.shift());
+      /** @type {WebSocket | undefined} */
+      let ws;
+
+      function socketQueryString() {
+        const q = new URLSearchParams();
+        if (params.get("drop") === "1") q.set("drop", "1");
+        if (params.get("dropAfter") === "1") q.set("dropAfter", "1");
+        const serialized = q.toString();
+        return serialized ? "?" + serialized : "";
       }
 
-      ws.addEventListener("open", () => {
-        status.textContent = "已连接";
-        flush();
-      });
-      ws.addEventListener("close", () => {
-        status.textContent = "未连接";
-      });
-      ws.addEventListener("message", (event) => {
+      function flush() {
+        while (pending.length && ws && ws.readyState === WebSocket.OPEN) ws.send(pending.shift());
+      }
+
+      function onSocketMessage(event) {
         let msg;
         try {
           msg = JSON.parse(event.data);
@@ -132,6 +140,32 @@
         const item = document.createElement("li");
         item.textContent = (typeof msg.user === "string" ? msg.user : user) + "：" + msg.text;
         list.appendChild(item);
+      }
+
+      function connect() {
+        ws = new WebSocket(proto + "://" + location.host + "/ws/chat" + socketQueryString());
+        ws.addEventListener("open", () => {
+          status.textContent = "已连接";
+          flush();
+        });
+        ws.addEventListener("close", () => {
+          if (reconnectEnabled && !intentionalClose && reconnectAttempts < maxReconnectAttempts) {
+            status.textContent = "重连中…";
+            reconnectAttempts += 1;
+            if (reconnectCounter) reconnectCounter.textContent = String(reconnectAttempts);
+            setTimeout(connect, 200);
+            return;
+          }
+          status.textContent = "未连接";
+        });
+        ws.addEventListener("message", onSocketMessage);
+      }
+
+      connect();
+
+      window.addEventListener("beforeunload", () => {
+        intentionalClose = true;
+        ws?.close();
       });
 
       document.querySelector('[data-testid="chat-send-image"]').addEventListener("click", () => {

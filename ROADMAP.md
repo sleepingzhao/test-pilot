@@ -22,7 +22,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 **当前方向：Web 业务系统优先。** 先把「测试人员安全接入一个业务系统 → 生成/审阅用例 → 跑出可信证据 → 清理测试数据」做通。移动端、CI、多项目/RBAC、平台化暂不投入；实时与 Agent 在业务接入闭环之后继续。
 
-**V7-4a realtime 文本送达机制包已验收（2026-11-18）。** `planRealtimeMessaging` 双 actor + WS/UI 断言；画像 `GET …/mechanisms` 与 `POST /api/mechanisms/realtime-messaging/draft`；控制台「实时消息」机制卡片；demo 首页链到 `/chat`。**V7-4b1 多消息去重已验收（2026-11-18）。** `dedupe` 场景 + `ws` 断言 `maxCount`。**V7-4b2 超长拒绝已验收（2026-11-18）。** demo `/chat` `too_long` 单 socket 错误帧；`oversize` 场景 + `ws` `absent`。**V7-4b3 严格顺序已验收（2026-11-18）。** `ws` 断言 `sequence`；`order` 场景 + 机制草稿/控制台；练习环境试跑 `mechanism-realtime-order-f7ad8367` passed（`run_mwm5uw6b_f5ed4cca`）。**V7-4b4 图片消息已验收（2026-11-18）。** demo `/chat` 内存 data URL + `bad_image`；`image` 场景双 actor WS/UI；`REALTIME_V7_4B_BLOCKER` 仅列重连；练习环境试跑 `mechanism-realtime-image-fd643b3a` passed（`run_mwm67t6f_4e0bc398`）。**下一开工：** V7-4b 重连；录制期 actor 选择、`waitForEvent` 跨 actor 仍后置。
+**V7-4a realtime 文本送达机制包已验收（2026-11-18）。** `planRealtimeMessaging` 双 actor + WS/UI 断言；画像 `GET …/mechanisms` 与 `POST /api/mechanisms/realtime-messaging/draft`；控制台「实时消息」机制卡片；demo 首页链到 `/chat`。**V7-4b1 多消息去重已验收（2026-11-18）。** `dedupe` 场景 + `ws` 断言 `maxCount`。**V7-4b2 超长拒绝已验收（2026-11-18）。** demo `/chat` `too_long` 单 socket 错误帧；`oversize` 场景 + `ws` `absent`。**V7-4b3 严格顺序已验收（2026-11-18）。** `ws` 断言 `sequence`；`order` 场景 + 机制草稿/控制台；练习环境试跑 `mechanism-realtime-order-f7ad8367` passed（`run_mwm5uw6b_f5ed4cca`）。**V7-4b4 图片消息已验收（2026-11-18）。** demo `/chat` 内存 data URL + `bad_image`；`image` 场景双 actor WS/UI；练习环境试跑 `mechanism-realtime-image-fd643b3a` passed（`run_mwm67t6f_4e0bc398`）。**V7-4b5 断线重连已验收（2026-11-18）。** demo `dropAfter=1` + `reconnect=1` 页面模拟；`reconnect` 场景 + `chat-reconnects` UI 断言；**V7-4b 全场景（text/dedupe/oversize/order/image/reconnect）已完成**（重连仅为练习环境 demo 模拟，非生产级自动重连保证）；练习环境试跑 `mechanism-realtime-reconnect-7a2813b6` passed（`run_7a2813b6`、receiver `ws.json` 含首条 `重连消息`、`chat-reconnects=1`）。**下一开工：** 录制期 actor 选择、`waitForEvent` 跨 actor 仍后置。
 
 **本阶段要证明的事：** 一条业务系统的正常功能回归，可以被人审阅、能在失败时给出证据、能在通过后不留下脏数据。
 
@@ -53,7 +53,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 ### 未完成 / 明确后置
 
 - **P0（V0.7.5）**：机制包接线、WS 证据入口、OpenAPI 导入（V7-0i 已完成）。
-- **P1**：~~多账号核心（V7-2a / V7-2b 控制台）~~、~~realtime 文本机制包（V7-4a）~~、~~SSE 证据（V7-1b）~~、~~生成期视觉定位（V7-9b）~~、~~realtime 去重（V7-4b1）~~、~~超长拒绝（V7-4b2）~~、~~严格顺序（V7-4b3）~~、~~图片消息（V7-4b4）~~ 已完成；**V7-4b 重连**、**录制期多账号 UI** 仍待做。
+- **P1**：~~多账号核心（V7-2a / V7-2b 控制台）~~、~~realtime 文本机制包（V7-4a）~~、~~SSE 证据（V7-1b）~~、~~生成期视觉定位（V7-9b）~~、~~realtime 全场景（V7-4a–V7-4b5：text/dedupe/oversize/order/image/reconnect）~~ 已完成；**录制期多账号 UI** 仍待做。
 - **P2**：Agent 语义断言与 `llm-judge`、风险分析、主动探索、探索模式视觉判定（V7-9c，不进门禁）。
 - **后置**：Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
 
@@ -99,7 +99,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | API 直连 | 可用（V7-0） | `request` 步骤、登录 Cookie 复用、`{{runId}}` / `{{var}}` / `{{env.KEY}}`、`saveAs` / `saveFields`、`stepRef` 断言；控制台「接口测试」生成草稿并试跑 |
 | 文件/媒体 | 可用（V7-5） | `upload` 步骤 + fixture 目录约束；demo `/files`；`planFileMedia` 生成正常/类型/大小场景；负向故障注入 |
 | 测试数据清理 | 可用（V7-7） | `policy.cleanup` + `teardownSteps`；通过/失败都清理；清理失败单独标记 `TEST_DATA`；控制台审阅/运行详情/接口模式均可配置 |
-| 实时/富媒体证据 | 部分（V7-1a / V7-1b / V7-2a / V7-2b / V7-3a / V7-4a / V7-4b1 / V7-4b2 / V7-4b3 / V7-4b4 / V7-6a） | WS 收发帧、`ws.json`、`ws` 断言（含 `maxCount` / `absent` / `sequence`）、demo `/chat` `too_long` / 图片 data URL `bad_image`；SSE `sse.json`；**多 context 执行（V7-2a）**；**审阅/运行详情多账号（V7-2b）**；**realtime 文本 + 去重 + 超长拒绝 + 严格顺序 + 图片（V7-4a–V7-4b4）**；录制 actor 选择；重连（V7-4b）未做 |
+| 实时/富媒体证据 | 部分（V7-1a / V7-1b / V7-2a / V7-2b / V7-3a / V7-4a–V7-4b5 / V7-6a） | WS 收发帧、`ws.json`、`ws` 断言（含 `maxCount` / `absent` / `sequence`）、demo `/chat` `too_long` / 图片 data URL `bad_image` / demo `dropAfter`+`reconnect` 模拟；SSE `sse.json`；**多 context 执行（V7-2a）**；**审阅/运行详情多账号（V7-2b）**；**realtime 六场景机制包（V7-4a–V7-4b5）**（重连为 demo 模拟，不承诺生产级重连）；录制 actor 选择仍后置 |
 | Agent 语义断言 | 部分（V0.8） | OTel trace 工具调用断言已有；无幻觉 rubric / LLM judge |
 | 管理 API | 文件存储 | 安全边界已加固；本机无登录；无数据库 |
 | 试点用例 | 16 条已批准（15 demo + 1 pilot） | 弱断言 0；`pilot-ticket-submit-success` 仍须在真实试点校对后批准 |
@@ -510,7 +510,7 @@ interface MechanismPack {
 - [x] V7-4b2 realtime-messaging · 超长拒绝（2026-11-18）— demo `MAX_CHAT_TEXT=200` + `too_long` 错误帧不广播；`chat.html` 系统提示；`planRealtimeMessaging` `oversize` + `ws` `absent`；`mechanisms`/`routes`/`SystemProfileView`；`chat.test.mjs` + `realtime.test.ts` + `mechanism-routes.test.ts`；练习环境试跑 `mechanism-realtime-oversize-5c75681e` passed；`pnpm verify` 全绿
 - [x] V7-4b3 realtime-messaging · 严格顺序（2026-11-18）— `ws` 断言 `sequence`（`ws.ts`/`ws.test.ts`）；`planRealtimeMessaging` `order` 场景（`realtime-messaging-order`、`ws` `sequence` + UI）；`REALTIME_V7_4B_BLOCKER` 仅列图片/重连；`POST …/realtime-messaging/draft` `order` + `messageCount`；控制台「严格顺序」；练习环境试跑 `mechanism-realtime-order-f7ad8367` passed（`run_mwm5uw6b_f5ed4cca`、receiver `ws.json` 顺序 text-1→3）；`pnpm verify` 全绿
 - [x] V7-4b4 realtime-messaging · 图片消息（2026-11-18）— demo `/chat` `chat-send-image` + 1×1 data URL、`server.mjs` `bad_image`；`planRealtimeMessaging` `image` 场景（`realtime-messaging-image`、WS `type":"image"` + target-only UI）；`REALTIME_V7_4B_BLOCKER` 仅列重连；`POST …/realtime-messaging/draft` `image`；控制台「图片消息」+ `imageTestId`/`imageButtonTestId`；`chat.test.mjs` + `realtime.test.ts` + `mechanism-routes.test.ts`；练习环境试跑 `mechanism-realtime-image-fd643b3a` passed（`run_mwm67t6f_4e0bc398`）；`pnpm verify` 全绿
-- [ ] V7-4b realtime-messaging — 重连
+- [x] V7-4b5 realtime-messaging · 断线重连（2026-11-18）— demo `chat.html` `reconnect=1` 自动重连 + `dropAfter=1` 首帧后 `1011` 断线；`planRealtimeMessaging` `reconnect` 场景（`realtime-messaging-reconnect`、receiver 带 query login、WS + 列表 + `chat-reconnects` UI）；移除 V7-4b blocker；`mechanisms`/`routes`/`SystemProfileView`；`chat.test.mjs` + `realtime.test.ts` + `mechanism-routes.test.ts`；练习环境试跑 `mechanism-realtime-reconnect-7a2813b6` passed（`run_7a2813b6`）；`pnpm verify` 全绿；**限制：** 仅练习环境可控模拟，不覆盖真实网络的抖动/退避/消息补偿/幂等
 - [x] V7-9b 生成期视觉定位建议（2026-11-18）— 录制 `POST …/locate` + 控制台 AI 定位；确定性 css 写入由人手抄；运行时零模型；默认关闭；证据见 §0.1 V7-9b
 
 **第二批：文件/媒体（接口直连验收后）**

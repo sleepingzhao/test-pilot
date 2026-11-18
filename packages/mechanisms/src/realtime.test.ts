@@ -4,7 +4,6 @@ import { validateAssertionProviders } from "@testpilot/assertions";
 import { validateSemantics, validateTestIR } from "@testpilot/test-ir";
 import {
   planRealtimeMessaging,
-  REALTIME_V7_4B_BLOCKER,
   type RealtimeContext,
   type RealtimeProfile,
 } from "./realtime.js";
@@ -34,8 +33,15 @@ test("realtime-messaging is not runnable without capability at confidence 0.6", 
 test("runnable text plan validates IR and uses default actors and expectations", () => {
   const plan = planRealtimeMessaging(ready, baseCtx);
   assert.equal(plan.runnable, true);
-  assert.ok(plan.blockers.includes(REALTIME_V7_4B_BLOCKER));
-  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "dedupe", "order", "oversize", "image"]);
+  assert.deepEqual(plan.blockers, []);
+  assert.deepEqual(plan.scenarios.map((s) => s.kind), [
+    "text",
+    "dedupe",
+    "order",
+    "oversize",
+    "image",
+    "reconnect",
+  ]);
   const scenario = plan.scenarios[0]!;
   assert.equal(scenario.id, "text");
   assert.deepEqual(scenario.ir.actors?.map((a) => a.id), ["sender", "receiver"]);
@@ -152,7 +158,7 @@ test("dedupe messageCount 2 adjusts steps and assertion counts", () => {
 
 test("invalid messageCount omits dedupe scenario and adds blocker", () => {
   const plan = planRealtimeMessaging(ready, { messageCount: 99 });
-  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "oversize", "image"]);
+  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "oversize", "image", "reconnect"]);
   assert.match(plan.blockers.join("\n"), /messageCount/);
 });
 
@@ -242,7 +248,7 @@ test("invalid maxLength omits oversize scenario and adds blocker", () => {
   const plan = planRealtimeMessaging(ready, { maxLength: 3 });
   assert.deepEqual(
     plan.scenarios.map((s) => s.kind),
-    ["text", "dedupe", "order", "image"],
+    ["text", "dedupe", "order", "image", "reconnect"],
   );
   assert.match(plan.blockers.join("\n"), /maxLength/);
 });
@@ -305,4 +311,52 @@ test("image scenario honors custom image test ids", () => {
     image.ir.assertions.filter((a) => a.type === "ui").every((a) => a.target?.testId === "img-msg"),
     true,
   );
+});
+
+test("reconnect scenario validates IR, receiver path query, and reconnect counter assertion", () => {
+  const plan = planRealtimeMessaging(ready, baseCtx);
+  const reconnect = plan.scenarios.find((s) => s.kind === "reconnect");
+  assert.ok(reconnect);
+  assert.equal(reconnect!.ir.id, "realtime-messaging-reconnect");
+  assert.equal(reconnect!.ir.actors?.length, 2);
+  const receiverPath = reconnect!.ir.actors?.[1]?.loginSteps?.[0]?.path;
+  assert.equal(receiverPath, "/chat?reconnect=1&dropAfter=1");
+  assert.equal(reconnect!.ir.steps.find((s) => s.id === "fill-text")?.value, "重连消息");
+  const wsReceived = reconnect!.ir.assertions.find((a) => a.id === "ws-received");
+  assert.equal(wsReceived?.actor, "receiver");
+  assert.equal(wsReceived?.expect?.contains, "重连消息");
+  assert.equal(wsReceived?.expect?.direction, "received");
+  const reconnectUi = reconnect!.ir.assertions.find((a) => a.id === "ui-receiver-reconnects");
+  assert.equal(reconnectUi?.target?.testId, "chat-reconnects");
+  assert.equal(reconnectUi?.contains, "1");
+  assert.equal(reconnect!.ir.assertions.length, 4);
+
+  const validated = validateTestIR(reconnect!.ir);
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? {} : validated.issues));
+  if (validated.ok) assert.deepEqual(validateSemantics(validated.value), []);
+  assert.deepEqual(validateAssertionProviders(reconnect!.ir), []);
+});
+
+test("reconnect honors custom reconnectQuery and reconnectCountTestId", () => {
+  const plan = planRealtimeMessaging(ready, {
+    reconnectQuery: "reconnect=1",
+    reconnectCountTestId: "my-reconnects",
+    text: "自定义重连",
+  });
+  const reconnect = plan.scenarios.find((s) => s.kind === "reconnect")!;
+  assert.equal(reconnect.ir.actors?.[1]?.loginSteps?.[0]?.path, "/chat?reconnect=1");
+  assert.equal(reconnect.ir.steps.find((s) => s.id === "fill-text")?.value, "自定义重连");
+  const reconnectUi = reconnect.ir.assertions.find((a) => a.id === "ui-receiver-reconnects");
+  assert.equal(reconnectUi?.target?.testId, "my-reconnects");
+  assert.equal(reconnect.ir.assertions.find((a) => a.id === "ws-sent")?.actor, "sender");
+  assert.equal(reconnect.ir.assertions.find((a) => a.id === "ws-received")?.actor, "receiver");
+});
+
+test("reconnect appends query when receiver login path already has query", () => {
+  const plan = planRealtimeMessaging(ready, {
+    receiverLoginSteps: [{ id: "rx", action: "navigate", path: "/chat?user=乙" }],
+    reconnectQuery: "reconnect=1&dropAfter=1",
+  });
+  const path = plan.scenarios.find((s) => s.kind === "reconnect")!.ir.actors?.[1]?.loginSteps?.[0]?.path;
+  assert.equal(path, "/chat?user=乙&reconnect=1&dropAfter=1");
 });

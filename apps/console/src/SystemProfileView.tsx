@@ -35,6 +35,7 @@ const REALTIME_SCENARIO_LABELS: Record<RealtimeScenarioKind, string> = {
   oversize: "超长消息",
   order: "严格顺序",
   image: "图片消息",
+  reconnect: "断线重连",
 };
 
 type MechanismContextForm = {
@@ -92,6 +93,8 @@ type RealtimeMechanismContextForm = {
   overlongText: string;
   imageTestId: string;
   imageButtonTestId: string;
+  reconnectQuery: string;
+  reconnectCountTestId: string;
 };
 
 function realtimeContextFromPlan(
@@ -114,6 +117,8 @@ function realtimeContextFromPlan(
     overlongText: ctx?.overlongText ?? "",
     imageTestId: ctx?.imageTestId ?? "chat-image",
     imageButtonTestId: ctx?.imageButtonTestId ?? "chat-send-image",
+    reconnectQuery: ctx?.reconnectQuery ?? "reconnect=1&dropAfter=1",
+    reconnectCountTestId: ctx?.reconnectCountTestId ?? "chat-reconnects",
   };
 }
 
@@ -132,6 +137,8 @@ function realtimeContextPayload(form: RealtimeMechanismContextForm): Record<stri
     ...(form.overlongText.trim() ? { overlongText: form.overlongText.trim() } : {}),
     imageTestId: form.imageTestId.trim() || "chat-image",
     imageButtonTestId: form.imageButtonTestId.trim() || "chat-send-image",
+    reconnectQuery: form.reconnectQuery.trim() || "reconnect=1&dropAfter=1",
+    reconnectCountTestId: form.reconnectCountTestId.trim() || "chat-reconnects",
   };
 }
 
@@ -857,6 +864,8 @@ export function SystemProfileView({
                           ["overlongText", "超长文本覆盖（可选）"],
                           ["imageTestId", "图片消息 testId"],
                           ["imageButtonTestId", "发送图片按钮 testId"],
+                          ["reconnectQuery", "接收方重连查询串"],
+                          ["reconnectCountTestId", "重连计数 testId"],
                         ] as const
                       ).map(([key, label]) => (
                         <label key={key} className="mechanism-field">

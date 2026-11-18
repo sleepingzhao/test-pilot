@@ -6,9 +6,14 @@ const MESSAGE_COUNT_MIN = 2;
 const MESSAGE_COUNT_MAX = 5;
 const DEFAULT_MESSAGE_COUNT = 3;
 
-export const REALTIME_V7_4B_BLOCKER = "重连（V7-4b 后续）";
+/** 练习环境 demo 模拟断线，不代表生产级重连保证。 */
+export const REALTIME_RECONNECT_DEMO_NOTE =
+  "断线重连场景依赖练习环境 demo 的 dropAfter/reconnect 模拟，不是生产级重连保证";
 
 const MAX_LENGTH_MIN = 10;
+const DEFAULT_RECONNECT_QUERY = "reconnect=1&dropAfter=1";
+const DEFAULT_RECONNECT_COUNT_TEST_ID = "chat-reconnects";
+const DEFAULT_RECONNECT_TEXT = "重连消息";
 const MAX_LENGTH_MAX = 2000;
 const DEFAULT_MAX_LENGTH = 200;
 
@@ -32,9 +37,11 @@ export type RealtimeContext = {
   receiverLoginSteps?: TestStep[];
   imageTestId?: string;
   imageButtonTestId?: string;
+  reconnectQuery?: string;
+  reconnectCountTestId?: string;
 };
 
-export type RealtimeScenarioKind = "text" | "dedupe" | "oversize" | "order" | "image";
+export type RealtimeScenarioKind = "text" | "dedupe" | "oversize" | "order" | "image" | "reconnect";
 
 export type RealtimeScenario = {
   id: string;
@@ -135,6 +142,13 @@ function resolveMessageCount(ctx: RealtimeContext): { count: number; blocker?: s
 
 function defaultLoginSteps(pagePath: string, openStepId: string): TestStep[] {
   return [{ id: openStepId, action: "navigate", path: pagePath }];
+}
+
+function appendQueryToPath(pagePath: string, query: string): string {
+  const trimmed = query.replace(/^\?/, "").trim();
+  if (!trimmed) return pagePath;
+  const separator = pagePath.includes("?") ? "&" : "?";
+  return `${pagePath}${separator}${trimmed}`;
 }
 
 function textScenarioIr(
@@ -521,6 +535,99 @@ function imageScenarioIr(
   };
 }
 
+function reconnectScenarioIr(
+  id: string,
+  sender: string,
+  receiver: string,
+  senderLogin: TestStep[],
+  receiverLogin: TestStep[],
+  composerTestId: string,
+  sendTestId: string,
+  listTestId: string,
+  reconnectCountTestId: string,
+  wsUrlIncludes: string,
+  text: string,
+): TestIR {
+  const wsExpect = {
+    direction: "sent" as const,
+    contains: text,
+    urlIncludes: wsUrlIncludes,
+    timeoutMs: 5000,
+  };
+  const assertions: TestAssertion[] = [
+    {
+      id: "ws-sent",
+      type: "event",
+      provider: "ws",
+      actor: sender,
+      expect: { ...wsExpect, direction: "sent" },
+      oracle: "human-approved",
+    },
+    {
+      id: "ws-received",
+      type: "event",
+      provider: "ws",
+      actor: receiver,
+      expect: { ...wsExpect, direction: "received" },
+      oracle: "human-approved",
+    },
+    {
+      id: "ui-receiver-list",
+      type: "ui",
+      actor: receiver,
+      target: { testId: listTestId },
+      contains: text,
+      oracle: "human-approved",
+    },
+    {
+      id: "ui-receiver-reconnects",
+      type: "ui",
+      actor: receiver,
+      target: { testId: reconnectCountTestId },
+      contains: "1",
+      oracle: "human-approved",
+    },
+  ];
+  return {
+    id,
+    version: 1,
+    platform: "web",
+    actors: [
+      { id: sender, loginSteps: senderLogin },
+      { id: receiver, loginSteps: receiverLogin },
+    ],
+    steps: [
+      {
+        id: "wait-composer",
+        action: "wait",
+        target: { testId: composerTestId },
+        actor: sender,
+      },
+      {
+        id: "fill-text",
+        action: "fill",
+        target: { testId: composerTestId },
+        value: text,
+        actor: sender,
+      },
+      {
+        id: "send-message",
+        action: "click",
+        target: { testId: sendTestId },
+        actor: sender,
+      },
+      {
+        id: "wait-list",
+        action: "wait",
+        target: { testId: listTestId },
+        actor: receiver,
+      },
+    ],
+    assertions,
+    policy: { screenshots: "on-failure" },
+  };
+}
+
 function oversizeScenarioIr(
   id: string,
   sender: string,
@@ -677,7 +784,19 @@ export function planRealtimeMessaging(profile: RealtimeProfile, ctx: RealtimeCon
     blockers.push(overlongResult.blocker);
   }
 
-  blockers.push(REALTIME_V7_4B_BLOCKER);
+  const reconnectQuery = present(ctx.reconnectQuery) ?? DEFAULT_RECONNECT_QUERY;
+  const reconnectCountTestId = present(ctx.reconnectCountTestId) ?? DEFAULT_RECONNECT_COUNT_TEST_ID;
+  const reconnectText = present(ctx.text) ?? DEFAULT_RECONNECT_TEXT;
+
+  const receiverLoginBase = stripActorFromLoginSteps(
+    ctx.receiverLoginSteps?.length
+      ? ctx.receiverLoginSteps
+      : defaultLoginSteps(pagePath, "receiver-open"),
+  );
+  const receiverLoginReconnect = receiverLoginBase.map((step, index) => {
+    if (index !== 0 || step.action !== "navigate" || step.path === undefined) return step;
+    return { ...step, path: appendQueryToPath(step.path, reconnectQuery) };
+  });
 
   const scenarios: RealtimeScenario[] = [
     {
@@ -768,6 +887,24 @@ export function planRealtimeMessaging(profile: RealtimeProfile, ctx: RealtimeCon
       listTestId,
       imageTestId,
       wsUrlIncludes,
+    ),
+  });
+
+  scenarios.push({
+    id: "reconnect",
+    kind: "reconnect",
+    ir: reconnectScenarioIr(
+      "realtime-messaging-reconnect",
+      sender,
+      receiver,
+      senderLogin,
+      receiverLoginReconnect,
+      composerTestId,
+      sendTestId,
+      listTestId,
+      reconnectCountTestId,
+      wsUrlIncludes,
+      reconnectText,
     ),
   });
 

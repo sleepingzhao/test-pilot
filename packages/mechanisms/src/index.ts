@@ -8,7 +8,7 @@ export {
 } from "./file-media.js";
 export {
   planRealtimeMessaging,
-  REALTIME_V7_4B_BLOCKER,
+  REALTIME_RECONNECT_DEMO_NOTE,
   type RealtimeContext,
   type RealtimePlan,
   type RealtimeProfile,

@@ -152,6 +152,25 @@ function chatDropRequested(reqUrl) {
   }
 }
 
+function chatDropAfterRequested(reqUrl) {
+  try {
+    return new URL(reqUrl ?? "/", "http://127.0.0.1").searchParams.get("dropAfter") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function broadcastChatMessage(clients, outbound, dropAfterClose) {
+  for (const client of clients) {
+    if (client.readyState !== 1) continue;
+    client.send(outbound);
+    if (client.dropAfter && !client.dropAfterClosed) {
+      client.dropAfterClosed = true;
+      dropAfterClose(client);
+    }
+  }
+}
+
 function attachChatSocket(server) {
   const wss = new WebSocketServer({ noServer: true });
   /** @type {Set<import("ws").WebSocket>} */
@@ -173,6 +192,15 @@ function attachChatSocket(server) {
     wss.handleUpgrade(req, socket, head, (ws) => {
       clients.add(ws);
       const drop = chatDropRequested(req.url);
+      ws.dropAfter = chatDropAfterRequested(req.url);
+      ws.dropAfterClosed = false;
+      const dropAfterClose = (socket) => {
+        try {
+          socket.close(1011, "simulated drop");
+        } catch {
+          socket.terminate();
+        }
+      };
       ws.on("message", (data, isBinary) => {
         if (isBinary) return;
         let parsed;
@@ -212,9 +240,7 @@ function attachChatSocket(server) {
             text: parsed.text,
             at: new Date().toISOString(),
           });
-          for (const client of clients) {
-            if (client.readyState === 1) client.send(outbound);
-          }
+          broadcastChatMessage(clients, outbound, dropAfterClose);
           return;
         }
 
@@ -244,9 +270,7 @@ function attachChatSocket(server) {
             name: typeof parsed.name === "string" ? parsed.name : "",
             at: new Date().toISOString(),
           });
-          for (const client of clients) {
-            if (client.readyState === 1) client.send(outbound);
-          }
+          broadcastChatMessage(clients, outbound, dropAfterClose);
         }
       });
       ws.on("close", () => clients.delete(ws));

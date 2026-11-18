@@ -301,6 +301,90 @@ describe("demo /ws/chat", { concurrency: 1 }, () => {
     assert.match(html, /发送失败：消息过长/);
   });
 
+  test("?dropAfter=1 receives the first broadcast then the socket closes", async () => {
+    const dropAfter = await openSocket(base.replace("http", "ws") + "/ws/chat?dropAfter=1");
+    const sender = await openSocket(base.replace("http", "ws") + "/ws/chat");
+    const closed = new Promise((resolve) => {
+      dropAfter.once("close", (code, reason) => resolve({ code, reason: reason.toString() }));
+    });
+    try {
+      const heard = nextMessage(dropAfter);
+      sender.send(JSON.stringify({ type: "message", user: "甲", text: "先送达" }));
+      const msg = await heard;
+      assert.equal(msg.type, "message");
+      assert.equal(msg.text, "先送达");
+      const { code, reason } = await closed;
+      assert.equal(code, 1011);
+      assert.equal(reason, "simulated drop");
+    } finally {
+      sender.close();
+      dropAfter.close();
+    }
+  });
+
+  test("?dropAfter=1 drops only once per connection and does not drop other clients", async () => {
+    const victim = await openSocket(base.replace("http", "ws") + "/ws/chat?dropAfter=1");
+    const peer = await openSocket(base.replace("http", "ws") + "/ws/chat");
+    try {
+      const peerFirst = nextMessage(peer);
+      const victimClosed = new Promise((resolve) => victim.once("close", () => resolve("closed")));
+      victim.send(JSON.stringify({ type: "message", user: "甲", text: "第一次" }));
+      const first = await peerFirst;
+      assert.equal(first.text, "第一次");
+      await victimClosed;
+      const peerSecond = nextMessage(peer);
+      peer.send(JSON.stringify({ type: "message", user: "乙", text: "第二次" }));
+      const second = await peerSecond;
+      assert.equal(second.text, "第二次");
+      assert.equal(peer.readyState, WebSocket.OPEN);
+    } finally {
+      victim.close();
+      peer.close();
+    }
+  });
+
+  test("chat page ?reconnect=1&dropAfter=1 increments reconnect counter and reconnects", async (t) => {
+    if (!chromium) {
+      t.skip("playwright not available");
+      return;
+    }
+    const browser = await chromium.launch({ headless: true });
+    const receiver = await browser.newPage();
+    const sender = await browser.newPage();
+    try {
+      await receiver.goto(`${base}/chat?reconnect=1&dropAfter=1`);
+      await sender.goto(`${base}/chat`);
+      await receiver.waitForFunction(
+        () => document.querySelector('[data-testid="chat-status"]')?.textContent === "已连接",
+        undefined,
+        { timeout: 5_000 },
+      );
+      await sender.waitForFunction(
+        () => document.querySelector('[data-testid="chat-status"]')?.textContent === "已连接",
+        undefined,
+        { timeout: 5_000 },
+      );
+      await sender.getByTestId("chat-composer").fill("重连探测");
+      await sender.getByTestId("chat-send").click();
+      await receiver.waitForFunction(
+        () => document.querySelector('[data-testid="chat-reconnects"]')?.textContent === "1",
+        undefined,
+        { timeout: 5_000 },
+      );
+      await receiver.waitForFunction(
+        () => document.querySelector('[data-testid="chat-status"]')?.textContent === "已连接",
+        undefined,
+        { timeout: 5_000 },
+      );
+      const counter = await receiver.textContent('[data-testid="chat-reconnects"]');
+      assert.equal(counter, "1");
+      const status = await receiver.textContent('[data-testid="chat-status"]');
+      assert.equal(status, "已连接");
+    } finally {
+      await browser.close();
+    }
+  });
+
   test("rejects upgrades that are not /ws/chat", async () => {
     const ws = new WebSocket(base.replace("http", "ws") + "/ws/other");
     const result = await new Promise((resolve) => {

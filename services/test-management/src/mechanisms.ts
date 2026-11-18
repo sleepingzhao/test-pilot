@@ -131,6 +131,8 @@ export type PublicRealtimeContext = {
   overlongText?: string;
   imageTestId?: string;
   imageButtonTestId?: string;
+  reconnectQuery?: string;
+  reconnectCountTestId?: string;
 };
 
 export type MechanismPlanEntry =
@@ -216,6 +218,10 @@ export function buildRealtimeContext(input: Record<string, unknown> = {}): Realt
   if (receiverLogin) ctx.receiverLoginSteps = receiverLogin;
   ctx.imageTestId = readString(input, "imageTestId") ?? DEFAULT_IMAGE_TEST;
   ctx.imageButtonTestId = readString(input, "imageButtonTestId") ?? DEFAULT_IMAGE_BUTTON;
+  const reconnectQuery = readString(input, "reconnectQuery");
+  if (reconnectQuery !== undefined) ctx.reconnectQuery = reconnectQuery;
+  const reconnectCountTestId = readString(input, "reconnectCountTestId");
+  if (reconnectCountTestId !== undefined) ctx.reconnectCountTestId = reconnectCountTestId;
   return ctx;
 }
 
@@ -240,6 +246,8 @@ export function publicRealtimeContext(ctx: RealtimeContext): PublicRealtimeConte
   if (ctx.overlongText) out.overlongText = ctx.overlongText;
   if (ctx.imageTestId) out.imageTestId = ctx.imageTestId;
   if (ctx.imageButtonTestId) out.imageButtonTestId = ctx.imageButtonTestId;
+  if (ctx.reconnectQuery) out.reconnectQuery = ctx.reconnectQuery;
+  if (ctx.reconnectCountTestId) out.reconnectCountTestId = ctx.reconnectCountTestId;
   return out;
 }
 
@@ -337,6 +345,7 @@ export const REALTIME_SCENARIO_LABELS: Record<RealtimeScenarioKind, string> = {
   oversize: "超长消息",
   order: "严格顺序",
   image: "图片消息",
+  reconnect: "断线重连",
 };
 
 export { PILOT_REAL_BLOCKER };

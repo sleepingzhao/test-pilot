@@ -253,7 +253,14 @@ test("GET mechanisms for realtime profile includes runnable text scenario", asyn
     };
     const realtime = body.mechanisms.find((m) => m.id === "realtime-messaging");
     assert.equal(realtime?.runnable, true);
-    assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text", "dedupe", "order", "oversize", "image"]);
+    assert.deepEqual(realtime?.scenarios.map((s) => s.kind), [
+      "text",
+      "dedupe",
+      "order",
+      "oversize",
+      "image",
+      "reconnect",
+    ]);
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });
@@ -438,6 +445,41 @@ test("POST realtime image draft saves two actors and image ws/ui assertions", as
   }
 });
 
+test("POST realtime reconnect draft saves two actors and reconnect assertions", async () => {
+  const { app, dataRoot, store, root } = await setupApp();
+  try {
+    await saveRecord(dataRoot, {
+      id: "detect_rt_reconnect",
+      target: "demo",
+      profile: realtimeProfile,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/mechanisms/realtime-messaging/draft",
+      payload: { detectionId: "detect_rt_reconnect", scenario: "reconnect" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as {
+      test: { id: string; approvalStatus: string; title: string; ir: TestIR };
+    };
+    assert.equal(body.test.approvalStatus, "draft");
+    assert.match(body.test.id, /^mechanism-realtime-reconnect-/);
+    assert.equal(body.test.title, "实时消息 · 断线重连");
+    assert.equal(body.test.ir.actors?.length, 2);
+    assert.equal(body.test.ir.actors?.[1]?.loginSteps?.[0]?.path, "/chat?reconnect=1&dropAfter=1");
+    const reconnectUi = body.test.ir.assertions.find((a) => a.id === "ui-receiver-reconnects");
+    assert.equal(reconnectUi?.target?.testId, "chat-reconnects");
+    assert.equal(reconnectUi?.contains, "1");
+    const ws = body.test.ir.assertions.filter((a) => a.type === "event");
+    assert.equal(ws.length, 2);
+    const stored = await store.getTest(body.test.id);
+    assert.equal(stored?.approvalStatus, "draft");
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("POST realtime draft saves two actors and four assertions without auto-approval", async () => {
   const { app, dataRoot, store, root } = await setupApp();
   try {
@@ -511,7 +553,7 @@ test("POST realtime draft rejects unknown detection, bad scenario, and real targ
     const badScenario = await app.inject({
       method: "POST",
       url: "/api/mechanisms/realtime-messaging/draft",
-      payload: { detectionId: "detect_rt_bad_scenario", scenario: "reconnect" },
+      payload: { detectionId: "detect_rt_bad_scenario", scenario: "not-a-scenario" },
     });
     assert.equal(badScenario.statusCode, 400);
   } finally {

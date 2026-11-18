@@ -31,7 +31,7 @@
 
 2. [x] **V7-12b 生产只读门禁（P0）**
    真实环境默认拒绝写请求、上传和有副作用的 UI 步骤；只有显式 `allowMutation` 才放行；审批与审计可见。
-   _证据：`pnpm --filter @testpilot/test-ir test`、`pnpm --filter @testpilot/runner-web test`（含 `read-only.test.ts`）、`pnpm --filter @testpilot/test-management test`（`run-options.test.ts`）、`pnpm verify`。IR `policy.allowMutation`；`runOptionsFor` → `readOnlyNetwork`；控制台审阅/运行详情徽章；`RunResult.readOnly`。仅本地 HTTP/WS 夹具验证，未对 real.example.com 试跑。仍建议生产账号本身只读——路由/WS 门禁不能替代服务端权限。_
+   _证据：`pnpm --filter @testpilot/test-ir test`、`pnpm --filter @testpilot/runner-web test`（含 `read-only.test.ts`）、`pnpm --filter @testpilot/test-management test`（`run-options.test.ts`）、`pnpm verify`。IR `policy.allowMutation`；`runOptionsFor` → `readOnlyNetwork`；teardown 写请求同样拦截；UI 触发写请求被拦截时失败归 `ENVIRONMENT` 并记录拦截数；控制台审阅/运行详情徽章；`RunResult.readOnly`/`readOnlyBlockedRequests`。仅本地 HTTP/WS 夹具验证，未对 real.example.com 试跑。仍建议生产账号本身只读——路由/WS 门禁不能替代服务端权限。_
 
 3. [ ] **V7-12c 生产证据策略（P0）**
    真实环境默认不落截图/Trace/响应正文，或明确保留期与 PII 提示；证据仍可下载。

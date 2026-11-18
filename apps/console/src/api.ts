@@ -100,6 +100,16 @@ export type RecordLocateResponse = {
   model: string;
 };
 
+export type RecordAskAnswer = "yes" | "no" | "unclear";
+
+export type RecordAskResponse = {
+  answer: RecordAskAnswer;
+  confidence: number;
+  reason: string;
+  model: string;
+  explorationOnly: true;
+};
+
 export type StoredTest = {
   id: string;
   projectId: string;

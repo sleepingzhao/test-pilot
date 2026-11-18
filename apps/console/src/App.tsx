@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type RecordLocateResponse, type StoredBatch, type StoredRun, type StoredTest } from "./api";
+import {
+  api,
+  type RecordAskResponse,
+  type RecordLocateResponse,
+  type StoredBatch,
+  type StoredRun,
+  type StoredTest,
+} from "./api";
 import { BatchDetailView } from "./BatchDetailView";
 import {
   AssertionProviderPanel,
@@ -132,6 +139,10 @@ export function App() {
   const [locateBusy, setLocateBusy] = useState(false);
   const [locateResult, setLocateResult] = useState<RecordLocateResponse | null>(null);
   const [locateError, setLocateError] = useState<string | null>(null);
+  const [askQuestion, setAskQuestion] = useState("");
+  const [askBusy, setAskBusy] = useState(false);
+  const [askResult, setAskResult] = useState<RecordAskResponse | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
   const [summary, setSummary] = useState<{
     passRate: number;
     avgDurationMs: number;
@@ -553,6 +564,10 @@ export function App() {
       setLocateResult(null);
       setLocateError(null);
       setLocateBusy(false);
+      setAskQuestion("");
+      setAskResult(null);
+      setAskError(null);
+      setAskBusy(false);
       if (job.status === "completed") {
         notify("录制已保存，请审阅断言");
         await refresh();
@@ -1095,6 +1110,30 @@ export function App() {
     }
   };
 
+  const askAnswerLabel = (answer: RecordAskResponse["answer"]) => {
+    if (answer === "yes") return "是";
+    if (answer === "no") return "否";
+    return "不确定";
+  };
+
+  const runRecordAsk = async () => {
+    if (!recordJob || !askQuestion.trim()) return;
+    setAskBusy(true);
+    setAskError(null);
+    setAskResult(null);
+    try {
+      const res = await api<RecordAskResponse>(`/api/record/${recordJob}/ask`, {
+        method: "POST",
+        body: JSON.stringify({ question: askQuestion.trim() }),
+      });
+      setAskResult(res);
+    } catch (e) {
+      setAskError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAskBusy(false);
+    }
+  };
+
   const startRecord = async () => {
     const testId = `rec-${Date.now().toString(36)}`;
     const url =
@@ -1118,6 +1157,9 @@ export function App() {
       setLocateInstruction("");
       setLocateResult(null);
       setLocateError(null);
+      setAskQuestion("");
+      setAskResult(null);
+      setAskError(null);
       notify("录制窗口即将打开，操作完成后请关闭该窗口");
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e));
@@ -1750,6 +1792,52 @@ export function App() {
                         </button>
                       </div>
                     ) : null}
+                    <div className="record-ask-block">
+                      <h4 className="record-ask-title">AI 观察（探索）</h4>
+                      <p className="record-locate-hint">
+                        对当前录制页面提一个是否类问题，获取视觉模型的参考判断（不会写入用例或断言）。
+                      </p>
+                      <div className="record-locate-row">
+                        <input
+                          type="text"
+                          className="record-locate-input"
+                          value={askQuestion}
+                          onChange={(e) => setAskQuestion(e.target.value)}
+                          placeholder="例如：列表是否显示了空状态？"
+                          disabled={askBusy}
+                        />
+                        <button
+                          type="button"
+                          className="btn"
+                          disabled={askBusy || !askQuestion.trim()}
+                          onClick={() => void runRecordAsk()}
+                        >
+                          {askBusy ? "观察中…" : "观察"}
+                        </button>
+                      </div>
+                      {askError ? <p className="record-locate-error">{askError}</p> : null}
+                      {askResult ? (
+                        <div className="record-locate-result">
+                          <dl className="record-locate-meta">
+                            <div>
+                              <dt>回答</dt>
+                              <dd>{askAnswerLabel(askResult.answer)}</dd>
+                            </div>
+                            <div>
+                              <dt>置信度</dt>
+                              <dd>{(askResult.confidence * 100).toFixed(0)}%</dd>
+                            </div>
+                            <div>
+                              <dt>说明</dt>
+                              <dd>{askResult.reason || "—"}</dd>
+                            </div>
+                          </dl>
+                          <p className="record-ask-disclaimer">
+                            仅用于探索与诊断，不写入用例、不参与回归门禁
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
               </div>

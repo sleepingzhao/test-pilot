@@ -36,7 +36,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | 平台层 | Web（Playwright）可用；Android / iOS / Harmony 仅有类型占位 | 与架构图差距最大，后置 |
 | Execution & Observability | 批次调度、并发、恢复、Trace / network / screenshot / ws 证据、WS 帧查看、步骤截图时间线与失败直达、测试数据清理、flake、基线可用 | 数据隔离/自动生成仍缺；CI 未接 |
 
-概念图输入侧：自然语言 / PRD ✓、人工录制 ✓、**OpenAPI ✓**（V7-0i 预填草稿）、**Git Diff ✗**。探索模式目前只有结构化采集 + 能力探测；视觉探索按 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md) 后置到 V7-9c，且不参与回归门禁。
+概念图输入侧：自然语言 / PRD ✓、人工录制 ✓、**OpenAPI ✓**（V7-0i 预填草稿）、**Git Diff ✗**。探索模式含结构化采集 + 能力探测 + **录制期视觉问答（V7-9c，`explorationOnly`，不进门禁）**。
 
 ### 已完成（截至 2026-11-12）
 
@@ -47,6 +47,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 - V7-7：`policy.cleanup` + `teardownSteps`、失败也清理、清理结果入 `RunResult.cleanup`、控制台审阅/运行详情、接口模式清理请求、demo `/api/items` 端到端清理用例。
 - V7-0f / V7-0h / V7-0i：命名 API 环境（`api-envs.json`、`allowWrite`、环境头合并）、cURL 与 OpenAPI 3.x 本地解析预填接口表单；只读环境只允许 GET/HEAD。
 - V7-9a：借鉴 Midscene 的步骤截图时间线（`screenshots: "always"`）、manifest `stepScreenshots`、控制台缩略图与「跳到失败步骤」；回归仍零 LLM。
+- V7-9c：录制期「AI 观察（探索）」视觉 yes/no/unclear 问答；`POST /api/record/:jobId/ask`；不写入 IR、不参与回归门禁；`TESTPILOT_VISION_*` 仍默认关。
 - V7-5e：系统画像机制接线 — `planFileMedia` 经管理 API 返回 blockers/场景；控制台从画像生成 file-media 草稿（不自动批准）；UI 触发的上传响应可 `saveFromRef` 取值并自动 teardown，练习环境试跑后不留文件。
 - 当前控制台：17 条已批准用例（16 demo + 1 pilot），弱断言 0；`pnpm verify` 全绿；负向探针 5 个 Provider。
 
@@ -54,7 +55,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 - **P0（V0.7.5）**：机制包接线、WS 证据入口、OpenAPI 导入（V7-0i 已完成）。
 - **P1**：~~多账号核心（V7-2a / V7-2b 控制台）~~、~~realtime 文本机制包（V7-4a）~~、~~SSE 证据（V7-1b）~~、~~生成期视觉定位（V7-9b）~~、~~realtime 全场景（V7-4a–V7-4b5：text/dedupe/oversize/order/image/reconnect）~~ 已完成；**录制期多账号 UI** 仍待做。
-- **P2**：Agent 语义断言与 `llm-judge`、风险分析、主动探索、探索模式视觉判定（V7-9c，不进门禁）。
+- **P2**：Agent 语义断言与 `llm-judge`、风险分析、主动探索；~~探索模式视觉判定（V7-9c，不进门禁）~~ 已完成。
 - **后置**：Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
 
 ### 下一里程碑：V0.7.5 业务接入就绪
@@ -76,7 +77,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 - [x] **V7-9a 步骤截图时间线与失败回放**（2026-11-12）：`policy.screenshots: "always"` 每步落 `step-<NN>-<stepId>.png` 并记入 `StepResult.screenshot` 与 manifest `stepScreenshots`；截图失败不把通过步骤变成失败；控制台时间线缩略图、点击看原图、「跳到失败步骤」；`on-failure` / `never` 不变；`step-screenshots.test.ts`（evidence 18、runner 50）覆盖三种策略与失败步骤；浏览器实测 2 步通过用例两张缩略图、失败运行跳转生效；`pnpm verify` 全绿。
 - [x] **V7-9b 生成期视觉定位建议（2026-11-18）**：`vision-config.ts` / `vision-locate.ts` + `POST /api/record/:jobId/locate`；录制会话 live page Map；控制台录制中「AI 定位」+ 复制选择器（不写入 IR）；`TESTPILOT_VISION_*` 默认关；`vision-config.test.ts` + `vision-locate.test.ts` + `record-locate.test.ts`；`pnpm verify` 全绿；Playwright 抽检：默认关闭时 503「视觉定位未启用」；开启 `TESTPILOT_VISION_ENABLED=1` 后对 DeepSeek Flash 真实调用：demo「添加用户按钮」→ `[data-testid="add-user-btn"]`，置信度 99%，reason 正确；选择器经页面回放校验可命中同一元素。
-- [ ] **V7-9c 探索模式视觉判定（P2）**：视觉问答只作为探索/诊断建议与证据，标 `oracle: "ai-suggested"`；不参与回归通过/失败门禁；不缓存判定结果。
+- [x] **V7-9c 探索模式视觉判定（2026-11-18）**：`vision-ask.ts` + `POST /api/record/:jobId/ask` 返回 `explorationOnly: true`；控制台录制「AI 观察（探索）」展示是/否/不确定、置信度与原因；不写入 IR、不写断言、不缓存、不参与回归门禁（非 gating）；`vision-ask.test.ts` + `record-ask.test.ts`；`pnpm verify` 全绿；Playwright 抽检：默认关闭时 UI 显示 503「视觉定位未启用（TESTPILOT_VISION_ENABLED=1）」；本机无 `TESTPILOT_VISION_*` 密钥，未做真实 DeepSeek 视觉调用。
 
 **验收标准：**
 
@@ -512,6 +513,7 @@ interface MechanismPack {
 - [x] V7-4b4 realtime-messaging · 图片消息（2026-11-18）— demo `/chat` `chat-send-image` + 1×1 data URL、`server.mjs` `bad_image`；`planRealtimeMessaging` `image` 场景（`realtime-messaging-image`、WS `type":"image"` + target-only UI）；`REALTIME_V7_4B_BLOCKER` 仅列重连；`POST …/realtime-messaging/draft` `image`；控制台「图片消息」+ `imageTestId`/`imageButtonTestId`；`chat.test.mjs` + `realtime.test.ts` + `mechanism-routes.test.ts`；练习环境试跑 `mechanism-realtime-image-fd643b3a` passed（`run_mwm67t6f_4e0bc398`）；`pnpm verify` 全绿
 - [x] V7-4b5 realtime-messaging · 断线重连（2026-11-18）— demo `chat.html` `reconnect=1` 自动重连 + `dropAfter=1` 首帧后 `1011` 断线；`planRealtimeMessaging` `reconnect` 场景（`realtime-messaging-reconnect`、receiver 带 query login、WS + 列表 + `chat-reconnects` UI）；移除 V7-4b blocker；`mechanisms`/`routes`/`SystemProfileView`；`chat.test.mjs` + `realtime.test.ts` + `mechanism-routes.test.ts`；练习环境试跑 `mechanism-realtime-reconnect-7a2813b6` passed（`run_7a2813b6`）；`pnpm verify` 全绿；**限制：** 仅练习环境可控模拟，不覆盖真实网络的抖动/退避/消息补偿/幂等
 - [x] V7-9b 生成期视觉定位建议（2026-11-18）— 录制 `POST …/locate` + 控制台 AI 定位；确定性 css 写入由人手抄；运行时零模型；默认关闭；证据见 §0.1 V7-9b
+- [x] V7-9c 探索期视觉问答（2026-11-18）— `POST …/ask` + 控制台「AI 观察（探索）」；`explorationOnly: true`；非 gating、不落 IR；默认关闭；证据见 §0.1 V7-9c
 
 **第二批：文件/媒体（接口直连验收后）**
 

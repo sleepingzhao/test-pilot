@@ -110,6 +110,7 @@ import {
   resetRecordLivePagesForTest,
 } from "./record-live-session.js";
 import { isVisionEnabledFlag, visionConfigError, visionConfigFromEnv } from "./vision-config.js";
+import { getAskAboutPage } from "./vision-ask.js";
 import { getSuggestLocator } from "./vision-locate.js";
 
 const recordJobs = new Map<string, RecordJob>();
@@ -2315,6 +2316,51 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       confidence: result.confidence,
       reason: result.reason,
       model: vision.model,
+    };
+  });
+
+  app.post("/api/record/:jobId/ask", async (req, reply) => {
+    const { jobId } = req.params as { jobId: string };
+    if (!isSafeRunId(jobId)) return reply.notFound("job not found");
+
+    const body = req.body as { question?: string };
+    const question = body?.question?.trim() ?? "";
+    if (!question) {
+      return reply.code(400).send({ error: "请提供要观察的问题" });
+    }
+    if (question.length > 200) {
+      return reply.code(400).send({ error: "问题不能超过 200 个字符" });
+    }
+
+    const vision = visionConfigFromEnv();
+    if (!vision) {
+      const detail = isVisionEnabledFlag() ? visionConfigError() : null;
+      return reply.code(503).send({
+        error: detail ?? "视觉定位未启用（TESTPILOT_VISION_ENABLED=1）",
+      });
+    }
+
+    const job = recordJobs.get(jobId);
+    if (!job || job.status !== "running") {
+      return reply.notFound("job not found");
+    }
+
+    const page = getRecordLivePage(jobId);
+    if (!page || page.isClosed()) {
+      return reply.code(409).send({ error: "录制页面不可用，请确认录制窗口仍打开" });
+    }
+
+    const result = await getAskAboutPage()(page, question, vision);
+    if (!result.ok) {
+      return reply.code(422).send({ error: result.error });
+    }
+
+    return {
+      answer: result.answer,
+      confidence: result.confidence,
+      reason: result.reason,
+      model: result.model,
+      explorationOnly: true,
     };
   });
 

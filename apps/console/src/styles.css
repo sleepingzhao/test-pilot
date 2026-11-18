@@ -928,6 +928,25 @@ button.status-chip {
   word-break: break-all;
 }
 
+.record-ask-block {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.record-ask-title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.record-ask-disclaimer {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .uncertainty-more {
   margin-top: 8px;
 }

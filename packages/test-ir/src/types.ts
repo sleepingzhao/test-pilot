@@ -72,6 +72,8 @@ export interface TestPolicy {
   retry?: { attempts?: number; on?: string[] };
   dataIsolation?: "shared" | "per-run";
   cleanup?: "none" | "on-success" | "always";
+  /** When false/absent, real-environment runs block mutating HTTP, uploads, and WS sends. */
+  allowMutation?: boolean;
 }
 
 export interface TestIR {

@@ -141,6 +141,12 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
               <span className="badge subtle">多账号执行</span>
             </>
           ) : null}
+          {run.readOnly ? (
+            <>
+              {" · "}
+              <span className="badge subtle">只读执行</span>
+            </>
+          ) : null}
         </p>
         <p className="run-detail-meta">
           {new Date(run.completedAt).toLocaleString()} · <code>{run.runId}</code>

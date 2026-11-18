@@ -45,6 +45,14 @@ test("teardownSteps changes alter the hash", () => {
   assert.notEqual(computeIRHash(a), computeIRHash(b));
 });
 
+test("policy.allowMutation changes alter the hash", () => {
+  const a = baseIR();
+  const b = baseIR();
+  a.policy = { allowMutation: false };
+  b.policy = { allowMutation: true };
+  assert.notEqual(computeIRHash(a), computeIRHash(b));
+});
+
 test("policy.cleanup changes alter the hash", () => {
   const a = baseIR();
   const b = baseIR();

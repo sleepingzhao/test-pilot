@@ -1299,6 +1299,11 @@ button.status-chip {
   color: var(--blue);
 }
 
+.badge.warn {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
 /* ---------- forms ---------- */
 
 .field {

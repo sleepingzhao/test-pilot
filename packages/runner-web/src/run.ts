@@ -54,6 +54,8 @@ export type RunResult = {
   };
   /** `multi` when the IR lists 2+ actors; `single` is the explicit single-actor fallback. */
   actorMode?: "multi" | "single";
+  /** Set when `readOnlyNetwork` blocked mutating traffic against a real target. */
+  readOnly?: boolean;
   /** Visible success/alerts right after the steps; used to derive a real success assertion. */
   finalSignals?: string[];
   cleanup?: CleanupResult;
@@ -70,6 +72,11 @@ export type RunOptions = {
    * are not supported through this hook.
    */
   login?: (page: Page, context: BrowserContext, baseUrl: string) => Promise<void>;
+  /**
+   * Blocks mutating HTTP (via route), upload steps, non-GET request steps, and WebSocket sends.
+   * Install only after the login hook and actor login steps so SSO form POST can complete.
+   */
+  readOnlyNetwork?: boolean;
 };
 
 type AssertionResult = Awaited<ReturnType<typeof runAssertion>>;
@@ -477,6 +484,45 @@ function lookupActorSession(sessions: Map<string, ActorSession>, actorId: string
   return sessions.get(actorId);
 }
 
+const READ_ONLY_HTTP_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+function isReadOnlySafeRequestMethod(method: string | undefined): boolean {
+  if (!method) return false;
+  return method.toUpperCase() === "GET" || method.toUpperCase() === "HEAD";
+}
+
+function isReadOnlyPolicyBlock(message?: string): boolean {
+  if (!message) return false;
+  return message.startsWith("只读模式：") || /read-only:\s*websocket send blocked/i.test(message);
+}
+
+function applyReadOnlyWebSocketGuardInPage(): void {
+  const g = globalThis as typeof globalThis & { __testpilotReadOnlyWs?: boolean };
+  if (g.__testpilotReadOnlyWs) return;
+  g.__testpilotReadOnlyWs = true;
+  WebSocket.prototype.send = function () {
+    console.info("[testpilot] read-only mode: WebSocket send blocked");
+    throw new Error("read-only: websocket send blocked");
+  };
+}
+
+/**
+ * Real-environment read-only guard: abort non-safe HTTP in the browser and block WS sends.
+ * Must run after login (which may need form POST) and before test steps.
+ */
+async function installReadOnlyNetworkGuard(context: BrowserContext, page: Page): Promise<void> {
+  await context.route("**/*", (route) => {
+    const method = route.request().method().toUpperCase();
+    if (READ_ONLY_HTTP_METHODS.has(method)) {
+      void route.continue();
+      return;
+    }
+    void route.abort("blockedbyclient");
+  });
+  await context.addInitScript(applyReadOnlyWebSocketGuardInPage);
+  await page.evaluate(applyReadOnlyWebSocketGuardInPage);
+}
+
 export async function runTestIR(ir: TestIR, options: RunOptions): Promise<RunResult> {
   const maxAttempts = maxRunAttempts(ir.policy?.retry);
   let last: RunResult | undefined;
@@ -505,6 +551,7 @@ async function runMainStep(
   runId: string,
   vars: Record<string, string>,
   templateSecrets: string[],
+  readOnlyNetwork?: boolean,
 ): Promise<StepResult> {
   const actorId = step.actor ?? "primary";
   const session = lookupActorSession(sessions, actorId);
@@ -516,6 +563,27 @@ async function runMainStep(
       message: `unknown actor: ${actorId}`,
       ...(actorId !== "primary" ? { actor: actorId } : {}),
     };
+  }
+  if (readOnlyNetwork) {
+    if (step.action === "upload") {
+      return {
+        stepId: step.id,
+        status: "failed",
+        durationMs: 0,
+        message: "只读模式：已阻止文件上传",
+        ...(actorId !== "primary" ? { actor: actorId } : {}),
+      };
+    }
+    if (step.action === "request" && step.method && !isReadOnlySafeRequestMethod(step.method)) {
+      const path = step.path ?? "/";
+      return {
+        stepId: step.id,
+        status: "failed",
+        durationMs: 0,
+        message: `只读模式：已阻止写请求 ${step.method} ${path}`,
+        ...(actorId !== "primary" ? { actor: actorId } : {}),
+      };
+    }
   }
   const { page, context, baseUrl, evidence } = session;
   const executed = await executeStep(
@@ -660,9 +728,27 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
     }
     }
 
+  // Login hook may POST credentials; actor loginSteps may POST too — guard applies to test steps only.
+  if (status === "passed" && options.readOnlyNetwork) {
+    for (const session of sessions.values()) {
+      await installReadOnlyNetworkGuard(session.context, session.page);
+    }
+  }
+
     if (status === "passed") {
       for (const step of ir.steps) {
-        const result = await runMainStep(ir, step, sessions, steps, refs, options.env, runId, vars, templateSecrets);
+        const result = await runMainStep(
+          ir,
+          step,
+          sessions,
+          steps,
+          refs,
+          options.env,
+          runId,
+          vars,
+          templateSecrets,
+          options.readOnlyNetwork,
+        );
         steps.push(result);
         if (result.status === "failed") {
           status = "failed";
@@ -786,10 +872,11 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
   status = mergeRunStatus(status, cleanup);
   const failedAssertion = assertionResults.find((a) => !a.passed);
   const failMsg = steps.find((s) => s.message)?.message ?? failedAssertion?.message;
+  const readOnlyStepBlocked = steps.some((s) => s.status === "failed" && isReadOnlyPolicyBlock(s.message));
   const primaryFailureKind =
     primaryStatusBeforeCleanup === "passed"
       ? undefined
-      : loginHookFailed
+      : loginHookFailed || readOnlyStepBlocked
         ? "ENVIRONMENT"
         : failedAssertion?.errorKind ??
           classifyFailure({
@@ -823,6 +910,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         attemptCount: 1,
       },
       actorMode,
+      ...(options.readOnlyNetwork ? { readOnly: true } : {}),
       finalSignals,
       cleanup,
     };

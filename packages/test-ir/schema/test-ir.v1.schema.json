@@ -260,6 +260,9 @@
         "cleanup": {
           "type": "string",
           "enum": ["none", "on-success", "always"]
+        },
+        "allowMutation": {
+          "type": "boolean"
         }
       }
     }

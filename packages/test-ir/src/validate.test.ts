@@ -549,6 +549,35 @@ test("rejects actor baseUrl and baseUrlRef together", () => {
   assert.equal(result.ok, false);
 });
 
+test("accepts policy.allowMutation boolean and round-trips", () => {
+  const doc = {
+    id: "allow-mutation",
+    version: 1,
+    platform: "web",
+    policy: { allowMutation: true },
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "ok" }],
+  };
+  const result = validateTestIR(doc);
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.value.policy?.allowMutation, true);
+    assert.deepEqual(validateSemantics(result.value), []);
+  }
+});
+
+test("rejects policy.allowMutation when not a boolean", () => {
+  const result = validateTestIR({
+    id: "bad-allow-mutation",
+    version: 1,
+    platform: "web",
+    policy: { allowMutation: "yes" },
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "ok" }],
+  });
+  assert.equal(result.ok, false);
+});
+
 test("single-actor IR without actors unchanged", () => {
   const doc = JSON.parse(readFileSync(join(fixturesDir, "user-create-duplicate-email.json"), "utf8"));
   const result = validateTestIR(doc);

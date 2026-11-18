@@ -169,6 +169,8 @@ export type StoredRun = {
   metrics?: { durationMs: number; failureKind?: string; attemptCount?: number; flakeRecovery?: boolean };
   /** `multi` when the IR had 2+ actors; omitted on legacy runs. */
   actorMode?: "multi" | "single";
+  /** Present when the run enforced real-environment read-only network guard. */
+  readOnly?: boolean;
   steps: Array<{
     stepId: string;
     status: string;

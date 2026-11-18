@@ -60,6 +60,16 @@ function originOf(url?: string | null): string | null {
 }
 
 /** Classify by the IR's actual target, falling back to the project default (demo). */
+function targetsRealEnvironment(t: StoredTest, realOrigin: string | null): boolean {
+  if (t.ir?.baseUrlRef === "real-env") return true;
+  const origin = originOf(t.ir?.baseUrl);
+  return Boolean(origin && realOrigin && origin === realOrigin);
+}
+
+function showRealEnvPolicyHint(t: StoredTest, realOrigin: string | null): boolean {
+  return targetsRealEnvironment(t, realOrigin) || t.ir?.policy?.allowMutation !== undefined;
+}
+
 function testEnvKey(t: StoredTest, demoOrigin: string | null, pilotOrigin: string | null): TestEnvKey {
   if (isPilotTest(t)) return "pilot";
   if (t.ir?.baseUrlRef === "staging-console") return "demo";
@@ -1949,6 +1959,15 @@ export function App() {
                 {editTest.configHashStale ? " · 配置已变化，需重新批准" : ""}
                 {reviewDirty ? " · 有未保存修改" : ""}
               </p>
+              {showRealEnvPolicyHint(editTest, originOf(realUrl)) ? (
+                <p className="hint-inline sheet-review-meta">
+                  {editTest.ir.policy?.allowMutation === true ? (
+                    <span className="badge warn">已允许生产写操作（高风险）</span>
+                  ) : (
+                    <span className="badge subtle">真实环境只读（写请求/上传/WS 发送会被阻止）</span>
+                  )}
+                </p>
+              ) : null}
             </header>
             <div className="sheet-review-body">
               {pilotScopeNote && isPilotTest(editTest) && <p className="hint-inline">试点：{pilotScopeNote}</p>}

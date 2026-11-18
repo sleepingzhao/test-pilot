@@ -54,6 +54,13 @@ describe("demo /ws/chat", { concurrency: 1 }, () => {
     await close(server);
   });
 
+  test("GET / index nav links to /chat", async () => {
+    const res = await fetch(`${base}/`);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /href="\/chat"/);
+  });
+
   test("GET /chat serves the composer", async () => {
     const res = await fetch(`${base}/chat`);
     assert.equal(res.status, 200);

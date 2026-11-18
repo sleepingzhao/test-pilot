@@ -1,0 +1,126 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { validateAssertionProviders } from "@testpilot/assertions";
+import { validateSemantics, validateTestIR } from "@testpilot/test-ir";
+import {
+  planRealtimeMessaging,
+  REALTIME_V7_4B_BLOCKER,
+  type RealtimeContext,
+  type RealtimeProfile,
+} from "./realtime.js";
+
+const ready: RealtimeProfile = {
+  capabilities: [
+    { id: "crud", confidence: 0.95 },
+    { id: "realtime-messaging", confidence: 0.85 },
+  ],
+};
+
+const baseCtx: RealtimeContext = {};
+
+test("realtime-messaging is not runnable without capability at confidence 0.6", () => {
+  const missing = planRealtimeMessaging({ capabilities: [{ id: "crud", confidence: 0.99 }] }, baseCtx);
+  assert.equal(missing.mechanism, "realtime-messaging");
+  assert.equal(missing.runnable, false);
+  assert.equal(missing.scenarios.length, 0);
+  assert.match(missing.blockers.join("\n"), /realtime-messaging/);
+  assert.match(missing.blockers.join("\n"), /0\.6/);
+
+  const low = planRealtimeMessaging({ capabilities: [{ id: "realtime-messaging", confidence: 0.59 }] }, baseCtx);
+  assert.equal(low.runnable, false);
+  assert.match(low.blockers.join("\n"), /0\.59/);
+});
+
+test("runnable text plan validates IR and uses default actors and expectations", () => {
+  const plan = planRealtimeMessaging(ready, baseCtx);
+  assert.equal(plan.runnable, true);
+  assert.ok(plan.blockers.includes(REALTIME_V7_4B_BLOCKER));
+  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text"]);
+  const scenario = plan.scenarios[0]!;
+  assert.equal(scenario.id, "text");
+  assert.deepEqual(scenario.ir.actors?.map((a) => a.id), ["sender", "receiver"]);
+  assert.deepEqual(
+    scenario.ir.actors?.[0]?.loginSteps?.map((s) => s.id),
+    ["sender-open"],
+  );
+  assert.deepEqual(
+    scenario.ir.actors?.[1]?.loginSteps?.map((s) => s.id),
+    ["receiver-open"],
+  );
+  assert.equal(scenario.ir.actors?.[0]?.loginSteps?.[0]?.actor, undefined);
+  assert.deepEqual(
+    scenario.ir.steps.map((s) => ({ id: s.id, actor: s.actor })),
+    [
+      { id: "wait-composer", actor: "sender" },
+      { id: "fill-text", actor: "sender" },
+      { id: "send-message", actor: "sender" },
+      { id: "wait-list", actor: "receiver" },
+    ],
+  );
+  assert.equal(scenario.ir.steps[1]?.value, "测试消息");
+
+  const wsSent = scenario.ir.assertions.find((a) => a.id === "ws-sent");
+  const wsReceived = scenario.ir.assertions.find((a) => a.id === "ws-received");
+  assert.equal(wsSent?.actor, "sender");
+  assert.equal(wsReceived?.actor, "receiver");
+  assert.deepEqual(wsSent?.expect, {
+    direction: "sent",
+    contains: "测试消息",
+    urlIncludes: "/ws/chat",
+    timeoutMs: 5000,
+  });
+  assert.deepEqual(wsReceived?.expect, {
+    direction: "received",
+    contains: "测试消息",
+    urlIncludes: "/ws/chat",
+    timeoutMs: 5000,
+  });
+
+  const validated = validateTestIR(scenario.ir);
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? {} : validated.issues));
+  if (validated.ok) assert.deepEqual(validateSemantics(validated.value), []);
+  assert.deepEqual(validateAssertionProviders(scenario.ir), []);
+});
+
+test("text override applies to steps and assertions", () => {
+  const plan = planRealtimeMessaging(ready, { text: "自定义内容" });
+  const ir = plan.scenarios[0]!.ir;
+  assert.equal(ir.steps.find((s) => s.id === "fill-text")?.value, "自定义内容");
+  assert.equal(
+    ir.assertions.filter((a) => a.type === "event").every((a) => a.expect?.contains === "自定义内容"),
+    true,
+  );
+  assert.equal(
+    ir.assertions.filter((a) => a.type === "ui").every((a) => a.contains === "自定义内容"),
+    true,
+  );
+});
+
+test("unsafe actor ids and sender equals receiver are rejected", () => {
+  const badSender = planRealtimeMessaging(ready, { senderActor: "Sender" });
+  assert.equal(badSender.runnable, false);
+  assert.match(badSender.blockers.join("\n"), /senderActor/);
+
+  const same = planRealtimeMessaging(ready, { senderActor: "alice", receiverActor: "alice" });
+  assert.equal(same.runnable, false);
+  assert.match(same.blockers.join("\n"), /不能相同/);
+});
+
+test("login steps cannot carry actor", () => {
+  const plan = planRealtimeMessaging(ready, {
+    senderLoginSteps: [{ id: "bad", action: "navigate", path: "/chat", actor: "sender" }],
+  });
+  assert.equal(plan.runnable, false);
+  assert.match(plan.blockers.join("\n"), /不能设置 actor/);
+});
+
+test("custom login steps without actor are used as-is", () => {
+  const plan = planRealtimeMessaging(ready, {
+    senderLoginSteps: [{ id: "sender-custom", action: "navigate", path: "/custom-chat" }],
+    receiverLoginSteps: [{ id: "receiver-custom", action: "navigate", path: "/custom-chat" }],
+  });
+  assert.equal(plan.runnable, true);
+  const ir = plan.scenarios[0]!.ir;
+  assert.equal(ir.actors?.[0]?.loginSteps?.[0]?.path, "/custom-chat");
+  assert.equal(ir.actors?.[1]?.loginSteps?.[0]?.id, "receiver-custom");
+});

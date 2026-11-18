@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import sensible from "@fastify/sensible";
 import type { SystemProfile } from "@testpilot/detect";
+import type { TestIR } from "@testpilot/test-ir";
 import Fastify from "fastify";
 import { saveDetection, type DetectionRecord } from "./detection.js";
 import { PILOT_REAL_BLOCKER } from "./mechanisms.js";
@@ -38,6 +39,21 @@ const crudOnlyProfile: SystemProfile = {
       evidenceIds: [],
       signals: [],
       requires: [],
+      unknowns: [],
+    },
+  ],
+};
+
+const realtimeProfile: SystemProfile = {
+  ...demoProfile,
+  surfaces: [{ route: "/chat", elements: [] }, ...demoProfile.surfaces],
+  capabilities: [
+    {
+      id: "realtime-messaging",
+      confidence: 0.85,
+      evidenceIds: [],
+      signals: ["network.websocket", "dom.message-composer"],
+      requires: ["second-actor", "ws-observable"],
       unknowns: [],
     },
   ],
@@ -89,15 +105,20 @@ test("GET mechanisms for demo file-media record is runnable with defaults", asyn
     assert.equal(res.statusCode, 200);
     const body = res.json() as {
       mechanisms: Array<{
+        id: string;
         runnable: boolean;
         scenarios: Array<{ id: string }>;
-        context: { uploadRef: string; cleanupPath?: string };
+        context: { uploadRef?: string; cleanupPath?: string };
       }>;
     };
-    assert.equal(body.mechanisms[0]?.runnable, true);
-    assert.deepEqual(body.mechanisms[0]?.scenarios.map((s) => s.id), ["happy"]);
-    assert.equal(body.mechanisms[0]?.context.uploadRef, "fixture.samplePng");
-    assert.equal(body.mechanisms[0]?.context.cleanupPath, "/api/files/{{uploadedId}}");
+    const fileMedia = body.mechanisms.find((m) => m.id === "file-media");
+    assert.equal(fileMedia?.runnable, true);
+    assert.deepEqual(fileMedia?.scenarios.map((s) => s.id), ["happy"]);
+    assert.equal(fileMedia?.context.uploadRef, "fixture.samplePng");
+    assert.equal(fileMedia?.context.cleanupPath, "/api/files/{{uploadedId}}");
+    const realtime = body.mechanisms.find((m) => m.id === "realtime-messaging");
+    assert.ok(realtime);
+    assert.equal(realtime?.runnable, false);
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });
@@ -113,9 +134,12 @@ test("GET mechanisms for real target is not runnable", async () => {
       profile: demoProfile,
     });
     const res = await app.inject({ method: "GET", url: "/api/detect/detect_real_fm/mechanisms" });
-    const body = res.json() as { mechanisms: Array<{ runnable: boolean; blockers: string[] }> };
-    assert.equal(body.mechanisms[0]?.runnable, false);
-    assert.ok(body.mechanisms[0]?.blockers.includes(PILOT_REAL_BLOCKER));
+    const body = res.json() as { mechanisms: Array<{ id: string; runnable: boolean; blockers: string[] }> };
+    for (const id of ["file-media", "realtime-messaging"]) {
+      const entry = body.mechanisms.find((m) => m.id === id);
+      assert.equal(entry?.runnable, false);
+      assert.ok(entry?.blockers.includes(PILOT_REAL_BLOCKER));
+    }
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });
@@ -208,6 +232,118 @@ test("POST file-media draft rejects unknown detection, bad scenario, and real ta
       payload: { detectionId: "detect_bad_scenario", scenario: "oversize" },
     });
     assert.equal(badScenario.statusCode, 400);
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("GET mechanisms for realtime profile includes runnable text scenario", async () => {
+  const { app, dataRoot, root } = await setupApp();
+  try {
+    await saveRecord(dataRoot, {
+      id: "detect_rt_plan",
+      target: "demo",
+      profile: realtimeProfile,
+    });
+    const res = await app.inject({ method: "GET", url: "/api/detect/detect_rt_plan/mechanisms" });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as {
+      mechanisms: Array<{ id: string; runnable: boolean; scenarios: Array<{ kind: string }> }>;
+    };
+    const realtime = body.mechanisms.find((m) => m.id === "realtime-messaging");
+    assert.equal(realtime?.runnable, true);
+    assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text"]);
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("POST realtime draft saves two actors and four assertions without auto-approval", async () => {
+  const { app, dataRoot, store, root } = await setupApp();
+  try {
+    await saveRecord(dataRoot, {
+      id: "detect_rt_post",
+      target: "demo",
+      profile: realtimeProfile,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/mechanisms/realtime-messaging/draft",
+      payload: { detectionId: "detect_rt_post", scenario: "text" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as {
+      test: { id: string; approvalStatus: string; sourceChannel?: string; ir: TestIR };
+    };
+    assert.equal(body.test.approvalStatus, "draft");
+    assert.equal(body.test.sourceChannel, "mechanism");
+    assert.match(body.test.id, /^mechanism-realtime-text-/);
+    assert.equal(body.test.ir.actors?.length, 2);
+    assert.equal(body.test.ir.assertions.length, 4);
+    const stored = await store.getTest(body.test.id);
+    assert.equal(stored?.approvalStatus, "draft");
+    assert.equal(stored?.title, "实时消息 · 文本送达");
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("POST realtime draft rejects unknown detection, bad scenario, and real target", async () => {
+  const { app, dataRoot, root } = await setupApp();
+  try {
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/mechanisms/realtime-messaging/draft",
+      payload: { detectionId: "missing" },
+    });
+    assert.equal(missing.statusCode, 404);
+
+    await saveRecord(dataRoot, {
+      id: "detect_rt_real",
+      target: "real",
+      profile: realtimeProfile,
+    });
+    const real = await app.inject({
+      method: "POST",
+      url: "/api/mechanisms/realtime-messaging/draft",
+      payload: { detectionId: "detect_rt_real" },
+    });
+    assert.equal(real.statusCode, 400);
+
+    await saveRecord(dataRoot, {
+      id: "detect_rt_low",
+      target: "demo",
+      profile: crudOnlyProfile,
+    });
+    const blocked = await app.inject({
+      method: "POST",
+      url: "/api/mechanisms/realtime-messaging/draft",
+      payload: { detectionId: "detect_rt_low", scenario: "text" },
+    });
+    assert.equal(blocked.statusCode, 400);
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("POST realtime trial on custom target is refused", async () => {
+  const { app, dataRoot, root } = await setupApp();
+  try {
+    await saveRecord(dataRoot, {
+      id: "detect_rt_custom",
+      target: "custom",
+      profile: realtimeProfile,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/mechanisms/realtime-messaging/draft",
+      payload: { detectionId: "detect_rt_custom", trial: true },
+    });
+    assert.equal(res.statusCode, 400);
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });

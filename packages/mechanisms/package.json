@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/file-media.test.ts",
+    "test": "node --import tsx --test src/file-media.test.ts src/realtime.test.ts",
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {

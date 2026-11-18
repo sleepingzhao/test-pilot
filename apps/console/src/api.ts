@@ -21,31 +21,51 @@ export type DetectionRecord = {
 
 export type FileMediaScenarioKind = "happy" | "invalid-type" | "oversize";
 
+export type RealtimeScenarioKind = "text";
+
 export type MechanismPlanResponse = {
   detectionId: string;
   target: DetectionTarget;
-  mechanisms: Array<{
-    id: "file-media";
-    runnable: boolean;
-    blockers: string[];
-    context: {
-      pagePath?: string;
-      uploadRef: string;
-      fileName: string;
-      uploadRequestRef: string;
-      uploadTarget?: string;
-      submitTarget?: string;
-      listTarget?: string;
-      invalidTypeRef?: string;
-      invalidTypeName?: string;
-      oversizeRef?: string;
-      oversizeName?: string;
-      cleanupPath?: string;
-      cleanupMethod?: string;
-      cleanupIdField?: string;
-    };
-    scenarios: Array<{ id: string; kind: FileMediaScenarioKind }>;
-  }>;
+  mechanisms: Array<
+    | {
+        id: "file-media";
+        runnable: boolean;
+        blockers: string[];
+        context: {
+          pagePath?: string;
+          uploadRef: string;
+          fileName: string;
+          uploadRequestRef: string;
+          uploadTarget?: string;
+          submitTarget?: string;
+          listTarget?: string;
+          invalidTypeRef?: string;
+          invalidTypeName?: string;
+          oversizeRef?: string;
+          oversizeName?: string;
+          cleanupPath?: string;
+          cleanupMethod?: string;
+          cleanupIdField?: string;
+        };
+        scenarios: Array<{ id: string; kind: FileMediaScenarioKind }>;
+      }
+    | {
+        id: "realtime-messaging";
+        runnable: boolean;
+        blockers: string[];
+        context: {
+          pagePath?: string;
+          composerTestId?: string;
+          sendTestId?: string;
+          listTestId?: string;
+          wsUrlIncludes?: string;
+          text?: string;
+          senderActor?: string;
+          receiverActor?: string;
+        };
+        scenarios: Array<{ id: string; kind: RealtimeScenarioKind }>;
+      }
+  >;
 };
 
 export type DetectionJob = {

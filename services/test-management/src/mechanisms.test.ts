@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { SystemProfile } from "@testpilot/detect";
 import type { DetectionRecord } from "./detection.js";
-import { buildFileMediaContext, mechanismPlanForRecord, PILOT_REAL_BLOCKER } from "./mechanisms.js";
+import {
+  buildFileMediaContext,
+  buildRealtimeContext,
+  mechanismPlanForRecord,
+  PILOT_REAL_BLOCKER,
+} from "./mechanisms.js";
 
 const profileBase: SystemProfile = {
   version: 1,
@@ -63,8 +68,9 @@ test("mechanism plan without file-media capability is blocked", () => {
     capabilities: [{ id: "crud", confidence: 0.9, evidenceIds: [], signals: [], requires: [], unknowns: [] }],
   });
   const plan = mechanismPlanForRecord(record, "demo");
-  assert.equal(plan.mechanisms[0]?.runnable, false);
-  assert.equal(plan.mechanisms[0]?.scenarios.length, 0);
+  const fileMedia = plan.mechanisms.find((m) => m.id === "file-media");
+  assert.equal(fileMedia?.runnable, false);
+  assert.equal(fileMedia?.scenarios.length, 0);
 });
 
 test("low file-media confidence is blocked", () => {
@@ -73,14 +79,18 @@ test("low file-media confidence is blocked", () => {
     capabilities: [{ ...profileBase.capabilities[0]!, confidence: 0.5 }],
   });
   const plan = mechanismPlanForRecord(record, "demo");
-  assert.equal(plan.mechanisms[0]?.runnable, false);
+  const fileMedia = plan.mechanisms.find((m) => m.id === "file-media");
+  assert.equal(fileMedia?.runnable, false);
 });
 
 test("real and pilot targets are always blocked for mutating drafts", () => {
   for (const target of ["real", "pilot"] as const) {
     const plan = mechanismPlanForRecord(recordFor(target, profileBase), target);
-    assert.equal(plan.mechanisms[0]?.runnable, false);
-    assert.ok(plan.mechanisms[0]?.blockers.includes(PILOT_REAL_BLOCKER));
+    for (const id of ["file-media", "realtime-messaging"] as const) {
+      const entry = plan.mechanisms.find((m) => m.id === id);
+      assert.equal(entry?.runnable, false);
+      assert.ok(entry?.blockers.includes(PILOT_REAL_BLOCKER));
+    }
   }
 });
 
@@ -91,9 +101,10 @@ test("happy demo plan includes scenario ids and optional negative scenarios", ()
     oversizeRef: "fixture.sampleHuge",
     oversizeName: "huge.png",
   });
-  assert.equal(plan.mechanisms[0]?.runnable, true);
+  const fileMedia = plan.mechanisms.find((m) => m.id === "file-media");
+  assert.equal(fileMedia?.runnable, true);
   assert.deepEqual(
-    plan.mechanisms[0]?.scenarios.map((s) => s.id),
+    fileMedia?.scenarios.map((s) => s.id),
     ["happy", "invalid-type", "oversize"],
   );
   const secret = "sk-live-secret-key";
@@ -101,7 +112,7 @@ test("happy demo plan includes scenario ids and optional negative scenarios", ()
   assert.equal(raw.includes(secret), false);
   assert.equal(raw.includes("/Users/"), false);
   assert.equal(raw.includes("TESTPILOT_"), false);
-  assert.equal(plan.mechanisms[0]?.context.uploadRef, "fixture.samplePng");
+  assert.equal(fileMedia && fileMedia.id === "file-media" ? fileMedia.context.uploadRef : undefined, "fixture.samplePng");
   assert.equal((raw.match(/"ir"/g) ?? []).length, 0);
 });
 
@@ -109,8 +120,47 @@ test("invalid or oversize refs add scenarios when provided", () => {
   const onlyInvalid = mechanismPlanForRecord(recordFor("demo", profileBase), "demo", {
     invalidTypeRef: "fixture.sampleTxt",
   });
+  const fileMedia = onlyInvalid.mechanisms.find((m) => m.id === "file-media");
   assert.deepEqual(
-    onlyInvalid.mechanisms[0]?.scenarios.map((s) => s.kind),
+    fileMedia?.scenarios.map((s) => s.kind),
     ["happy", "invalid-type"],
   );
+});
+
+test("buildRealtimeContext applies defaults", () => {
+  const ctx = buildRealtimeContext({});
+  assert.equal(ctx.pagePath, "/chat");
+  assert.equal(ctx.composerTestId, "chat-composer");
+  assert.equal(ctx.text, "测试消息");
+  assert.equal(ctx.senderActor, "sender");
+  assert.equal(ctx.receiverActor, "receiver");
+});
+
+test("mechanism plan includes realtime entry with blockers when capability missing", () => {
+  const record = recordFor("demo", profileBase);
+  const plan = mechanismPlanForRecord(record, "demo");
+  const realtime = plan.mechanisms.find((m) => m.id === "realtime-messaging");
+  assert.ok(realtime);
+  assert.equal(realtime?.runnable, false);
+});
+
+test("realtime plan runnable when capability present", () => {
+  const record = recordFor("demo", {
+    ...profileBase,
+    capabilities: [
+      {
+        id: "realtime-messaging",
+        confidence: 0.85,
+        evidenceIds: [],
+        signals: [],
+        requires: [],
+        unknowns: [],
+      },
+    ],
+  });
+  const plan = mechanismPlanForRecord(record, "demo");
+  const realtime = plan.mechanisms.find((m) => m.id === "realtime-messaging");
+  assert.equal(realtime?.runnable, true);
+  assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text"]);
+  assert.match(realtime?.blockers.join("\n") ?? "", /V7-4b/);
 });

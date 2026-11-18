@@ -96,9 +96,12 @@ import {
 } from "./detection.js";
 import {
   FILE_MEDIA_SCENARIO_LABELS,
+  REALTIME_SCENARIO_LABELS,
   fileMediaScenarioIr,
   mechanismPlanForRecord,
+  realtimeScenarioIr,
   type FileMediaScenarioKind,
+  type RealtimeScenarioKind,
 } from "./mechanisms.js";
 import {
   clearRecordLivePage,
@@ -1444,6 +1447,13 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       "invalidTypeName",
       "oversizeRef",
       "oversizeName",
+      "composerTestId",
+      "sendTestId",
+      "listTestId",
+      "wsUrlIncludes",
+      "text",
+      "senderActor",
+      "receiverActor",
     ]) {
       if (typeof query[key] === "string") ctxInput[key] = query[key];
     }
@@ -1469,7 +1479,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const scenario: FileMediaScenarioKind = body.scenario ?? "happy";
     const ctxInput = body.context ?? {};
     const planView = mechanismPlanForRecord(record, record.target, ctxInput);
-    const fileMedia = planView.mechanisms[0];
+    const fileMedia = planView.mechanisms.find((item) => item.id === "file-media");
     if (!fileMedia?.runnable) {
       return reply.code(400).send({
         error: "当前机制计划不可生成草稿",
@@ -1543,6 +1553,125 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     } = {
       test: withWeakAssertions(test),
       plan: { blockers: fileMedia.blockers, scenario },
+    };
+
+    if (body.trial === true && record.target === "demo") {
+      if (!(await checkTargetReachable(record.url))) {
+        response.trialError = `目标环境不可达: ${record.url}`;
+      } else {
+        try {
+          const run = await executeSingleIrRun(
+            store,
+            test,
+            validated.value,
+            record.url,
+            project.id,
+            artifactsRoot,
+            dataRoot,
+          );
+          response.trial = { run, trial: true };
+        } catch (err) {
+          response.trialError = err instanceof Error ? err.message : String(err);
+        }
+      }
+    }
+
+    return response;
+  });
+
+  app.post("/api/mechanisms/realtime-messaging/draft", async (req, reply) => {
+    const body = (req.body ?? {}) as {
+      detectionId?: string;
+      scenario?: RealtimeScenarioKind;
+      context?: Record<string, unknown>;
+      trial?: boolean;
+    };
+    const detectionId = body.detectionId?.trim();
+    if (!detectionId) return reply.code(400).send({ error: "detectionId 必填" });
+    const record = await readDetection(dataRoot, detectionId);
+    if (!record) return reply.notFound("detection not found");
+
+    if (record.target === "pilot" || record.target === "real") {
+      return reply.code(400).send({ error: "试点/真实环境不允许生成会写入数据的机制草稿" });
+    }
+
+    const scenario: RealtimeScenarioKind = body.scenario ?? "text";
+    const ctxInput = body.context ?? {};
+    const planView = mechanismPlanForRecord(record, record.target, ctxInput);
+    const realtime = planView.mechanisms.find((item) => item.id === "realtime-messaging");
+    if (!realtime?.runnable) {
+      return reply.code(400).send({
+        error: "当前机制计划不可生成草稿",
+        plan: { blockers: realtime?.blockers ?? [], scenario },
+      });
+    }
+    if (!realtime.scenarios.some((item) => item.kind === scenario)) {
+      return reply.code(400).send({
+        error: `场景 ${scenario} 不在当前计划中`,
+        plan: { blockers: realtime.blockers, scenario },
+      });
+    }
+
+    if (body.trial === true && record.target !== "demo") {
+      return reply.code(400).send({ error: "仅练习环境支持生成后试跑" });
+    }
+
+    const { scenarioIr } = realtimeScenarioIr(record, scenario, ctxInput);
+    if (!scenarioIr) {
+      return reply.code(400).send({
+        error: `场景 ${scenario} 无可用 IR`,
+        plan: { blockers: realtime.blockers, scenario },
+      });
+    }
+
+    const project = store.project();
+    const slug = randomUUID().slice(0, 8);
+    const testId = `mechanism-realtime-text-${slug}`;
+    if (!isSafeTestId(testId)) {
+      return reply.code(500).send({ error: "无法生成安全的用例 id" });
+    }
+    const ir = { ...applyBaseUrlTarget(scenarioIr.ir, record.url), id: testId };
+    if (!isAllowedTargetUrl(record.url)) {
+      return reply.code(400).send({ error: `探测目标地址不在允许列表: ${record.url}` });
+    }
+    const validated = validateTestIR(ir);
+    if (!validated.ok) return reply.code(400).send({ issues: validated.issues });
+    const semantics = validateSemantics(validated.value);
+    if (semantics.length) {
+      return reply.code(400).send({ issues: semantics, error: semantics[0]?.message });
+    }
+    const providerIssues = validateAssertionProviders(validated.value);
+    if (providerIssues.length) {
+      return reply.code(400).send({ issues: providerIssues, error: "断言 Provider 校验失败" });
+    }
+    const missingSecrets = missingEnvRefs(validated.value);
+    if (missingSecrets.length) {
+      return reply.code(400).send({
+        error: `缺少用例所需环境变量：${missingSecrets.join(", ")}（见 .env.example）`,
+      });
+    }
+
+    const label = REALTIME_SCENARIO_LABELS[scenario];
+    const test = stampTestMeta({
+      id: testId,
+      projectId: project.id,
+      title: `实时消息 · ${label}`,
+      ir: validated.value,
+      approvalStatus: "draft",
+      sourceChannel: "mechanism",
+      intentSummary: `realtime-messaging ${scenario}`,
+      updatedAt: new Date().toISOString(),
+    });
+    await store.saveTest(test);
+
+    const response: {
+      test: ReturnType<typeof withWeakAssertions>;
+      plan: { blockers: string[]; scenario: RealtimeScenarioKind };
+      trial?: { run: StoredRun; trial: true };
+      trialError?: string;
+    } = {
+      test: withWeakAssertions(test),
+      plan: { blockers: realtime.blockers, scenario },
     };
 
     if (body.trial === true && record.target === "demo") {

@@ -6,6 +6,7 @@ import {
   type DetectionTarget,
   type FileMediaScenarioKind,
   type MechanismPlanResponse,
+  type RealtimeScenarioKind,
   type StoredTest,
 } from "./api";
 import { CAPABILITY_LABELS, REQUIREMENT_LABELS, SIGNAL_LABELS } from "./capabilityLabels";
@@ -45,9 +46,12 @@ type MechanismContextForm = {
   cleanupIdField: string;
 };
 
-function contextFromPlan(
-  ctx: MechanismPlanResponse["mechanisms"][0]["context"] | undefined,
-): MechanismContextForm {
+type FileMediaPlanContext = Extract<
+  MechanismPlanResponse["mechanisms"][number],
+  { id: "file-media" }
+>["context"];
+
+function contextFromPlan(ctx: FileMediaPlanContext | undefined): MechanismContextForm {
   return {
     pagePath: ctx?.pagePath ?? "/files",
     uploadRef: ctx?.uploadRef ?? "fixture.samplePng",
@@ -63,6 +67,47 @@ function contextFromPlan(
     cleanupPath: ctx?.cleanupPath ?? "",
     cleanupMethod: ctx?.cleanupMethod ?? "DELETE",
     cleanupIdField: ctx?.cleanupIdField ?? "id",
+  };
+}
+
+type RealtimeMechanismContextForm = {
+  pagePath: string;
+  composerTestId: string;
+  sendTestId: string;
+  listTestId: string;
+  wsUrlIncludes: string;
+  text: string;
+  senderActor: string;
+  receiverActor: string;
+};
+
+function realtimeContextFromPlan(
+  ctx:
+    | Extract<MechanismPlanResponse["mechanisms"][number], { id: "realtime-messaging" }>["context"]
+    | undefined,
+): RealtimeMechanismContextForm {
+  return {
+    pagePath: ctx?.pagePath ?? "/chat",
+    composerTestId: ctx?.composerTestId ?? "chat-composer",
+    sendTestId: ctx?.sendTestId ?? "chat-send",
+    listTestId: ctx?.listTestId ?? "chat-list",
+    wsUrlIncludes: ctx?.wsUrlIncludes ?? "/ws/chat",
+    text: ctx?.text ?? "测试消息",
+    senderActor: ctx?.senderActor ?? "sender",
+    receiverActor: ctx?.receiverActor ?? "receiver",
+  };
+}
+
+function realtimeContextPayload(form: RealtimeMechanismContextForm): Record<string, string> {
+  return {
+    pagePath: form.pagePath,
+    composerTestId: form.composerTestId,
+    sendTestId: form.sendTestId,
+    listTestId: form.listTestId,
+    wsUrlIncludes: form.wsUrlIncludes,
+    text: form.text,
+    senderActor: form.senderActor,
+    receiverActor: form.receiverActor,
   };
 }
 
@@ -128,6 +173,14 @@ export function SystemProfileView({
   const [mechError, setMechError] = useState<string | null>(null);
   const [mechSaved, setMechSaved] = useState<{ title: string; testId: string } | null>(null);
   const mechInitRef = useRef<string | null>(null);
+  const [realtimeContext, setRealtimeContext] = useState<RealtimeMechanismContextForm>(
+    realtimeContextFromPlan(undefined),
+  );
+  const [realtimeScenario] = useState<RealtimeScenarioKind>("text");
+  const [realtimeTrial, setRealtimeTrial] = useState(false);
+  const [realtimeSaving, setRealtimeSaving] = useState(false);
+  const [realtimeError, setRealtimeError] = useState<string | null>(null);
+  const [realtimeSaved, setRealtimeSaved] = useState<{ title: string; testId: string } | null>(null);
 
   const loadRecent = async () => {
     try {
@@ -164,6 +217,8 @@ export function SystemProfileView({
     setMechContext(contextFromPlan(undefined));
     setMechScenario("happy");
     setMechTrial(false);
+    setRealtimeContext(realtimeContextFromPlan(undefined));
+    setRealtimeTrial(false);
   }, [record?.id]);
 
   useEffect(() => {
@@ -171,23 +226,39 @@ export function SystemProfileView({
       setMechanismPlan(null);
       return;
     }
-    const hasFileMedia = record.profile.capabilities.some((c) => c.id === "file-media");
-    if (!hasFileMedia) {
+    const hasMechanism = record.profile.capabilities.some(
+      (c) => c.id === "file-media" || c.id === "realtime-messaging",
+    );
+    if (!hasMechanism) {
       setMechanismPlan(null);
       return;
     }
     let cancelled = false;
-    const params = new URLSearchParams(contextPayload(mechContext));
+    const params = new URLSearchParams({
+      ...contextPayload(mechContext),
+      ...realtimeContextPayload(realtimeContext),
+    });
     api<MechanismPlanResponse>(`/api/detect/${record.id}/mechanisms?${params.toString()}`)
       .then((plan) => {
         if (cancelled) return;
         setMechanismPlan(plan);
+        const fileMedia = plan.mechanisms.find((m) => m.id === "file-media");
+        const realtime = plan.mechanisms.find((m) => m.id === "realtime-messaging");
         if (mechInitRef.current !== record.id) {
           mechInitRef.current = record.id;
-          setMechContext(contextFromPlan(plan.mechanisms[0]?.context));
+          if (fileMedia && fileMedia.id === "file-media") {
+            setMechContext(contextFromPlan(fileMedia.context));
+          }
+          if (realtime && realtime.id === "realtime-messaging") {
+            setRealtimeContext(realtimeContextFromPlan(realtime.context));
+          }
         }
-        const fileMedia = plan.mechanisms[0];
-        if (fileMedia?.scenarios.length && !fileMedia.scenarios.some((s) => s.kind === mechScenario)) {
+        if (
+          fileMedia &&
+          fileMedia.id === "file-media" &&
+          fileMedia.scenarios.length &&
+          !fileMedia.scenarios.some((s) => s.kind === mechScenario)
+        ) {
           setMechScenario(fileMedia.scenarios[0]!.kind);
         }
       })
@@ -197,11 +268,13 @@ export function SystemProfileView({
     return () => {
       cancelled = true;
     };
-  }, [record?.id, record?.profile.capabilities, loading, mechContext]);
+  }, [record?.id, record?.profile.capabilities, loading, mechContext, realtimeContext]);
 
   useEffect(() => {
     setMechSaved(null);
     setMechError(null);
+    setRealtimeSaved(null);
+    setRealtimeError(null);
   }, [record?.id]);
 
   const startDetection = async () => {
@@ -249,9 +322,13 @@ export function SystemProfileView({
       signal.evidence.map((evidence) => [evidence.id, evidence] as const),
     ),
   );
-  const fileMediaMechanism = mechanismPlan?.mechanisms[0];
+  const fileMediaMechanism = mechanismPlan?.mechanisms.find((m) => m.id === "file-media");
+  const realtimeMechanism = mechanismPlan?.mechanisms.find((m) => m.id === "realtime-messaging");
   const hasFileMediaCapability = Boolean(
     record?.profile.capabilities.some((c) => c.id === "file-media"),
+  );
+  const hasRealtimeCapability = Boolean(
+    record?.profile.capabilities.some((c) => c.id === "realtime-messaging"),
   );
 
   const createMechanismDraft = async () => {
@@ -275,6 +352,33 @@ export function SystemProfileView({
       setMechError(e instanceof Error ? e.message : String(e));
     } finally {
       setMechSaving(false);
+    }
+  };
+
+  const createRealtimeDraft = async () => {
+    if (!record) return;
+    setRealtimeSaving(true);
+    setRealtimeError(null);
+    setRealtimeSaved(null);
+    try {
+      const res = await api<{ test: StoredTest; error?: string }>(
+        "/api/mechanisms/realtime-messaging/draft",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            detectionId: record.id,
+            scenario: realtimeScenario,
+            context: realtimeContextPayload(realtimeContext),
+            trial: realtimeTrial && record.target === "demo",
+          }),
+        },
+      );
+      setRealtimeSaved({ title: res.test.title, testId: res.test.id });
+      onRefresh?.();
+    } catch (e) {
+      setRealtimeError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRealtimeSaving(false);
     }
   };
 
@@ -537,7 +641,7 @@ export function SystemProfileView({
             )}
           </div>
 
-          {hasFileMediaCapability && fileMediaMechanism ? (
+          {hasFileMediaCapability && fileMediaMechanism && fileMediaMechanism.id === "file-media" ? (
             <div className="card-panel mechanism-card">
               <header className="mechanism-card-header">
                 <h3>可测机制</h3>
@@ -643,6 +747,110 @@ export function SystemProfileView({
                 </p>
               ) : null}
               {mechError ? <p className="diagnose-msg">{mechError}</p> : null}
+            </div>
+          ) : null}
+
+          {hasRealtimeCapability &&
+          realtimeMechanism &&
+          realtimeMechanism.id === "realtime-messaging" ? (
+            <div className="card-panel mechanism-card">
+              <header className="mechanism-card-header">
+                <h3>可测机制</h3>
+                <span className="badge subtle">实时消息</span>
+              </header>
+              {realtimeMechanism.runnable ? (
+                <>
+                  <p className="stat-note">
+                    状态：<strong>可生成草稿</strong> · 双账号 WebSocket 文本送达，仍需人工审阅批准。
+                  </p>
+                  <div className="mechanism-form-grid">
+                    <label className="mechanism-field">
+                      测试消息
+                      <input
+                        value={realtimeContext.text}
+                        onChange={(e) =>
+                          setRealtimeContext((prev) => ({ ...prev, text: e.target.value }))
+                        }
+                      />
+                    </label>
+                    {record.target === "demo" ? (
+                      <label className="mechanism-trial">
+                        <input
+                          type="checkbox"
+                          checked={realtimeTrial}
+                          onChange={(e) => setRealtimeTrial(e.target.checked)}
+                        />
+                        生成后试跑（仅练习环境）
+                      </label>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={realtimeSaving}
+                      onClick={() => void createRealtimeDraft()}
+                    >
+                      {realtimeSaving ? "生成中…" : "生成草稿"}
+                    </button>
+                  </div>
+                  <details className="mechanism-advanced">
+                    <summary>定位与 actor（高级）</summary>
+                    <div className="mechanism-form-grid">
+                      {(
+                        [
+                          ["pagePath", "页面路径"],
+                          ["composerTestId", "输入框 testId"],
+                          ["sendTestId", "发送按钮 testId"],
+                          ["listTestId", "消息列表 testId"],
+                          ["wsUrlIncludes", "WebSocket URL 片段"],
+                          ["senderActor", "发送方 actor id"],
+                          ["receiverActor", "接收方 actor id"],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <label key={key} className="mechanism-field">
+                          {label}
+                          <input
+                            value={realtimeContext[key]}
+                            onChange={(e) =>
+                              setRealtimeContext((prev) => ({ ...prev, [key]: e.target.value }))
+                            }
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+                  {realtimeMechanism.blockers.length > 0 ? (
+                    <ul className="mechanism-blockers stat-note">
+                      {realtimeMechanism.blockers.map((blocker) => (
+                        <li key={blocker}>{blocker}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <p className="stat-note">
+                    状态：<strong>缺条件</strong>
+                  </p>
+                  <ul className="mechanism-blockers">
+                    {realtimeMechanism.blockers.map((blocker) => (
+                      <li key={blocker}>{blocker}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {realtimeSaved ? (
+                <p className="mechanism-success" role="status">
+                  草稿已保存：{realtimeSaved.title}{" "}
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => onOpenReview(realtimeSaved.testId)}
+                  >
+                    打开审阅
+                  </button>
+                </p>
+              ) : null}
+              {realtimeError ? <p className="diagnose-msg">{realtimeError}</p> : null}
             </div>
           ) : null}
 

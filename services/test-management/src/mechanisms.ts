@@ -1,11 +1,14 @@
-import type { Locator } from "@testpilot/test-ir";
+import type { Locator, TestStep } from "@testpilot/test-ir";
 import {
   planFileMedia,
+  planRealtimeMessaging,
   type FileMediaContext,
   type FileMediaScenarioKind,
+  type RealtimeContext,
+  type RealtimeScenarioKind,
 } from "@testpilot/mechanisms";
 
-export type { FileMediaScenarioKind } from "@testpilot/mechanisms";
+export type { FileMediaScenarioKind, RealtimeScenarioKind } from "@testpilot/mechanisms";
 import type { DetectionRecord, DetectionTarget } from "./detection.js";
 
 const PILOT_REAL_BLOCKER =
@@ -114,13 +117,32 @@ export function publicFileMediaContext(ctx: FileMediaContext): PublicFileMediaCo
   return out;
 }
 
-export type MechanismPlanEntry = {
-  id: "file-media";
-  runnable: boolean;
-  blockers: string[];
-  context: PublicFileMediaContext;
-  scenarios: Array<{ id: string; kind: FileMediaScenarioKind }>;
+export type PublicRealtimeContext = {
+  pagePath?: string;
+  composerTestId?: string;
+  sendTestId?: string;
+  listTestId?: string;
+  wsUrlIncludes?: string;
+  text?: string;
+  senderActor?: string;
+  receiverActor?: string;
 };
+
+export type MechanismPlanEntry =
+  | {
+      id: "file-media";
+      runnable: boolean;
+      blockers: string[];
+      context: PublicFileMediaContext;
+      scenarios: Array<{ id: string; kind: FileMediaScenarioKind }>;
+    }
+  | {
+      id: "realtime-messaging";
+      runnable: boolean;
+      blockers: string[];
+      context: PublicRealtimeContext;
+      scenarios: Array<{ id: string; kind: RealtimeScenarioKind }>;
+    };
 
 export type MechanismPlanResponse = {
   detectionId: string;
@@ -128,49 +150,109 @@ export type MechanismPlanResponse = {
   mechanisms: MechanismPlanEntry[];
 };
 
-export function mechanismPlanForRecord(
+const DEFAULT_REALTIME_PAGE = "/chat";
+const DEFAULT_COMPOSER = "chat-composer";
+const DEFAULT_SEND = "chat-send";
+const DEFAULT_LIST = "chat-list";
+const DEFAULT_WS_INCLUDES = "/ws/chat";
+const DEFAULT_TEXT = "测试消息";
+const DEFAULT_SENDER = "sender";
+const DEFAULT_RECEIVER = "receiver";
+
+export function buildRealtimeContext(input: Record<string, unknown> = {}): RealtimeContext {
+  const pagePath = readString(input, "pagePath") ?? DEFAULT_REALTIME_PAGE;
+  const ctx: RealtimeContext = {
+    pagePath,
+    composerTestId: readString(input, "composerTestId") ?? DEFAULT_COMPOSER,
+    sendTestId: readString(input, "sendTestId") ?? DEFAULT_SEND,
+    listTestId: readString(input, "listTestId") ?? DEFAULT_LIST,
+    wsUrlIncludes: readString(input, "wsUrlIncludes") ?? DEFAULT_WS_INCLUDES,
+    text: readString(input, "text") ?? DEFAULT_TEXT,
+    senderActor: readString(input, "senderActor") ?? DEFAULT_SENDER,
+    receiverActor: readString(input, "receiverActor") ?? DEFAULT_RECEIVER,
+  };
+  const senderLogin = readLoginSteps(input, "senderLoginSteps");
+  const receiverLogin = readLoginSteps(input, "receiverLoginSteps");
+  if (senderLogin) ctx.senderLoginSteps = senderLogin;
+  if (receiverLogin) ctx.receiverLoginSteps = receiverLogin;
+  return ctx;
+}
+
+function readLoginSteps(input: Record<string, unknown>, key: string): TestStep[] | undefined {
+  const raw = input[key];
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  return raw as TestStep[];
+}
+
+export function publicRealtimeContext(ctx: RealtimeContext): PublicRealtimeContext {
+  const out: PublicRealtimeContext = {};
+  if (ctx.pagePath) out.pagePath = ctx.pagePath;
+  if (ctx.composerTestId) out.composerTestId = ctx.composerTestId;
+  if (ctx.sendTestId) out.sendTestId = ctx.sendTestId;
+  if (ctx.listTestId) out.listTestId = ctx.listTestId;
+  if (ctx.wsUrlIncludes) out.wsUrlIncludes = ctx.wsUrlIncludes;
+  if (ctx.text) out.text = ctx.text;
+  if (ctx.senderActor) out.senderActor = ctx.senderActor;
+  if (ctx.receiverActor) out.receiverActor = ctx.receiverActor;
+  return out;
+}
+
+function fileMediaPlanEntry(
   record: DetectionRecord,
   target: DetectionTarget,
-  ctxInput: Record<string, unknown> = {},
-): MechanismPlanResponse {
+  ctxInput: Record<string, unknown>,
+): MechanismPlanEntry {
   const ctx = buildFileMediaContext(ctxInput, target);
-  const profile = {
+  const profile = capabilityProfile(record);
+  const plan = planFileMedia(profile, ctx);
+  const scenarios = plan.scenarios.map((scenario) => ({ id: scenario.id, kind: scenario.kind }));
+  const context = publicFileMediaContext(ctx);
+  const blockers =
+    target === "real" || target === "pilot"
+      ? [PILOT_REAL_BLOCKER, ...plan.blockers.filter((b) => b !== PILOT_REAL_BLOCKER)]
+      : plan.blockers;
+  const runnable = target === "real" || target === "pilot" ? false : plan.runnable;
+  return { id: "file-media", runnable, blockers, context, scenarios };
+}
+
+function realtimePlanEntry(
+  record: DetectionRecord,
+  target: DetectionTarget,
+  ctxInput: Record<string, unknown>,
+): MechanismPlanEntry {
+  const ctx = buildRealtimeContext(ctxInput);
+  const profile = capabilityProfile(record);
+  const plan = planRealtimeMessaging(profile, ctx);
+  const scenarios = plan.scenarios.map((scenario) => ({ id: scenario.id, kind: scenario.kind }));
+  const context = publicRealtimeContext(ctx);
+  const blockers =
+    target === "real" || target === "pilot"
+      ? [PILOT_REAL_BLOCKER, ...plan.blockers.filter((b) => b !== PILOT_REAL_BLOCKER)]
+      : plan.blockers;
+  const runnable = target === "real" || target === "pilot" ? false : plan.runnable;
+  return { id: "realtime-messaging", runnable, blockers, context, scenarios };
+}
+
+function capabilityProfile(record: DetectionRecord) {
+  return {
     capabilities: record.profile.capabilities.map((capability) => ({
       id: capability.id,
       confidence: capability.confidence,
     })),
   };
-  const plan = planFileMedia(profile, ctx);
-  const scenarios = plan.scenarios.map((scenario) => ({ id: scenario.id, kind: scenario.kind }));
-  const context = publicFileMediaContext(ctx);
+}
 
-  if (target === "real" || target === "pilot") {
-    return {
-      detectionId: record.id,
-      target,
-      mechanisms: [
-        {
-          id: "file-media",
-          runnable: false,
-          blockers: [PILOT_REAL_BLOCKER, ...plan.blockers.filter((b) => b !== PILOT_REAL_BLOCKER)],
-          context,
-          scenarios,
-        },
-      ],
-    };
-  }
-
+export function mechanismPlanForRecord(
+  record: DetectionRecord,
+  target: DetectionTarget,
+  ctxInput: Record<string, unknown> = {},
+): MechanismPlanResponse {
   return {
     detectionId: record.id,
     target,
     mechanisms: [
-      {
-        id: "file-media",
-        runnable: plan.runnable,
-        blockers: plan.blockers,
-        context,
-        scenarios,
-      },
+      fileMediaPlanEntry(record, target, ctxInput),
+      realtimePlanEntry(record, target, ctxInput),
     ],
   };
 }
@@ -187,14 +269,24 @@ export function fileMediaScenarioIr(
   ctxInput: Record<string, unknown>,
 ) {
   const ctx = buildFileMediaContext(ctxInput, record.target);
-  const profile = {
-    capabilities: record.profile.capabilities.map((capability) => ({
-      id: capability.id,
-      confidence: capability.confidence,
-    })),
-  };
+  const profile = capabilityProfile(record);
   const plan = planFileMedia(profile, ctx);
   return { plan, scenarioIr: plan.scenarios.find((item) => item.kind === scenario) };
 }
+
+export function realtimeScenarioIr(
+  record: DetectionRecord,
+  scenario: RealtimeScenarioKind,
+  ctxInput: Record<string, unknown>,
+) {
+  const ctx = buildRealtimeContext(ctxInput);
+  const profile = capabilityProfile(record);
+  const plan = planRealtimeMessaging(profile, ctx);
+  return { plan, scenarioIr: plan.scenarios.find((item) => item.kind === scenario) };
+}
+
+export const REALTIME_SCENARIO_LABELS: Record<RealtimeScenarioKind, string> = {
+  text: "文本送达",
+};
 
 export { PILOT_REAL_BLOCKER };

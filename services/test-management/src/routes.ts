@@ -5,7 +5,7 @@ import { createReadStream, existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { assertPlaywrightReady, recordSession } from "@testpilot/recorder-web";
-import { runTestIR, type RunResult } from "@testpilot/runner-web";
+import { runTestIR, type RunOptions, type RunResult } from "@testpilot/runner-web";
 import { snapshotPageContext } from "@testpilot/context-web";
 import { draftToPartialIR, planDraft, planFromIntake, suggestAssertionsForTest, filterForbiddenSuggestionTokens } from "@testpilot/planner";
 import {
@@ -65,6 +65,7 @@ import {
   absoluteStepUrls,
   DEMO_BASE_URL,
 } from "./run-env.js";
+import { isRealTarget, loginRealPage } from "./real-login.js";
 import { metricsFromBatchRecord } from "./batch-metrics.js";
 import { autoPruneArtifacts, measureBatchArtifactBytes } from "./artifact-cleanup.js";
 import { createMutex, mapWithConcurrency, maxParallelFromEnv } from "./batch-parallel.js";
@@ -295,6 +296,19 @@ function sameOriginAs(url: string, configured: string): boolean {
   }
 }
 
+function runOptionsFor(baseUrl: string, runId: string, artifactsDir: string): RunOptions {
+  const options: RunOptions = {
+    runId,
+    headless: true,
+    artifactsDir,
+    env: buildRunEnvironment(baseUrl),
+  };
+  if (isRealTarget(baseUrl)) {
+    options.login = (page, _context, url) => loginRealPage(page, url);
+  }
+  return options;
+}
+
 async function refreshRegressionBaselineReport(store: FileStore, dataRoot: string) {
   const batches = await store.listBatches(50);
   const runs = await store.listRuns(500);
@@ -385,14 +399,8 @@ async function runSingleTest(
   try {
     const v = validateTestIR(test.ir);
     if (!v.ok) throw new Error(`IR 校验失败: ${v.issues.map((i) => i.message).join("; ")}`);
-    const runEnv = buildRunEnvironment(baseUrl);
     const result = await withTimeout(
-      runTestIR(v.value, {
-        runId,
-        headless: true,
-        artifactsDir,
-        env: runEnv,
-      }),
+      runTestIR(v.value, runOptionsFor(baseUrl, runId, artifactsDir)),
       runTimeoutMs(),
       `run ${test.id}`,
     );
@@ -528,13 +536,8 @@ async function executeSingleIrRun(
     throw new Error(`IR 校验失败: ${v.issues.map((i) => i.message).join("; ")}`);
   }
   const runId = `run_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
-  const runEnv = buildRunEnvironment(baseUrl);
-  const result = await runTestIR(v.value, {
-    runId,
-    headless: true,
-    artifactsDir: sessionArtifactsRunsDir(artifactsRoot, sessionIdForRun(runId)),
-    env: runEnv,
-  });
+  const artifactsDir = sessionArtifactsRunsDir(artifactsRoot, sessionIdForRun(runId));
+  const result = await runTestIR(v.value, runOptionsFor(baseUrl, runId, artifactsDir));
   const artifacts = await ensureNetworkArtifact(result.artifacts);
   const stored = reclassifyDraftAssertionFailures(
     {

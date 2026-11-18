@@ -25,8 +25,9 @@
 
 ## 2. 唯一执行顺序
 
-1. [ ] **V7-12a 真实环境登录接入（P0）**
+1. [x] **V7-12a 真实环境登录接入（P0）**
    真实环境用例用 `TESTPILOT_ENV_REAL_*` 自动登录；凭据不进 IR/日志；登录失败归 `ENVIRONMENT`；real.example.com 只读流程跑通。
+   _证据：`pnpm --filter @testpilot/runner-web test`、`pnpm --filter @testpilot/test-management test`、`pnpm verify`；真实登录仅本地假页验证，未对生产站点试跑。_
 
 2. [ ] **V7-12b 生产只读门禁（P0）**
    真实环境默认拒绝写请求、上传和有副作用的 UI 步骤；只有显式 `allowMutation` 才放行；审批与审计可见。

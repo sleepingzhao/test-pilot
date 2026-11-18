@@ -64,6 +64,12 @@ export type RunOptions = {
   headless?: boolean;
   artifactsDir?: string;
   env: RunEnvironment;
+  /**
+   * Optional pre-step login (e.g. real-environment SSO). Runs once on the primary
+   * page/context before actor login steps and main steps. Multi-actor real-env runs
+   * are not supported through this hook.
+   */
+  login?: (page: Page, context: BrowserContext, baseUrl: string) => Promise<void>;
 };
 
 type AssertionResult = Awaited<ReturnType<typeof runAssertion>>;
@@ -573,6 +579,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
   let finalSignals: string[] | undefined;
   let status: RunStatus = "passed";
   let runNotes: string | undefined;
+  let loginHookFailed = false;
   const vars: Record<string, string> = {};
   const templateSecrets: string[] = [];
 
@@ -602,6 +609,27 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
 
     const primarySession = sessions.get("primary")!;
 
+    if (options.login) {
+      try {
+        await options.login(primarySession.page, primarySession.context, primaryBaseUrl);
+      } catch (err) {
+        status = "failed";
+        loginHookFailed = true;
+        const raw = err instanceof Error ? err.message : String(err);
+        const loginSecrets = [
+          process.env.TESTPILOT_ENV_REAL_ENTERPRISE_ID,
+          process.env.TESTPILOT_ENV_REAL_USER_ID,
+          process.env.TESTPILOT_ENV_REAL_PASSWORD,
+          ...templateSecrets,
+        ].filter((value): value is string => Boolean(value?.trim()));
+        runNotes = `真实环境登录失败: ${redactSecretValues(redactStringBody(raw), loginSecrets)}`;
+        if (screenshotPolicy === "always" || screenshotPolicy === "on-failure") {
+          await primarySession.evidence.captureFailure(primarySession.page, "real-login");
+        }
+      }
+    }
+
+    if (status === "passed") {
     for (const def of actorDefs) {
       const session = sessions.get(def.id)!;
       for (const loginStep of def.loginSteps) {
@@ -630,6 +658,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         }
       }
       if (status === "failed") break;
+    }
     }
 
     if (status === "passed") {
@@ -761,11 +790,13 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
   const primaryFailureKind =
     primaryStatusBeforeCleanup === "passed"
       ? undefined
-      : failedAssertion?.errorKind ??
-        classifyFailure({
-          stepError: runNotes ?? failMsg,
-          assertionMessage: failedAssertion?.message ?? failMsg,
-        });
+      : loginHookFailed
+        ? "ENVIRONMENT"
+        : failedAssertion?.errorKind ??
+          classifyFailure({
+            stepError: runNotes ?? failMsg,
+            assertionMessage: failedAssertion?.message ?? failMsg,
+          });
   const failureKind = mergeFailureKind(primaryStatusBeforeCleanup, primaryFailureKind, cleanup);
 
   try {

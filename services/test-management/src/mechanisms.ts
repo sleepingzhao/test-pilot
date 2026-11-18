@@ -127,6 +127,8 @@ export type PublicRealtimeContext = {
   senderActor?: string;
   receiverActor?: string;
   messageCount?: number;
+  maxLength?: number;
+  overlongText?: string;
 };
 
 export type MechanismPlanEntry =
@@ -160,6 +162,19 @@ const DEFAULT_TEXT = "测试消息";
 const DEFAULT_SENDER = "sender";
 const DEFAULT_RECEIVER = "receiver";
 
+function readMaxLength(input: Record<string, unknown>): number | undefined {
+  const asString = readString(input, "maxLength");
+  if (asString !== undefined) {
+    const n = Number(asString);
+    if (Number.isInteger(n)) return n;
+    return Number.NaN;
+  }
+  if (typeof input.maxLength === "number" && Number.isInteger(input.maxLength)) {
+    return input.maxLength;
+  }
+  return undefined;
+}
+
 function readMessageCount(input: Record<string, unknown>): number | undefined {
   const asString = readString(input, "messageCount");
   if (asString !== undefined) {
@@ -187,6 +202,10 @@ export function buildRealtimeContext(input: Record<string, unknown> = {}): Realt
   };
   const messageCount = readMessageCount(input);
   if (messageCount !== undefined) ctx.messageCount = messageCount;
+  const maxLength = readMaxLength(input);
+  if (maxLength !== undefined) ctx.maxLength = maxLength;
+  const overlongText = readString(input, "overlongText");
+  if (overlongText !== undefined) ctx.overlongText = overlongText;
   const senderLogin = readLoginSteps(input, "senderLoginSteps");
   const receiverLogin = readLoginSteps(input, "receiverLoginSteps");
   if (senderLogin) ctx.senderLoginSteps = senderLogin;
@@ -211,6 +230,8 @@ export function publicRealtimeContext(ctx: RealtimeContext): PublicRealtimeConte
   if (ctx.senderActor) out.senderActor = ctx.senderActor;
   if (ctx.receiverActor) out.receiverActor = ctx.receiverActor;
   if (ctx.messageCount !== undefined) out.messageCount = ctx.messageCount;
+  if (ctx.maxLength !== undefined) out.maxLength = ctx.maxLength;
+  if (ctx.overlongText) out.overlongText = ctx.overlongText;
   return out;
 }
 
@@ -305,6 +326,7 @@ export function realtimeScenarioIr(
 export const REALTIME_SCENARIO_LABELS: Record<RealtimeScenarioKind, string> = {
   text: "文本送达",
   dedupe: "多消息去重",
+  oversize: "超长消息",
 };
 
 export { PILOT_REAL_BLOCKER };

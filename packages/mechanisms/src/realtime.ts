@@ -6,7 +6,11 @@ const MESSAGE_COUNT_MIN = 2;
 const MESSAGE_COUNT_MAX = 5;
 const DEFAULT_MESSAGE_COUNT = 3;
 
-export const REALTIME_V7_4B_BLOCKER = "图片/超长/重连/严格顺序（V7-4b 后续）";
+export const REALTIME_V7_4B_BLOCKER = "图片/重连/严格顺序（V7-4b 后续）";
+
+const MAX_LENGTH_MIN = 10;
+const MAX_LENGTH_MAX = 2000;
+const DEFAULT_MAX_LENGTH = 200;
 
 export type RealtimeProfile = {
   capabilities?: ReadonlyArray<{ id: string; confidence: number }>;
@@ -20,13 +24,15 @@ export type RealtimeContext = {
   wsUrlIncludes?: string;
   text?: string;
   messageCount?: number;
+  maxLength?: number;
+  overlongText?: string;
   senderActor?: string;
   receiverActor?: string;
   senderLoginSteps?: TestStep[];
   receiverLoginSteps?: TestStep[];
 };
 
-export type RealtimeScenarioKind = "text" | "dedupe";
+export type RealtimeScenarioKind = "text" | "dedupe" | "oversize";
 
 export type RealtimeScenario = {
   id: string;
@@ -82,6 +88,35 @@ function validateActorIds(sender: string, receiver: string): string[] {
     blockers.push("senderActor 与 receiverActor 不能相同");
   }
   return blockers;
+}
+
+function resolveMaxLength(ctx: RealtimeContext): { maxLength: number; blocker?: string } {
+  const raw = ctx.maxLength;
+  if (raw === undefined) return { maxLength: DEFAULT_MAX_LENGTH };
+  if (!Number.isInteger(raw) || raw < MAX_LENGTH_MIN || raw > MAX_LENGTH_MAX) {
+    return {
+      maxLength: DEFAULT_MAX_LENGTH,
+      blocker: `maxLength 必须在 ${MAX_LENGTH_MIN}–${MAX_LENGTH_MAX} 之间（当前 ${String(raw)}）`,
+    };
+  }
+  return { maxLength: raw };
+}
+
+function resolveOverlongText(
+  ctx: RealtimeContext,
+  maxLength: number,
+): { text: string; blocker?: string } {
+  const override = present(ctx.overlongText);
+  if (override !== undefined) {
+    if (override.length <= maxLength) {
+      return {
+        text: override,
+        blocker: `overlongText 长度必须大于 maxLength（${maxLength}）`,
+      };
+    }
+    return { text: override };
+  }
+  return { text: "测".repeat(maxLength + 20) };
 }
 
 function resolveMessageCount(ctx: RealtimeContext): { count: number; blocker?: string } {
@@ -293,6 +328,103 @@ function dedupeScenarioIr(
   };
 }
 
+function oversizeScenarioIr(
+  id: string,
+  sender: string,
+  receiver: string,
+  senderLogin: TestStep[],
+  receiverLogin: TestStep[],
+  composerTestId: string,
+  sendTestId: string,
+  listTestId: string,
+  wsUrlIncludes: string,
+  overlongText: string,
+): TestIR {
+  const broadcastSnippet = overlongText.slice(0, 30);
+  const assertions: TestAssertion[] = [
+    {
+      id: "ws-sender-error",
+      type: "event",
+      provider: "ws",
+      actor: sender,
+      expect: {
+        contains: "too_long",
+        direction: "received",
+        urlIncludes: wsUrlIncludes,
+        timeoutMs: 5000,
+        minCount: 1,
+      },
+      oracle: "human-approved",
+    },
+    {
+      id: "ws-receiver-absent",
+      type: "event",
+      provider: "ws",
+      actor: receiver,
+      expect: {
+        contains: broadcastSnippet,
+        direction: "received",
+        urlIncludes: wsUrlIncludes,
+        absent: true,
+        timeoutMs: 3000,
+      },
+      oracle: "human-approved",
+    },
+    {
+      id: "ui-sender-list",
+      type: "ui",
+      actor: sender,
+      target: { testId: listTestId },
+      contains: "消息过长",
+      oracle: "human-approved",
+    },
+  ];
+  return {
+    id,
+    version: 1,
+    platform: "web",
+    actors: [
+      { id: sender, loginSteps: senderLogin },
+      { id: receiver, loginSteps: receiverLogin },
+    ],
+    steps: [
+      {
+        id: "wait-composer",
+        action: "wait",
+        target: { testId: composerTestId },
+        actor: sender,
+      },
+      {
+        id: "fill-overlong",
+        action: "fill",
+        target: { testId: composerTestId },
+        value: overlongText,
+        actor: sender,
+      },
+      {
+        id: "send-message",
+        action: "click",
+        target: { testId: sendTestId },
+        actor: sender,
+      },
+      {
+        id: "wait-list-sender",
+        action: "wait",
+        target: { testId: listTestId },
+        actor: sender,
+      },
+      {
+        id: "wait-list",
+        action: "wait",
+        target: { testId: listTestId },
+        actor: receiver,
+      },
+    ],
+    assertions,
+    policy: { screenshots: "on-failure" },
+  };
+}
+
 export function planRealtimeMessaging(profile: RealtimeProfile, ctx: RealtimeContext = {}): RealtimePlan {
   const pagePath = present(ctx.pagePath) ?? "/chat";
   const composerTestId = present(ctx.composerTestId) ?? "chat-composer";
@@ -341,6 +473,15 @@ export function planRealtimeMessaging(profile: RealtimeProfile, ctx: RealtimeCon
     blockers.push(messageCountResult.blocker);
   }
 
+  const maxLengthResult = resolveMaxLength(ctx);
+  if (maxLengthResult.blocker) {
+    blockers.push(maxLengthResult.blocker);
+  }
+  const overlongResult = resolveOverlongText(ctx, maxLengthResult.maxLength);
+  if (overlongResult.blocker) {
+    blockers.push(overlongResult.blocker);
+  }
+
   blockers.push(REALTIME_V7_4B_BLOCKER);
 
   const scenarios: RealtimeScenario[] = [
@@ -378,6 +519,25 @@ export function planRealtimeMessaging(profile: RealtimeProfile, ctx: RealtimeCon
         wsUrlIncludes,
         text,
         messageCountResult.count,
+      ),
+    });
+  }
+
+  if (!maxLengthResult.blocker && !overlongResult.blocker) {
+    scenarios.push({
+      id: "oversize",
+      kind: "oversize",
+      ir: oversizeScenarioIr(
+        "realtime-messaging-oversize",
+        sender,
+        receiver,
+        senderLogin,
+        receiverLogin,
+        composerTestId,
+        sendTestId,
+        listTestId,
+        wsUrlIncludes,
+        overlongResult.text,
       ),
     });
   }

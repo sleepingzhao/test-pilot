@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test, { describe } from "node:test";
 import { WebSocket } from "ws";
 import { createDemoServer } from "./server.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+let chromium;
+try {
+  chromium = createRequire(join(here, "../../packages/runner-web/package.json"))("playwright").chromium;
+} catch {
+  chromium = undefined;
+}
 
 function listen(server) {
   return new Promise((resolve) => {
@@ -146,6 +158,73 @@ describe("demo /ws/chat", { concurrency: 1 }, () => {
     } finally {
       listener.close();
     }
+  });
+
+  test("returns too_long to sender and does not broadcast overlong text", async () => {
+    const sender = await openSocket(base.replace("http", "ws") + "/ws/chat");
+    const listener = await openSocket(base.replace("http", "ws") + "/ws/chat");
+    let listenerHeard = false;
+    listener.on("message", () => {
+      listenerHeard = true;
+    });
+    try {
+      const longText = "长".repeat(201);
+      const errorPromise = nextMessage(sender);
+      sender.send(JSON.stringify({ type: "message", user: "甲", text: longText }));
+      const err = await errorPromise;
+      assert.deepEqual(err, {
+        type: "error",
+        code: "too_long",
+        message: "消息过长（最多 200 字）",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      assert.equal(listenerHeard, false);
+    } finally {
+      sender.close();
+      listener.close();
+    }
+  });
+
+  test("chat page shows oversize error in list and status", async (t) => {
+    if (!chromium) {
+      t.skip("playwright not available");
+      return;
+    }
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.goto(`${base}/chat`);
+      await page.getByTestId("chat-status").waitFor();
+      await page.waitForFunction(
+        () => document.querySelector('[data-testid="chat-status"]')?.textContent === "已连接",
+        undefined,
+        { timeout: 5_000 },
+      );
+      const longText = "页".repeat(201);
+      await page.getByTestId("chat-composer").fill(longText);
+      await page.getByTestId("chat-send").click();
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll('[data-testid="chat-list"] li')].some((li) =>
+            li.textContent?.includes("消息过长"),
+          ),
+        undefined,
+        { timeout: 5_000 },
+      );
+      const status = await page.textContent('[data-testid="chat-status"]');
+      assert.equal(status, "发送失败：消息过长");
+      const listText = await page.textContent('[data-testid="chat-list"]');
+      assert.match(listText ?? "", /消息过长（最多 200 字）/);
+      assert.doesNotMatch(listText ?? "", new RegExp(longText.slice(0, 20)));
+    } finally {
+      await browser.close();
+    }
+  });
+
+  test("chat page script handles server error frames", async () => {
+    const html = await readFile(join(here, "chat.html"), "utf8");
+    assert.match(html, /msg\.type === "error"/);
+    assert.match(html, /发送失败：消息过长/);
   });
 
   test("rejects upgrades that are not /ws/chat", async () => {

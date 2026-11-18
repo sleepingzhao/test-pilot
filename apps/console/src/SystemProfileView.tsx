@@ -32,6 +32,7 @@ const SCENARIO_LABELS: Record<FileMediaScenarioKind, string> = {
 const REALTIME_SCENARIO_LABELS: Record<RealtimeScenarioKind, string> = {
   text: "文本送达",
   dedupe: "多消息去重",
+  oversize: "超长消息",
 };
 
 type MechanismContextForm = {
@@ -85,6 +86,8 @@ type RealtimeMechanismContextForm = {
   senderActor: string;
   receiverActor: string;
   messageCount: string;
+  maxLength: string;
+  overlongText: string;
 };
 
 function realtimeContextFromPlan(
@@ -103,6 +106,8 @@ function realtimeContextFromPlan(
     receiverActor: ctx?.receiverActor ?? "receiver",
     messageCount:
       ctx?.messageCount !== undefined && ctx.messageCount >= 2 ? String(ctx.messageCount) : "3",
+    maxLength: ctx?.maxLength !== undefined ? String(ctx.maxLength) : "200",
+    overlongText: ctx?.overlongText ?? "",
   };
 }
 
@@ -117,6 +122,8 @@ function realtimeContextPayload(form: RealtimeMechanismContextForm): Record<stri
     senderActor: form.senderActor,
     receiverActor: form.receiverActor,
     messageCount: form.messageCount.trim() || "3",
+    maxLength: form.maxLength.trim() || "200",
+    ...(form.overlongText.trim() ? { overlongText: form.overlongText.trim() } : {}),
   };
 }
 
@@ -838,6 +845,8 @@ export function SystemProfileView({
                           ["senderActor", "发送方 actor id"],
                           ["receiverActor", "接收方 actor id"],
                           ["messageCount", "消息条数（去重场景，2–5）"],
+                          ["maxLength", "最大字数（超长场景，10–2000）"],
+                          ["overlongText", "超长文本覆盖（可选）"],
                         ] as const
                       ).map(([key, label]) => (
                         <label key={key} className="mechanism-field">

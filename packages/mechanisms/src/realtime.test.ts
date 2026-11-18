@@ -35,7 +35,7 @@ test("runnable text plan validates IR and uses default actors and expectations",
   const plan = planRealtimeMessaging(ready, baseCtx);
   assert.equal(plan.runnable, true);
   assert.ok(plan.blockers.includes(REALTIME_V7_4B_BLOCKER));
-  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "dedupe"]);
+  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "dedupe", "oversize"]);
   const scenario = plan.scenarios[0]!;
   assert.equal(scenario.id, "text");
   assert.deepEqual(scenario.ir.actors?.map((a) => a.id), ["sender", "receiver"]);
@@ -152,7 +152,7 @@ test("dedupe messageCount 2 adjusts steps and assertion counts", () => {
 
 test("invalid messageCount omits dedupe scenario and adds blocker", () => {
   const plan = planRealtimeMessaging(ready, { messageCount: 99 });
-  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text"]);
+  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "oversize"]);
   assert.match(plan.blockers.join("\n"), /messageCount/);
 });
 
@@ -165,4 +165,56 @@ test("custom login steps without actor are used as-is", () => {
   const ir = plan.scenarios[0]!.ir;
   assert.equal(ir.actors?.[0]?.loginSteps?.[0]?.path, "/custom-chat");
   assert.equal(ir.actors?.[1]?.loginSteps?.[0]?.id, "receiver-custom");
+});
+
+test("oversize scenario validates with default maxLength and absent ws on receiver", () => {
+  const plan = planRealtimeMessaging(ready, baseCtx);
+  const oversize = plan.scenarios.find((s) => s.kind === "oversize");
+  assert.ok(oversize);
+  assert.equal(oversize!.ir.id, "realtime-messaging-oversize");
+  const fill = oversize!.ir.steps.find((s) => s.id === "fill-overlong");
+  assert.equal(fill?.value?.length, 220);
+  const wsError = oversize!.ir.assertions.find((a) => a.id === "ws-sender-error");
+  assert.deepEqual(wsError?.expect, {
+    contains: "too_long",
+    direction: "received",
+    urlIncludes: "/ws/chat",
+    timeoutMs: 5000,
+    minCount: 1,
+  });
+  const wsAbsent = oversize!.ir.assertions.find((a) => a.id === "ws-receiver-absent");
+  assert.equal(wsAbsent?.expect?.absent, true);
+  assert.equal(wsAbsent?.expect?.contains, "测".repeat(30));
+  assert.equal(oversize!.ir.assertions.filter((a) => a.type === "ui").length, 1);
+  const validated = validateTestIR(oversize!.ir);
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? {} : validated.issues));
+  if (validated.ok) assert.deepEqual(validateSemantics(validated.value), []);
+  assert.deepEqual(validateAssertionProviders(oversize!.ir), []);
+});
+
+test("oversize custom maxLength and overlongText override", () => {
+  const custom = "x".repeat(150);
+  const plan = planRealtimeMessaging(ready, { maxLength: 100, overlongText: custom });
+  const oversize = plan.scenarios.find((s) => s.kind === "oversize");
+  assert.ok(oversize);
+  assert.equal(oversize!.ir.steps.find((s) => s.id === "fill-overlong")?.value, custom);
+  assert.equal(
+    oversize!.ir.assertions.find((a) => a.id === "ws-receiver-absent")?.expect?.contains,
+    custom.slice(0, 30),
+  );
+});
+
+test("invalid maxLength omits oversize scenario and adds blocker", () => {
+  const plan = planRealtimeMessaging(ready, { maxLength: 3 });
+  assert.deepEqual(
+    plan.scenarios.map((s) => s.kind),
+    ["text", "dedupe"],
+  );
+  assert.match(plan.blockers.join("\n"), /maxLength/);
+});
+
+test("overlongText shorter than maxLength omits oversize scenario", () => {
+  const plan = planRealtimeMessaging(ready, { overlongText: "短" });
+  assert.ok(!plan.scenarios.some((s) => s.kind === "oversize"));
+  assert.match(plan.blockers.join("\n"), /overlongText/);
 });

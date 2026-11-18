@@ -253,7 +253,70 @@ test("GET mechanisms for realtime profile includes runnable text scenario", asyn
     };
     const realtime = body.mechanisms.find((m) => m.id === "realtime-messaging");
     assert.equal(realtime?.runnable, true);
-    assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text", "dedupe"]);
+    assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text", "dedupe", "oversize"]);
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("POST realtime oversize draft saves absent receiver ws without auto-approval", async () => {
+  const { app, dataRoot, store, root } = await setupApp();
+  try {
+    await saveRecord(dataRoot, {
+      id: "detect_rt_oversize",
+      target: "demo",
+      profile: realtimeProfile,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/mechanisms/realtime-messaging/draft",
+      payload: {
+        detectionId: "detect_rt_oversize",
+        scenario: "oversize",
+        context: { maxLength: "100" },
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as {
+      test: { id: string; approvalStatus: string; title: string; ir: TestIR };
+    };
+    assert.equal(body.test.approvalStatus, "draft");
+    assert.match(body.test.id, /^mechanism-realtime-oversize-/);
+    assert.equal(body.test.title, "实时消息 · 超长消息");
+    const ws = body.test.ir.assertions.filter((a) => a.type === "event");
+    assert.equal(ws.length, 2);
+    assert.ok(ws.some((a) => a.expect?.contains === "too_long" && a.expect?.direction === "received"));
+    const absent = ws.find((a) => a.expect?.absent === true);
+    assert.ok(absent);
+    assert.equal(absent?.actor, "receiver");
+    assert.equal(body.test.ir.assertions.filter((a) => a.type === "ui").length, 1);
+    const stored = await store.getTest(body.test.id);
+    assert.equal(stored?.approvalStatus, "draft");
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("POST realtime oversize draft rejects bad maxLength scenario", async () => {
+  const { app, dataRoot, root } = await setupApp();
+  try {
+    await saveRecord(dataRoot, {
+      id: "detect_rt_bad_len",
+      target: "demo",
+      profile: realtimeProfile,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/mechanisms/realtime-messaging/draft",
+      payload: {
+        detectionId: "detect_rt_bad_len",
+        scenario: "oversize",
+        context: { maxLength: "5" },
+      },
+    });
+    assert.equal(res.statusCode, 400);
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });

@@ -106,6 +106,14 @@
         } catch {
           return;
         }
+        if (msg.type === "error") {
+          const text = typeof msg.message === "string" ? msg.message : "消息过长（最多 200 字）";
+          const item = document.createElement("li");
+          item.textContent = text;
+          list.appendChild(item);
+          status.textContent = "发送失败：消息过长";
+          return;
+        }
         if (!msg || msg.type !== "message" || typeof msg.text !== "string") return;
         const item = document.createElement("li");
         item.textContent = (typeof msg.user === "string" ? msg.user : user) + "：" + msg.text;

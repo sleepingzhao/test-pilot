@@ -14,6 +14,7 @@ import { WebSocketServer } from "ws";
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const MAX_FILE_BYTES = 1024 * 1024;
+const MAX_CHAT_TEXT = 200;
 const ALLOWED_FILE_TYPES = new Set(["image/png", "image/jpeg", "application/pdf"]);
 
 const mime = {
@@ -179,7 +180,25 @@ function attachChatSocket(server) {
         } catch {
           return;
         }
-        if (!parsed || parsed.type !== "message" || typeof parsed.user !== "string" || typeof parsed.text !== "string") {
+        if (!parsed || parsed.type !== "message") return;
+        if (typeof parsed.user !== "string" || typeof parsed.text !== "string") {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              code: "too_long",
+              message: "消息过长（最多 200 字）",
+            }),
+          );
+          return;
+        }
+        if (parsed.text.length > MAX_CHAT_TEXT) {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              code: "too_long",
+              message: "消息过长（最多 200 字）",
+            }),
+          );
           return;
         }
         if (drop) return;

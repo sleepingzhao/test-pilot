@@ -56,6 +56,8 @@ export type RunResult = {
   actorMode?: "multi" | "single";
   /** Set when `readOnlyNetwork` blocked mutating traffic against a real target. */
   readOnly?: boolean;
+  /** Real-target evidence policy applied: no screenshots/trace, payloads omitted on disk. */
+  realTarget?: boolean;
   /** Browser requests aborted by the read-only route guard (UI-triggered writes). */
   readOnlyBlockedRequests?: number;
   /** Visible success/alerts right after the steps; used to derive a real success assertion. */
@@ -79,6 +81,11 @@ export type RunOptions = {
     baseUrl: string,
     account?: "primary" | "alt",
   ) => Promise<void>;
+  /**
+   * Real-environment run: forces no screenshots/trace and redacts network/WS/SSE
+   * payloads on disk (assertions still see live in-memory data).
+   */
+  realTarget?: boolean;
   /**
    * Blocks mutating HTTP (via route), upload steps, non-GET request steps, and WebSocket sends.
    * Install only after the login hook and actor login steps so SSO form POST can complete.
@@ -660,7 +667,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
   resolveFixtureRefs(ir.fixture, options.env);
 
   const artifactsRoot = options.artifactsDir ?? "artifacts";
-  const screenshotPolicy = ir.policy?.screenshots ?? "on-failure";
+  const screenshotPolicy = options.realTarget ? "never" : (ir.policy?.screenshots ?? "on-failure");
   const actorDefs = resolveActorDefinitions(ir);
 
   let browser: Browser | undefined;
@@ -691,11 +698,17 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
       const page = await context.newPage();
       const evidence =
         def.id === "primary"
-          ? createEvidenceCollector({ runId, dir: artifactsRoot, screenshots: screenshotPolicy })
+          ? createEvidenceCollector({
+              runId,
+              dir: artifactsRoot,
+              screenshots: screenshotPolicy,
+              ...(options.realTarget ? { realTarget: true } : {}),
+            })
           : createEvidenceCollector({
               runId: def.id,
               dir: join(artifactsRoot, runId, "actors"),
               screenshots: screenshotPolicy,
+              ...(options.realTarget ? { realTarget: true } : {}),
             });
       await evidence.attachPage(context, page);
       sessions.set(def.id, { id: def.id, context, page, baseUrl, evidence });
@@ -951,6 +964,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
       },
       actorMode,
       ...(options.readOnlyNetwork ? { readOnly: true } : {}),
+      ...(options.realTarget ? { realTarget: true } : {}),
       ...(readOnlyBlockedRequests > 0 ? { readOnlyBlockedRequests } : {}),
       finalSignals,
       cleanup,

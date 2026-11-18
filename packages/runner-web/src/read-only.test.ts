@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -319,6 +319,47 @@ test("login hook POST completes before read-only guard blocks test POST", async 
     assert.equal(metrics.loginPostCount, 1);
     assert.equal(metrics.postCount, 0);
     assert.equal(run.metrics.failureKind, "ENVIRONMENT");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+test("realTarget evidence policy drops screenshots, trace, and response bodies", async () => {
+  const { server, metrics } = createReadOnlyFixture();
+  const port = await listen(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const artifactsDir = await mkdtemp(join(tmpdir(), "tp-real-evidence-"));
+  try {
+    const run = await runTestIR(
+      {
+        ...baseIr(baseUrl, [
+          { id: "open", action: "navigate", path: "/" },
+          { id: "click-post", action: "click", target: { testId: "post-btn" } },
+        ]),
+        policy: { screenshots: "always" },
+      },
+      { env: { baseUrl }, headless: true, artifactsDir, realTarget: true },
+    );
+    assert.equal(run.status, "passed");
+    assert.equal(metrics.postCount, 1);
+    assert.equal(run.realTarget, true);
+    assert.ok(!run.artifacts.artifacts.some((item) => item.kind === "screenshot"));
+    assert.ok(!run.artifacts.artifacts.some((item) => item.kind === "trace"));
+    const network = JSON.parse(await readFile(join(artifactsDir, run.runId, "network.json"), "utf8")) as Array<
+      Record<string, unknown>
+    >;
+    assert.ok(network.length > 0);
+    for (const entry of network) {
+      assert.equal(entry.responseBody, undefined);
+      assert.equal(entry.responseHeaders, undefined);
+      assert.equal(entry.requestBody, undefined);
+      assert.equal(String(entry.url).includes("?"), false);
+    }
+    const manifest = JSON.parse(await readFile(join(artifactsDir, run.runId, "manifest.json"), "utf8")) as {
+      privacy?: string;
+      stepScreenshots: unknown[];
+    };
+    assert.match(manifest.privacy ?? "", /real-target/);
+    assert.equal(manifest.stepScreenshots.length, 0);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

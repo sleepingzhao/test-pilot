@@ -172,6 +172,8 @@ export type StoredRun = {
   actorMode?: "multi" | "single";
   /** Present when the run enforced real-environment read-only network guard. */
   readOnly?: boolean;
+  /** Real-target evidence policy: no screenshots/trace, payloads omitted. */
+  realTarget?: boolean;
   /** Browser requests aborted by the read-only guard. */
   readOnlyBlockedRequests?: number;
   steps: Array<{

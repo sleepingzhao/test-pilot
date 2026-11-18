@@ -172,3 +172,43 @@ test("drops websocket frames beyond 200 and records the drop in ws.json", async 
     await stopServer(started);
   }
 });
+
+test("real target keeps payloads in memory but omits them from ws.json and skips trace", async () => {
+  const started = await startServer("sample");
+  const dir = await mkdtemp(join(tmpdir(), "testpilot-ws-real-"));
+  const evidence = createEvidenceCollector({ runId: "ws-real", dir, screenshots: "never", realTarget: true });
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await evidence.attachPage(context, page);
+    const waiting = evidence.waitForWebSocketFrame(
+      (frame) => frame.direction === "received" && frame.payload.includes("hello-ws"),
+      5_000,
+    );
+    await page.goto(started.url);
+    assert.equal(await waiting, true);
+    assert.ok(evidence.getWebSocketFrames().some((frame) => frame.payload.includes("hello-ws")));
+
+    const artifacts = await evidence.finalize("passed");
+    assert.ok(!artifacts.artifacts.some((item) => item.kind === "trace"));
+    assert.ok(!artifacts.artifacts.some((item) => item.kind === "screenshot"));
+    const written = await readFile(join(dir, "ws-real", "ws.json"), "utf8");
+    const parsed = JSON.parse(written) as { note?: string; frames: Array<{ url: string; payload: string }> };
+    assert.match(parsed.note ?? "", /real target: WebSocket payloads omitted/);
+    assert.ok(parsed.frames.length > 0);
+    for (const frame of parsed.frames) {
+      assert.equal(frame.payload, "");
+      assert.equal(frame.url.includes("?"), false);
+    }
+    assert.equal(written.includes(SECRET_EMAIL), false);
+    assert.equal(written.includes(SECRET_PASSWORD), false);
+    assert.equal(written.includes(SECRET_TOKEN), false);
+
+    const network = (await readFile(join(dir, "ws-real", "network.json"), "utf8")) as string;
+    assert.equal(network.includes(SECRET_TOKEN), false);
+  } finally {
+    await browser.close();
+    await stopServer(started);
+  }
+});

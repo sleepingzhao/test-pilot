@@ -18,6 +18,8 @@ export type EvidenceOptions = {
   runId: string;
   dir: string;
   screenshots: "never" | "on-failure" | "always";
+  /** Real target: no screenshots/trace on disk, and network/WS/SSE logs drop bodies and query strings. */
+  realTarget?: boolean;
 };
 
 export type NetworkEntry = {
@@ -108,6 +110,17 @@ export function createEvidenceCollector(options: EvidenceOptions) {
   const ssePending: Promise<void>[] = [];
   const sseSeen = new Set<string>();
   const stepScreenshots: Array<{ stepId: string; file: string }> = [];
+  const realTarget = options.realTarget === true;
+
+  /** Real-target logs keep the endpoint shape but drop query strings (tokens often live there). */
+  function realTargetUrl(url: string): string {
+    try {
+      const parsed = new URL(url);
+      return `${parsed.origin}${parsed.pathname}`.slice(0, 500);
+    } catch {
+      return url.split("?")[0]!.slice(0, 500);
+    }
+  }
 
   function parseSseBlocks(text: string): Array<{ event?: string; data: string }> {
     const normalized = text.replace(/\r\n/g, "\n");
@@ -190,16 +203,25 @@ export function createEvidenceCollector(options: EvidenceOptions) {
 
   async function writeNetworkLog() {
     const path = join(runDir, "network.json");
-    const redacted = network.map((n) =>
-      redactForEvidence({
+    const redacted = network.map((n) => {
+      if (realTarget) {
+        return {
+          url: realTargetUrl(n.url),
+          method: n.method,
+          ...(n.status !== undefined ? { status: n.status } : {}),
+          resourceType: n.resourceType,
+          ...(n.stepId ? { stepId: n.stepId } : {}),
+        };
+      }
+      return redactForEvidence({
         ...n,
         url: redactUrl(n.url),
         requestBody: n.requestBody ? redactStringBody(n.requestBody) : undefined,
         responseBody: n.responseBody ? redactStringBody(n.responseBody) : undefined,
         requestHeaders: redactHeaders(n.requestHeaders),
         responseHeaders: redactHeaders(n.responseHeaders),
-      }),
-    );
+      });
+    });
     await writeFile(path, JSON.stringify(redacted, null, 2));
     if (!artifacts.some((a) => a.kind === "network")) {
       artifacts.push({ kind: "network", path });
@@ -219,11 +241,12 @@ export function createEvidenceCollector(options: EvidenceOptions) {
       dropped: sseDropped,
       events: sseEvents.map((evt) => ({
         ...evt,
-        url: redactUrl(evt.url),
-        data: redactStringBody(evt.data),
+        url: realTarget ? realTargetUrl(evt.url) : redactUrl(evt.url),
+        data: realTarget ? "" : redactStringBody(evt.data),
       })),
     };
     const notes: string[] = [];
+    if (realTarget) notes.push("real target: SSE payloads omitted");
     if (sseDataTruncated) {
       notes.push(`some event data truncated to ${SSE_DATA_LIMIT} characters`);
     }
@@ -249,11 +272,13 @@ export function createEvidenceCollector(options: EvidenceOptions) {
       dropped: wsDropped,
       frames: wsFrames.map((frame) => ({
         ...frame,
-        url: redactUrl(frame.url),
-        payload: redactStringBody(frame.payload),
+        url: realTarget ? realTargetUrl(frame.url) : redactUrl(frame.url),
+        payload: realTarget ? "" : redactStringBody(frame.payload),
       })),
     };
-    if (wsDropped > 0) {
+    if (realTarget) {
+      body.note = "real target: WebSocket payloads omitted";
+    } else if (wsDropped > 0) {
       body.note = `dropped ${wsDropped} websocket frames beyond the limit of ${WS_FRAME_LIMIT}`;
     }
     await writeFile(path, JSON.stringify(body, null, 2));
@@ -329,7 +354,10 @@ export function createEvidenceCollector(options: EvidenceOptions) {
     async attachPage(ctx: BrowserContext, page: Page) {
       context = ctx;
       await mkdir(runDir, { recursive: true });
-      await ctx.tracing.start({ screenshots: true, snapshots: true, sources: true });
+      // Trace snapshots capture DOM and page content; real targets keep no trace by default.
+      if (!realTarget) {
+        await ctx.tracing.start({ screenshots: true, snapshots: true, sources: true });
+      }
       const cdp = await ctx.newCDPSession(page);
       await cdp.send("Network.enable");
       const sseRequestUrls = new Map<string, string>();
@@ -459,7 +487,7 @@ export function createEvidenceCollector(options: EvidenceOptions) {
     },
 
     async captureFailure(page: Page, label: string) {
-      if (options.screenshots === "never") return;
+      if (options.screenshots === "never" || realTarget) return;
       const file = join(runDir, `failure-${label}.png`);
       await page.screenshot({ path: file, fullPage: true });
       artifacts.push({ kind: "screenshot", path: file });
@@ -467,7 +495,7 @@ export function createEvidenceCollector(options: EvidenceOptions) {
     },
 
     async captureStep(page: Page, stepId: string, index: number): Promise<string | undefined> {
-      if (options.screenshots !== "always") return undefined;
+      if (options.screenshots !== "always" || realTarget) return undefined;
       const fileName = stepScreenshotFileName(index, stepId);
       try {
         await mkdir(runDir, { recursive: true });
@@ -486,12 +514,18 @@ export function createEvidenceCollector(options: EvidenceOptions) {
       await writeNetworkLog();
       await writeWsLog();
       await writeSseLog();
-      if (context) {
+      if (context && !realTarget) {
         const tracePath = join(runDir, "trace.zip");
         await context.tracing.stop({ path: tracePath });
         artifacts.push({ kind: "trace", path: tracePath });
       }
-      const manifest = { runId: options.runId, status, artifacts, stepScreenshots };
+      const manifest = {
+        runId: options.runId,
+        status,
+        ...(realTarget ? { privacy: "real-target: no screenshots/trace; network/WS/SSE payloads omitted" } : {}),
+        artifacts,
+        stepScreenshots,
+      };
       const manifestPath = join(runDir, "manifest.json");
       await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
       artifacts.push({ kind: "log", path: manifestPath });

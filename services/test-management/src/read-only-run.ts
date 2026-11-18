@@ -16,6 +16,9 @@ export function runOptionsFor(baseUrl: string, runId: string, artifactsDir: stri
   };
   if (isRealTarget(baseUrl)) {
     options.login = (page, _context, url, account) => loginRealPage(page, url, account ?? "primary");
+    // Evidence policy is independent of the write guard: real targets never keep
+    // screenshots/trace or payload bodies on disk (V7-12c).
+    options.realTarget = true;
   }
   if (shouldReadOnlyNetwork(baseUrl, ir.policy)) {
     options.readOnlyNetwork = true;

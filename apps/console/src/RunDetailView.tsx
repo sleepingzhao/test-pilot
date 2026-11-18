@@ -141,6 +141,14 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
               <span className="badge subtle">多账号执行</span>
             </>
           ) : null}
+          {run.realTarget ? (
+            <>
+              {" · "}
+              <span className="badge subtle" title="真实环境证据策略：不落截图/Trace，网络/WS/SSE 正文已省略">
+                证据已脱敏
+              </span>
+            </>
+          ) : null}
           {run.readOnly ? (
             <>
               {" · "}

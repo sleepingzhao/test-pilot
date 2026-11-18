@@ -1,7 +1,22 @@
 import { chromium, type Browser, type Page } from "playwright";
-import { realBaseUrl, realSecretsConfigured } from "./run-env.js";
+import { realBaseUrl } from "./run-env.js";
 
 export type RealPageHandle = { browser: Browser; page: Page };
+
+export type RealAccount = "primary" | "alt";
+
+const REAL_ACCOUNT_ENV: Record<RealAccount, { enterprise: string; user: string; password: string }> = {
+  primary: {
+    enterprise: "TESTPILOT_ENV_REAL_ENTERPRISE_ID",
+    user: "TESTPILOT_ENV_REAL_USER_ID",
+    password: "TESTPILOT_ENV_REAL_PASSWORD",
+  },
+  alt: {
+    enterprise: "TESTPILOT_ENV_REAL_ALT_ENTERPRISE_ID",
+    user: "TESTPILOT_ENV_REAL_ALT_USER_ID",
+    password: "TESTPILOT_ENV_REAL_ALT_PASSWORD",
+  },
+};
 
 function sameOriginAs(url: string, configured: string): boolean {
   if (!configured.trim()) return false;
@@ -17,12 +32,20 @@ export function isRealTarget(baseUrl: string): boolean {
   return sameOriginAs(baseUrl, realBaseUrl());
 }
 
+export function realLoginConfig(
+  account: RealAccount = "primary",
+): { enterpriseId: string; userId: string; password: string } | null {
+  const keys = REAL_ACCOUNT_ENV[account];
+  const enterpriseId = process.env[keys.enterprise]?.trim();
+  const userId = process.env[keys.user]?.trim();
+  const password = process.env[keys.password]?.trim();
+  if (!enterpriseId || !userId || !password) return null;
+  return { enterpriseId, userId, password };
+}
+
 function configuredRealSecrets(): string[] {
-  return [
-    process.env.TESTPILOT_ENV_REAL_ENTERPRISE_ID,
-    process.env.TESTPILOT_ENV_REAL_USER_ID,
-    process.env.TESTPILOT_ENV_REAL_PASSWORD,
-  ]
+  return Object.values(REAL_ACCOUNT_ENV)
+    .flatMap((keys) => [process.env[keys.enterprise], process.env[keys.user], process.env[keys.password]])
     .map((value) => value?.trim())
     .filter((value): value is string => Boolean(value));
 }
@@ -43,17 +66,22 @@ function formatLoginPageExcerpt(body: string): string {
 
 /**
  * Enterprise account login for the configured real environment. Credentials are
- * read from TESTPILOT_ENV_REAL_* only; they are not logged or written to artifacts.
+ * read from TESTPILOT_ENV_REAL_* (or TESTPILOT_ENV_REAL_ALT_* for the alt account)
+ * only; they are not logged or written to artifacts.
  */
-export async function loginRealPage(page: Page, baseUrl: string): Promise<void> {
-  if (!realSecretsConfigured()) {
+export async function loginRealPage(
+  page: Page,
+  baseUrl: string,
+  account: RealAccount = "primary",
+): Promise<void> {
+  const config = realLoginConfig(account);
+  if (!config) {
+    const keys = REAL_ACCOUNT_ENV[account];
     throw new Error(
-      "真实环境需要 TESTPILOT_ENV_REAL_ENTERPRISE_ID / TESTPILOT_ENV_REAL_USER_ID / TESTPILOT_ENV_REAL_PASSWORD",
+      `真实环境需要 ${keys.enterprise} / ${keys.user} / ${keys.password}`,
     );
   }
-  const enterpriseId = process.env.TESTPILOT_ENV_REAL_ENTERPRISE_ID!.trim();
-  const userId = process.env.TESTPILOT_ENV_REAL_USER_ID!.trim();
-  const password = process.env.TESTPILOT_ENV_REAL_PASSWORD!.trim();
+  const { enterpriseId, userId, password } = config;
 
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 45_000 });
   await page.waitForTimeout(2_500);

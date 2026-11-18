@@ -195,3 +195,74 @@ test("login hook credentials are absent from run result JSON", async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+test("multi-actor real login runs per actor with its configured account", async () => {
+  const server = createLoginServer();
+  const port = await listen(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const accounts: string[] = [];
+  try {
+    const run = await runTestIR(
+      {
+        id: "real-login-multi",
+        version: 1,
+        platform: "web",
+        baseUrl,
+        actors: [{ id: "primary" }, { id: "alt-actor", account: "alt" }],
+        steps: [
+          { id: "open-primary", action: "navigate", path: "/app" },
+          { id: "open-alt", action: "navigate", path: "/app", actor: "alt-actor" },
+        ],
+        assertions: [
+          { id: "primary-ok", type: "ui", contains: "登录成功", oracle: "human-approved" },
+          { id: "alt-ok", type: "ui", contains: "登录成功", oracle: "human-approved", actor: "alt-actor" },
+        ],
+      },
+      {
+        env: { baseUrl },
+        headless: true,
+        login: async (page, context, url, account) => {
+          accounts.push(account ?? "primary");
+          await fakeRealLogin(page, context, url);
+        },
+      },
+    );
+    assert.equal(run.status, "passed", run.artifacts.notes);
+    assert.deepEqual(accounts, ["primary", "alt"]);
+    assert.equal(run.actorMode, "multi");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("multi-actor real login failure names the actor and stops before steps", async () => {
+  const server = createLoginServer();
+  const port = await listen(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const run = await runTestIR(
+      {
+        id: "real-login-multi-fail",
+        version: 1,
+        platform: "web",
+        baseUrl,
+        actors: [{ id: "primary" }, { id: "alt-actor", account: "alt" }],
+        steps: [{ id: "open-primary", action: "navigate", path: "/app" }],
+        assertions: [{ id: "primary-ok", type: "ui", contains: "登录成功", oracle: "human-approved" }],
+      },
+      {
+        env: { baseUrl },
+        headless: true,
+        login: async (page, context, url, account) => {
+          if (account === "alt") throw new Error("second account unavailable");
+          await fakeRealLogin(page, context, url);
+        },
+      },
+    );
+    assert.equal(run.status, "failed");
+    assert.equal(run.steps.length, 0);
+    assert.match(run.artifacts.notes ?? "", /真实环境登录失败（alt-actor）: second account unavailable/);
+    assert.equal(run.metrics.failureKind, "ENVIRONMENT");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

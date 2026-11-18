@@ -69,11 +69,16 @@ export type RunOptions = {
   artifactsDir?: string;
   env: RunEnvironment;
   /**
-   * Optional pre-step login (e.g. real-environment SSO). Runs once on the primary
-   * page/context before actor login steps and main steps. Multi-actor real-env runs
-   * are not supported through this hook.
+   * Optional pre-step login (e.g. real-environment SSO). Runs once per actor
+   * context before that actor's login steps and the main steps, with the
+   * actor's credential account (defaults to primary).
    */
-  login?: (page: Page, context: BrowserContext, baseUrl: string) => Promise<void>;
+  login?: (
+    page: Page,
+    context: BrowserContext,
+    baseUrl: string,
+    account?: "primary" | "alt",
+  ) => Promise<void>;
   /**
    * Blocks mutating HTTP (via route), upload steps, non-GET request steps, and WebSocket sends.
    * Install only after the login hook and actor login steps so SSO form POST can complete.
@@ -447,6 +452,7 @@ type ResolvedActor = {
   loginSteps: TestStep[];
   baseUrl?: string;
   baseUrlRef?: string;
+  account?: "primary" | "alt";
 };
 
 function resolveActorDefinitions(ir: TestIR): ResolvedActor[] {
@@ -459,12 +465,14 @@ function resolveActorDefinitions(ir: TestIR): ResolvedActor[] {
     loginSteps: primaryEntry?.loginSteps ?? [],
     baseUrl: primaryEntry?.baseUrl ?? ir.baseUrl,
     baseUrlRef: primaryEntry?.baseUrlRef ?? ir.baseUrlRef,
+    ...(primaryEntry?.account ? { account: primaryEntry.account } : {}),
   };
   const others = ir.actors.filter((a) => a.id !== "primary").map((a) => ({
     id: a.id,
     loginSteps: a.loginSteps ?? [],
     baseUrl: a.baseUrl,
     baseUrlRef: a.baseUrlRef,
+    ...(a.account ? { account: a.account } : {}),
   }));
   return [primary, ...others];
 }
@@ -696,21 +704,29 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
     const primarySession = sessions.get("primary")!;
 
     if (options.login) {
-      try {
-        await options.login(primarySession.page, primarySession.context, primaryBaseUrl);
-      } catch (err) {
-        status = "failed";
-        loginHookFailed = true;
-        const raw = err instanceof Error ? err.message : String(err);
-        const loginSecrets = [
-          process.env.TESTPILOT_ENV_REAL_ENTERPRISE_ID,
-          process.env.TESTPILOT_ENV_REAL_USER_ID,
-          process.env.TESTPILOT_ENV_REAL_PASSWORD,
-          ...templateSecrets,
-        ].filter((value): value is string => Boolean(value?.trim()));
-        runNotes = `真实环境登录失败: ${redactSecretValues(redactStringBody(raw), loginSecrets)}`;
-        // Do not capture the login page: it may contain tenant/user fields or
-        // typed credentials. Evidence policy for real targets is V7-12c.
+      const loginSecrets = [
+        process.env.TESTPILOT_ENV_REAL_ENTERPRISE_ID,
+        process.env.TESTPILOT_ENV_REAL_USER_ID,
+        process.env.TESTPILOT_ENV_REAL_PASSWORD,
+        process.env.TESTPILOT_ENV_REAL_ALT_ENTERPRISE_ID,
+        process.env.TESTPILOT_ENV_REAL_ALT_USER_ID,
+        process.env.TESTPILOT_ENV_REAL_ALT_PASSWORD,
+        ...templateSecrets,
+      ].filter((value): value is string => Boolean(value?.trim()));
+      for (const def of actorDefs) {
+        const session = sessions.get(def.id)!;
+        try {
+          await options.login(session.page, session.context, session.baseUrl, def.account ?? "primary");
+        } catch (err) {
+          status = "failed";
+          loginHookFailed = true;
+          const raw = err instanceof Error ? err.message : String(err);
+          const label = actorDefs.length > 1 ? `（${def.id}）` : "";
+          runNotes = `真实环境登录失败${label}: ${redactSecretValues(redactStringBody(raw), loginSecrets)}`;
+          // Do not capture the login page: it may contain tenant/user fields or
+          // typed credentials. Evidence policy for real targets is V7-12c.
+          break;
+        }
       }
     }
 

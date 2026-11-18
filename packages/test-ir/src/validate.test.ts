@@ -469,7 +469,7 @@ test("accepts valid two-actor IR", () => {
     baseUrl: "http://127.0.0.1:9",
     actors: [
       { id: "primary", loginSteps: [{ id: "lp", action: "navigate", path: "/" }] },
-      { id: "buyer", loginSteps: [{ id: "lb", action: "navigate", path: "/login" }] },
+      { id: "buyer", account: "alt", loginSteps: [{ id: "lb", action: "navigate", path: "/login" }] },
     ],
     steps: [
       { id: "main", action: "wait" },
@@ -482,6 +482,18 @@ test("accepts valid two-actor IR", () => {
   });
   assert.equal(result.ok, true);
   if (result.ok) assert.deepEqual(validateSemantics(result.value), []);
+});
+
+test("rejects unknown actor account", () => {
+  const result = validateTestIR({
+    id: "bad-account",
+    version: 1,
+    platform: "web",
+    actors: [{ id: "buyer", account: "third" }],
+    steps: [{ id: "s", action: "wait" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(result.ok, false);
 });
 
 test("rejects step actor without actors array", () => {

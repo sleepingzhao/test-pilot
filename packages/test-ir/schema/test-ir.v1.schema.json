@@ -221,6 +221,10 @@
         "baseUrlRef": {
           "type": "string",
           "minLength": 1
+        },
+        "account": {
+          "type": "string",
+          "enum": ["primary", "alt"]
         }
       },
       "allOf": [

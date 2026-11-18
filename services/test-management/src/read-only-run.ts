@@ -15,7 +15,7 @@ export function runOptionsFor(baseUrl: string, runId: string, artifactsDir: stri
     env: buildRunEnvironment(baseUrl),
   };
   if (isRealTarget(baseUrl)) {
-    options.login = (page, _context, url) => loginRealPage(page, url);
+    options.login = (page, _context, url, account) => loginRealPage(page, url, account ?? "primary");
   }
   if (shouldReadOnlyNetwork(baseUrl, ir.policy)) {
     options.readOnlyNetwork = true;

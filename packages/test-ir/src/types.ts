@@ -20,6 +20,8 @@ export interface TestActor {
   loginSteps?: TestStep[];
   baseUrl?: string;
   baseUrlRef?: string;
+  /** Real-environment credential set for this actor; defaults to primary. */
+  account?: "primary" | "alt";
 }
 
 export interface TestStep {

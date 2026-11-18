@@ -623,9 +623,8 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
           ...templateSecrets,
         ].filter((value): value is string => Boolean(value?.trim()));
         runNotes = `真实环境登录失败: ${redactSecretValues(redactStringBody(raw), loginSecrets)}`;
-        if (screenshotPolicy === "always" || screenshotPolicy === "on-failure") {
-          await primarySession.evidence.captureFailure(primarySession.page, "real-login");
-        }
+        // Do not capture the login page: it may contain tenant/user fields or
+        // typed credentials. Evidence policy for real targets is V7-12c.
       }
     }
 

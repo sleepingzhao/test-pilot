@@ -77,7 +77,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 - [x] **V7-9a 步骤截图时间线与失败回放**（2026-11-12）：`policy.screenshots: "always"` 每步落 `step-<NN>-<stepId>.png` 并记入 `StepResult.screenshot` 与 manifest `stepScreenshots`；截图失败不把通过步骤变成失败；控制台时间线缩略图、点击看原图、「跳到失败步骤」；`on-failure` / `never` 不变；`step-screenshots.test.ts`（evidence 18、runner 50）覆盖三种策略与失败步骤；浏览器实测 2 步通过用例两张缩略图、失败运行跳转生效；`pnpm verify` 全绿。
 - [x] **V7-9b 生成期视觉定位建议（2026-11-18）**：`vision-config.ts` / `vision-locate.ts` + `POST /api/record/:jobId/locate`；录制会话 live page Map；控制台录制中「AI 定位」+ 复制选择器（不写入 IR）；`TESTPILOT_VISION_*` 默认关；`vision-config.test.ts` + `vision-locate.test.ts` + `record-locate.test.ts`；`pnpm verify` 全绿；Playwright 抽检：默认关闭时 503「视觉定位未启用」；开启 `TESTPILOT_VISION_ENABLED=1` 后对 DeepSeek Flash 真实调用：demo「添加用户按钮」→ `[data-testid="add-user-btn"]`，置信度 99%，reason 正确；选择器经页面回放校验可命中同一元素。
-- [x] **V7-9c 探索模式视觉判定（2026-11-18）**：`vision-ask.ts` + `POST /api/record/:jobId/ask` 返回 `explorationOnly: true`；控制台录制「AI 观察（探索）」展示是/否/不确定、置信度与原因；不写入 IR、不写断言、不缓存、不参与回归门禁（非 gating）；`vision-ask.test.ts` + `record-ask.test.ts`；`pnpm verify` 全绿；Playwright 抽检：默认关闭时 UI 显示 503「视觉定位未启用（TESTPILOT_VISION_ENABLED=1）」；本机无 `TESTPILOT_VISION_*` 密钥，未做真实 DeepSeek 视觉调用。
+- [x] **V7-9c 探索模式视觉判定（2026-11-18）**：`vision-ask.ts` + `POST /api/record/:jobId/ask` 返回 `explorationOnly: true`；控制台录制「AI 观察（探索）」展示是/否/不确定、置信度与原因；不写入 IR、不写断言、不缓存、不参与回归门禁（非 gating）；`vision-ask.test.ts` + `record-ask.test.ts`；`pnpm verify` 全绿；默认关闭时 UI 显示 503「视觉定位未启用（TESTPILOT_VISION_ENABLED=1）」；开启后真实 DeepSeek Flash 调用：demo「页面是否显示了用户列表？」→ `yes`、98%，reason 正确。
 
 **验收标准：**
 

@@ -35,7 +35,7 @@ test("runnable text plan validates IR and uses default actors and expectations",
   const plan = planRealtimeMessaging(ready, baseCtx);
   assert.equal(plan.runnable, true);
   assert.ok(plan.blockers.includes(REALTIME_V7_4B_BLOCKER));
-  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "dedupe", "oversize"]);
+  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "dedupe", "order", "oversize"]);
   const scenario = plan.scenarios[0]!;
   assert.equal(scenario.id, "text");
   assert.deepEqual(scenario.ir.actors?.map((a) => a.id), ["sender", "receiver"]);
@@ -156,6 +156,40 @@ test("invalid messageCount omits dedupe scenario and adds blocker", () => {
   assert.match(plan.blockers.join("\n"), /messageCount/);
 });
 
+test("order scenario validates ws sequence and default messageCount 3", () => {
+  const plan = planRealtimeMessaging(ready, baseCtx);
+  const order = plan.scenarios.find((s) => s.kind === "order");
+  assert.ok(order);
+  assert.equal(order!.ir.id, "realtime-messaging-order");
+  const wsReceived = order!.ir.assertions.find((a) => a.id === "ws-received-sequence");
+  const wsSent = order!.ir.assertions.find((a) => a.id === "ws-sent-sequence");
+  assert.deepEqual(wsReceived?.expect?.sequence, ["测试消息-1", "测试消息-2", "测试消息-3"]);
+  assert.deepEqual(wsSent?.expect?.sequence, ["测试消息-1", "测试消息-2", "测试消息-3"]);
+  assert.equal(wsReceived?.expect?.direction, "received");
+  assert.equal(wsSent?.expect?.direction, "sent");
+  assert.equal(wsReceived?.expect?.timeoutMs, 8000);
+  assert.equal(order!.ir.assertions.filter((a) => a.type === "ui").length, 6);
+  assert.deepEqual(
+    order!.ir.steps.filter((s) => s.action === "fill").map((s) => s.value),
+    ["测试消息-1", "测试消息-2", "测试消息-3"],
+  );
+  const validated = validateTestIR(order!.ir);
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? {} : validated.issues));
+  if (validated.ok) assert.deepEqual(validateSemantics(validated.value), []);
+  assert.deepEqual(validateAssertionProviders(order!.ir), []);
+});
+
+test("order messageCount 2 adjusts sequence length", () => {
+  const plan = planRealtimeMessaging(ready, { messageCount: 2 });
+  const order = plan.scenarios.find((s) => s.kind === "order");
+  assert.ok(order);
+  assert.deepEqual(order!.ir.assertions.find((a) => a.id === "ws-received-sequence")?.expect?.sequence, [
+    "测试消息-1",
+    "测试消息-2",
+  ]);
+  assert.equal(order!.ir.steps.filter((s) => s.action === "fill").length, 2);
+});
+
 test("custom login steps without actor are used as-is", () => {
   const plan = planRealtimeMessaging(ready, {
     senderLoginSteps: [{ id: "sender-custom", action: "navigate", path: "/custom-chat" }],
@@ -208,7 +242,7 @@ test("invalid maxLength omits oversize scenario and adds blocker", () => {
   const plan = planRealtimeMessaging(ready, { maxLength: 3 });
   assert.deepEqual(
     plan.scenarios.map((s) => s.kind),
-    ["text", "dedupe"],
+    ["text", "dedupe", "order"],
   );
   assert.match(plan.blockers.join("\n"), /maxLength/);
 });

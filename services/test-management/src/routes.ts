@@ -1631,7 +1631,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         ? "mechanism-realtime-dedupe"
         : scenario === "oversize"
           ? "mechanism-realtime-oversize"
-          : "mechanism-realtime-text";
+          : scenario === "order"
+            ? "mechanism-realtime-order"
+            : "mechanism-realtime-text";
     const testId = `${testIdPrefix}-${slug}`;
     if (!isSafeTestId(testId)) {
       return reply.code(500).send({ error: "无法生成安全的用例 id" });

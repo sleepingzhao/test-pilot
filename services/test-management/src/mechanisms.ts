@@ -327,6 +327,7 @@ export const REALTIME_SCENARIO_LABELS: Record<RealtimeScenarioKind, string> = {
   text: "文本送达",
   dedupe: "多消息去重",
   oversize: "超长消息",
+  order: "严格顺序",
 };
 
 export { PILOT_REAL_BLOCKER };

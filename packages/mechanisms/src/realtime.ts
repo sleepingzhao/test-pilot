@@ -6,7 +6,7 @@ const MESSAGE_COUNT_MIN = 2;
 const MESSAGE_COUNT_MAX = 5;
 const DEFAULT_MESSAGE_COUNT = 3;
 
-export const REALTIME_V7_4B_BLOCKER = "图片/重连/严格顺序（V7-4b 后续）";
+export const REALTIME_V7_4B_BLOCKER = "图片/重连（V7-4b 后续）";
 
 const MAX_LENGTH_MIN = 10;
 const MAX_LENGTH_MAX = 2000;
@@ -32,7 +32,7 @@ export type RealtimeContext = {
   receiverLoginSteps?: TestStep[];
 };
 
-export type RealtimeScenarioKind = "text" | "dedupe" | "oversize";
+export type RealtimeScenarioKind = "text" | "dedupe" | "oversize" | "order";
 
 export type RealtimeScenario = {
   id: string;
@@ -328,6 +328,109 @@ function dedupeScenarioIr(
   };
 }
 
+function orderScenarioIr(
+  id: string,
+  sender: string,
+  receiver: string,
+  senderLogin: TestStep[],
+  receiverLogin: TestStep[],
+  composerTestId: string,
+  sendTestId: string,
+  listTestId: string,
+  wsUrlIncludes: string,
+  textBase: string,
+  messageCount: number,
+): TestIR {
+  const steps: TestStep[] = [
+    {
+      id: "wait-composer",
+      action: "wait",
+      target: { testId: composerTestId },
+      actor: sender,
+    },
+  ];
+  const sequence: string[] = [];
+  const assertions: TestAssertion[] = [];
+
+  for (let i = 1; i <= messageCount; i++) {
+    const text = `${textBase}-${i}`;
+    sequence.push(text);
+    steps.push({
+      id: `fill-${i}`,
+      action: "fill",
+      target: { testId: composerTestId },
+      value: text,
+      actor: sender,
+    });
+    steps.push({
+      id: `send-${i}`,
+      action: "click",
+      target: { testId: sendTestId },
+      actor: sender,
+    });
+    assertions.push({
+      id: `ui-sender-list-${i}`,
+      type: "ui",
+      actor: sender,
+      target: { testId: listTestId },
+      contains: text,
+      oracle: "human-approved",
+    });
+    assertions.push({
+      id: `ui-receiver-list-${i}`,
+      type: "ui",
+      actor: receiver,
+      target: { testId: listTestId },
+      contains: text,
+      oracle: "human-approved",
+    });
+  }
+
+  steps.push({
+    id: "wait-list",
+    action: "wait",
+    target: { testId: listTestId },
+    actor: receiver,
+  });
+
+  const wsSequenceExpect = {
+    sequence,
+    urlIncludes: wsUrlIncludes,
+    timeoutMs: 8000,
+  };
+  assertions.unshift(
+    {
+      id: "ws-received-sequence",
+      type: "event",
+      provider: "ws",
+      actor: receiver,
+      expect: { ...wsSequenceExpect, direction: "received" },
+      oracle: "human-approved",
+    },
+    {
+      id: "ws-sent-sequence",
+      type: "event",
+      provider: "ws",
+      actor: sender,
+      expect: { ...wsSequenceExpect, direction: "sent" },
+      oracle: "human-approved",
+    },
+  );
+
+  return {
+    id,
+    version: 1,
+    platform: "web",
+    actors: [
+      { id: sender, loginSteps: senderLogin },
+      { id: receiver, loginSteps: receiverLogin },
+    ],
+    steps,
+    assertions,
+    policy: { screenshots: "on-failure" },
+  };
+}
+
 function oversizeScenarioIr(
   id: string,
   sender: string,
@@ -509,6 +612,23 @@ export function planRealtimeMessaging(profile: RealtimeProfile, ctx: RealtimeCon
       kind: "dedupe",
       ir: dedupeScenarioIr(
         "realtime-messaging-dedupe",
+        sender,
+        receiver,
+        senderLogin,
+        receiverLogin,
+        composerTestId,
+        sendTestId,
+        listTestId,
+        wsUrlIncludes,
+        text,
+        messageCountResult.count,
+      ),
+    });
+    scenarios.push({
+      id: "order",
+      kind: "order",
+      ir: orderScenarioIr(
+        "realtime-messaging-order",
         sender,
         receiver,
         senderLogin,

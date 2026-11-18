@@ -33,6 +33,7 @@ const REALTIME_SCENARIO_LABELS: Record<RealtimeScenarioKind, string> = {
   text: "文本送达",
   dedupe: "多消息去重",
   oversize: "超长消息",
+  order: "严格顺序",
 };
 
 type MechanismContextForm = {
@@ -844,7 +845,7 @@ export function SystemProfileView({
                           ["wsUrlIncludes", "WebSocket URL 片段"],
                           ["senderActor", "发送方 actor id"],
                           ["receiverActor", "接收方 actor id"],
-                          ["messageCount", "消息条数（去重场景，2–5）"],
+                          ["messageCount", "消息条数（去重/严格顺序，2–5）"],
                           ["maxLength", "最大字数（超长场景，10–2000）"],
                           ["overlongText", "超长文本覆盖（可选）"],
                         ] as const

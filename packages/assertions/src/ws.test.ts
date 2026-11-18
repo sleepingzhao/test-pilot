@@ -146,6 +146,49 @@ test("absent passes only when no frame matches", async () => {
   assert.match(present.message ?? "", /expected no matching frames/);
 });
 
+test("sequence passes when frames arrive in order", async () => {
+  const frames = [
+    frame({ direction: "received", payload: JSON.stringify({ text: "msg-a" }) }),
+    frame({ direction: "received", payload: JSON.stringify({ text: "msg-b" }) }),
+    frame({ direction: "received", payload: JSON.stringify({ text: "msg-c" }) }),
+  ];
+  const outcome = await runAssertion(
+    assertion({
+      direction: "received",
+      urlIncludes: "/ws/chat",
+      sequence: ["msg-a", "msg-b", "msg-c"],
+    }),
+    ctx(frames),
+  );
+  assert.equal(outcome.passed, true);
+});
+
+test("sequence fails when frames are out of order", async () => {
+  const frames = [
+    frame({ direction: "received", payload: JSON.stringify({ text: "msg-b" }) }),
+    frame({ direction: "received", payload: JSON.stringify({ text: "msg-a" }) }),
+  ];
+  const outcome = await runAssertion(
+    assertion({ direction: "received", sequence: ["msg-a", "msg-b"] }),
+    ctx(frames),
+  );
+  assert.equal(outcome.passed, false);
+  assert.equal(outcome.errorKind, "PRODUCT_DEFECT");
+  assert.match(outcome.message ?? "", /expected ordered frames/);
+  assert.match(outcome.message ?? "", /msg-a, msg-b/);
+});
+
+test("sequence fails when a required item is missing", async () => {
+  const frames = [frame({ direction: "sent", payload: JSON.stringify({ text: "msg-a" }) })];
+  const outcome = await runAssertion(
+    assertion({ direction: "sent", sequence: ["msg-a", "msg-b"] }),
+    ctx(frames),
+  );
+  assert.equal(outcome.passed, false);
+  assert.equal(outcome.errorKind, "PRODUCT_DEFECT");
+  assert.match(outcome.message ?? "", /missing from index 1/);
+});
+
 test("times out as a product defect when a matching frame never arrives", async () => {
   const frames: WsFrame[] = [];
   const outcome = await runAssertion(
@@ -177,6 +220,12 @@ test("illegal expect values are assertion oracle errors", async () => {
     { contains: "x", maxCount: 1.5 },
     { contains: "x", minCount: 3, maxCount: 2 },
     { contains: "x", absent: true, maxCount: 1 },
+    { sequence: [] },
+    { sequence: ["ok", ""] },
+    { sequence: "not-array" },
+    { sequence: ["ok"], contains: "x" },
+    { sequence: ["ok"], minCount: 1 },
+    { sequence: ["ok"], absent: true },
   ];
   for (const expect of cases) {
     const outcome = await runAssertion(assertion(expect), ctx([]));

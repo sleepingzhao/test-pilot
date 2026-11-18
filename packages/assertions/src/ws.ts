@@ -13,8 +13,22 @@ const WS_EXPECT_KEYS = new Set([
   "minCount",
   "maxCount",
   "absent",
+  "sequence",
   "timeoutMs",
 ]);
+
+const SEQUENCE_INCOMPATIBLE_KEYS = [
+  "contains",
+  "regex",
+  "jsonPath",
+  "equals",
+  "minCount",
+  "maxCount",
+  "absent",
+] as const;
+
+const SEQUENCE_MIN_LEN = 1;
+const SEQUENCE_MAX_LEN = 20;
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_TIMEOUT_MS = 60_000;
@@ -29,6 +43,7 @@ type WsExpect = {
   minCount?: number;
   maxCount?: number;
   absent?: true;
+  sequence?: string[];
   timeoutMs?: number;
 };
 
@@ -141,12 +156,41 @@ export function validateWsExpect(expect: Record<string, unknown>): ValidationIss
     }
   }
 
+  if ("sequence" in expect) {
+    const seq = expect.sequence;
+    if (!Array.isArray(seq)) {
+      issues.push({ path: "expect/sequence", message: "sequence 必须是字符串数组" });
+    } else if (seq.length < SEQUENCE_MIN_LEN || seq.length > SEQUENCE_MAX_LEN) {
+      issues.push({
+        path: "expect/sequence",
+        message: `sequence 长度必须在 ${SEQUENCE_MIN_LEN}–${SEQUENCE_MAX_LEN} 之间`,
+      });
+    } else {
+      seq.forEach((item, index) => {
+        if (typeof item !== "string" || item.length === 0) {
+          issues.push({
+            path: `expect/sequence/${index}`,
+            message: "sequence 项必须是非空字符串",
+          });
+        }
+      });
+    }
+    for (const key of SEQUENCE_INCOMPATIBLE_KEYS) {
+      if (key in expect) {
+        issues.push({
+          path: `expect/${key}`,
+          message: `sequence 不能与 ${key} 同时使用`,
+        });
+      }
+    }
+  }
+
   const hasCriterion = Object.keys(expect).some((key) => key !== "timeoutMs" && WS_EXPECT_KEYS.has(key));
   if (!hasCriterion) {
     issues.push({
       path: "expect",
       message:
-        "ws 断言需要 urlIncludes、direction、contains、regex、jsonPath 与 equals、minCount、maxCount 或 absent",
+        "ws 断言需要 urlIncludes、direction、contains、regex、jsonPath 与 equals、minCount、maxCount、absent 或 sequence",
     });
   }
   return issues;
@@ -186,6 +230,41 @@ function summarizeFrames(frames: WsFrame[]): string {
   });
   const extra = frames.length > 5 ? ` (+${frames.length - 5} more)` : "";
   return `${frames.length} frame(s): ${sample.join(" | ")}${extra}`;
+}
+
+function summarizeFrame(frame: WsFrame): string {
+  const payload = redactStringBody(frame.payload).slice(0, 180);
+  return `${frame.direction} ${redactUrl(frame.url)} ${payload}`;
+}
+
+function findSequenceMatch(
+  frames: WsFrame[],
+  expect: WsExpect,
+): { ok: true; matched: WsFrame[] } | { ok: false; partial: WsFrame[]; nextIndex: number } {
+  const seq = expect.sequence ?? [];
+  const pool = frames.filter((frame) => frameFiltered(frame, expect));
+  const matched: WsFrame[] = [];
+  let searchFrom = 0;
+  for (let itemIndex = 0; itemIndex < seq.length; itemIndex++) {
+    const item = seq[itemIndex]!;
+    let found = false;
+    for (let i = searchFrom; i < pool.length; i++) {
+      if (pool[i]!.payload.includes(item)) {
+        matched.push(pool[i]!);
+        searchFrom = i + 1;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      return { ok: false, partial: matched, nextIndex: itemIndex };
+    }
+  }
+  return { ok: true, matched };
+}
+
+function sequenceCheck(expect: WsExpect, frames: WsFrame[]): boolean {
+  return findSequenceMatch(frames, expect).ok;
 }
 
 function defect(id: string, expect: WsExpect, message: string, frames: WsFrame[]): AssertionOutcome {
@@ -234,8 +313,48 @@ export async function runWsAssertion(
 
   const expect = raw as WsExpect;
   const timeoutMs = expect.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const minCount = expect.minCount ?? 1;
   const frames = () => ctx.wsFrames ?? [];
+
+  if (expect.sequence !== undefined) {
+    const seq = expect.sequence;
+    const deadline = Date.now() + timeoutMs;
+    let result = findSequenceMatch(frames(), expect);
+    while (!result.ok && ctx.waitForWsFrames && Date.now() < deadline) {
+      const remaining = Math.max(1, deadline - Date.now());
+      const appeared = await ctx.waitForWsFrames(
+        (frame) => frameFiltered(frame, expect) && sequenceCheck(expect, frames()),
+        remaining,
+      );
+      result = findSequenceMatch(frames(), expect);
+      if (result.ok) break;
+      if (!appeared) break;
+    }
+    if (result.ok) {
+      return {
+        assertionId: id,
+        passed: true,
+        expected: expect,
+        actual: result.matched.map((frame) => summarizeFrame(frame)).join(" | "),
+      };
+    }
+    const pool = frames().filter((frame) => frameFiltered(frame, expect));
+    const seen =
+      pool.length > 0
+        ? pool.map((frame) => summarizeFrame(frame)).join(" | ")
+        : summarizeFrames(frames());
+    const partial =
+      result.partial.length > 0
+        ? result.partial.map((frame) => summarizeFrame(frame)).join(" | ")
+        : "none";
+    return defect(
+      id,
+      expect,
+      `websocket assertion failed: expected ordered frames [${seq.join(", ")}] but saw [${seen}] (matched prefix: ${partial}, missing from index ${result.nextIndex}: ${seq[result.nextIndex] ?? "?"})`,
+      pool.length > 0 ? pool : frames(),
+    );
+  }
+
+  const minCount = expect.minCount ?? 1;
   const matched = () => frames().filter((frame) => frameMatches(frame, expect));
   const pool = () => frames().filter((frame) => frameFiltered(frame, expect));
 

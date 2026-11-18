@@ -253,7 +253,7 @@ test("GET mechanisms for realtime profile includes runnable text scenario", asyn
     };
     const realtime = body.mechanisms.find((m) => m.id === "realtime-messaging");
     assert.equal(realtime?.runnable, true);
-    assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text", "dedupe", "oversize"]);
+    assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text", "dedupe", "order", "oversize"]);
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });
@@ -352,6 +352,49 @@ test("POST realtime dedupe draft saves two actors and maxCount ws assertions", a
     const ws = body.test.ir.assertions.filter((a) => a.type === "event");
     assert.equal(ws.length, 6);
     assert.ok(ws.every((a) => a.expect?.maxCount === 1));
+    const stored = await store.getTest(body.test.id);
+    assert.equal(stored?.approvalStatus, "draft");
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("POST realtime order draft saves two actors and sequence ws assertions", async () => {
+  const { app, dataRoot, store, root } = await setupApp();
+  try {
+    await saveRecord(dataRoot, {
+      id: "detect_rt_order",
+      target: "demo",
+      profile: realtimeProfile,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/mechanisms/realtime-messaging/draft",
+      payload: {
+        detectionId: "detect_rt_order",
+        scenario: "order",
+        context: { messageCount: "2" },
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as {
+      test: { id: string; approvalStatus: string; title: string; ir: TestIR };
+    };
+    assert.equal(body.test.approvalStatus, "draft");
+    assert.match(body.test.id, /^mechanism-realtime-order-/);
+    assert.equal(body.test.title, "实时消息 · 严格顺序");
+    assert.equal(body.test.ir.actors?.length, 2);
+    const ws = body.test.ir.assertions.filter((a) => a.type === "event");
+    assert.equal(ws.length, 2);
+    assert.deepEqual(ws.find((a) => a.id === "ws-received-sequence")?.expect?.sequence, [
+      "测试消息-1",
+      "测试消息-2",
+    ]);
+    assert.deepEqual(ws.find((a) => a.id === "ws-sent-sequence")?.expect?.sequence, [
+      "测试消息-1",
+      "测试消息-2",
+    ]);
     const stored = await store.getTest(body.test.id);
     assert.equal(stored?.approvalStatus, "draft");
   } finally {

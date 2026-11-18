@@ -15,6 +15,7 @@ const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_CHAT_TEXT = 200;
+const MAX_CHAT_IMAGE_DATA_URL = 200_000;
 const ALLOWED_FILE_TYPES = new Set(["image/png", "image/jpeg", "application/pdf"]);
 
 const mime = {
@@ -180,37 +181,72 @@ function attachChatSocket(server) {
         } catch {
           return;
         }
-        if (!parsed || parsed.type !== "message") return;
-        if (typeof parsed.user !== "string" || typeof parsed.text !== "string") {
-          ws.send(
-            JSON.stringify({
-              type: "error",
-              code: "too_long",
-              message: "消息过长（最多 200 字）",
-            }),
-          );
+        if (!parsed || typeof parsed !== "object") return;
+
+        if (parsed.type === "message") {
+          if (typeof parsed.user !== "string" || typeof parsed.text !== "string") {
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                code: "too_long",
+                message: "消息过长（最多 200 字）",
+              }),
+            );
+            return;
+          }
+          if (parsed.text.length > MAX_CHAT_TEXT) {
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                code: "too_long",
+                message: "消息过长（最多 200 字）",
+              }),
+            );
+            return;
+          }
+          if (drop) return;
+          const outbound = JSON.stringify({
+            type: "message",
+            id: randomUUID(),
+            user: parsed.user,
+            text: parsed.text,
+            at: new Date().toISOString(),
+          });
+          for (const client of clients) {
+            if (client.readyState === 1) client.send(outbound);
+          }
           return;
         }
-        if (parsed.text.length > MAX_CHAT_TEXT) {
-          ws.send(
-            JSON.stringify({
-              type: "error",
-              code: "too_long",
-              message: "消息过长（最多 200 字）",
-            }),
-          );
-          return;
-        }
-        if (drop) return;
-        const outbound = JSON.stringify({
-          type: "message",
-          id: randomUUID(),
-          user: parsed.user,
-          text: parsed.text,
-          at: new Date().toISOString(),
-        });
-        for (const client of clients) {
-          if (client.readyState === 1) client.send(outbound);
+
+        if (parsed.type === "image") {
+          const dataUrl = parsed.dataUrl;
+          if (
+            typeof parsed.user !== "string" ||
+            typeof dataUrl !== "string" ||
+            !dataUrl.startsWith("data:image/") ||
+            dataUrl.length > MAX_CHAT_IMAGE_DATA_URL
+          ) {
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                code: "bad_image",
+                message: "图片消息无效",
+              }),
+            );
+            return;
+          }
+          if (drop) return;
+          const outbound = JSON.stringify({
+            type: "image",
+            id: randomUUID(),
+            user: parsed.user,
+            dataUrl,
+            name: typeof parsed.name === "string" ? parsed.name : "",
+            at: new Date().toISOString(),
+          });
+          for (const client of clients) {
+            if (client.readyState === 1) client.send(outbound);
+          }
         }
       });
       ws.on("close", () => clients.delete(ws));

@@ -6,7 +6,7 @@ const MESSAGE_COUNT_MIN = 2;
 const MESSAGE_COUNT_MAX = 5;
 const DEFAULT_MESSAGE_COUNT = 3;
 
-export const REALTIME_V7_4B_BLOCKER = "图片/重连（V7-4b 后续）";
+export const REALTIME_V7_4B_BLOCKER = "重连（V7-4b 后续）";
 
 const MAX_LENGTH_MIN = 10;
 const MAX_LENGTH_MAX = 2000;
@@ -30,9 +30,11 @@ export type RealtimeContext = {
   receiverActor?: string;
   senderLoginSteps?: TestStep[];
   receiverLoginSteps?: TestStep[];
+  imageTestId?: string;
+  imageButtonTestId?: string;
 };
 
-export type RealtimeScenarioKind = "text" | "dedupe" | "oversize" | "order";
+export type RealtimeScenarioKind = "text" | "dedupe" | "oversize" | "order" | "image";
 
 export type RealtimeScenario = {
   id: string;
@@ -431,6 +433,94 @@ function orderScenarioIr(
   };
 }
 
+function imageScenarioIr(
+  id: string,
+  sender: string,
+  receiver: string,
+  senderLogin: TestStep[],
+  receiverLogin: TestStep[],
+  composerTestId: string,
+  imageButtonTestId: string,
+  listTestId: string,
+  imageTestId: string,
+  wsUrlIncludes: string,
+): TestIR {
+  const wsContains = '"type":"image"';
+  const assertions: TestAssertion[] = [
+    {
+      id: "ws-sent",
+      type: "event",
+      provider: "ws",
+      actor: sender,
+      expect: {
+        contains: wsContains,
+        direction: "sent",
+        urlIncludes: wsUrlIncludes,
+        timeoutMs: 5000,
+      },
+      oracle: "human-approved",
+    },
+    {
+      id: "ws-received",
+      type: "event",
+      provider: "ws",
+      actor: receiver,
+      expect: {
+        contains: wsContains,
+        direction: "received",
+        urlIncludes: wsUrlIncludes,
+        timeoutMs: 5000,
+      },
+      oracle: "human-approved",
+    },
+    {
+      id: "ui-sender-image",
+      type: "ui",
+      actor: sender,
+      target: { testId: imageTestId },
+      oracle: "human-approved",
+    },
+    {
+      id: "ui-receiver-image",
+      type: "ui",
+      actor: receiver,
+      target: { testId: imageTestId },
+      oracle: "human-approved",
+    },
+  ];
+  return {
+    id,
+    version: 1,
+    platform: "web",
+    actors: [
+      { id: sender, loginSteps: senderLogin },
+      { id: receiver, loginSteps: receiverLogin },
+    ],
+    steps: [
+      {
+        id: "wait-composer",
+        action: "wait",
+        target: { testId: composerTestId },
+        actor: sender,
+      },
+      {
+        id: "send-image",
+        action: "click",
+        target: { testId: imageButtonTestId },
+        actor: sender,
+      },
+      {
+        id: "wait-list",
+        action: "wait",
+        target: { testId: listTestId },
+        actor: receiver,
+      },
+    ],
+    assertions,
+    policy: { screenshots: "on-failure" },
+  };
+}
+
 function oversizeScenarioIr(
   id: string,
   sender: string,
@@ -533,6 +623,8 @@ export function planRealtimeMessaging(profile: RealtimeProfile, ctx: RealtimeCon
   const composerTestId = present(ctx.composerTestId) ?? "chat-composer";
   const sendTestId = present(ctx.sendTestId) ?? "chat-send";
   const listTestId = present(ctx.listTestId) ?? "chat-list";
+  const imageTestId = present(ctx.imageTestId) ?? "chat-image";
+  const imageButtonTestId = present(ctx.imageButtonTestId) ?? "chat-send-image";
   const wsUrlIncludes = present(ctx.wsUrlIncludes) ?? "/ws/chat";
   const text = present(ctx.text) ?? "测试消息";
   const sender = present(ctx.senderActor) ?? "sender";
@@ -661,6 +753,23 @@ export function planRealtimeMessaging(profile: RealtimeProfile, ctx: RealtimeCon
       ),
     });
   }
+
+  scenarios.push({
+    id: "image",
+    kind: "image",
+    ir: imageScenarioIr(
+      "realtime-messaging-image",
+      sender,
+      receiver,
+      senderLogin,
+      receiverLogin,
+      composerTestId,
+      imageButtonTestId,
+      listTestId,
+      imageTestId,
+      wsUrlIncludes,
+    ),
+  });
 
   return { mechanism: "realtime-messaging", runnable: true, blockers, scenarios };
 }

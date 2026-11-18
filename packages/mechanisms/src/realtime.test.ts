@@ -35,7 +35,7 @@ test("runnable text plan validates IR and uses default actors and expectations",
   const plan = planRealtimeMessaging(ready, baseCtx);
   assert.equal(plan.runnable, true);
   assert.ok(plan.blockers.includes(REALTIME_V7_4B_BLOCKER));
-  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "dedupe", "order", "oversize"]);
+  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "dedupe", "order", "oversize", "image"]);
   const scenario = plan.scenarios[0]!;
   assert.equal(scenario.id, "text");
   assert.deepEqual(scenario.ir.actors?.map((a) => a.id), ["sender", "receiver"]);
@@ -152,7 +152,7 @@ test("dedupe messageCount 2 adjusts steps and assertion counts", () => {
 
 test("invalid messageCount omits dedupe scenario and adds blocker", () => {
   const plan = planRealtimeMessaging(ready, { messageCount: 99 });
-  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "oversize"]);
+  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "oversize", "image"]);
   assert.match(plan.blockers.join("\n"), /messageCount/);
 });
 
@@ -242,7 +242,7 @@ test("invalid maxLength omits oversize scenario and adds blocker", () => {
   const plan = planRealtimeMessaging(ready, { maxLength: 3 });
   assert.deepEqual(
     plan.scenarios.map((s) => s.kind),
-    ["text", "dedupe", "order"],
+    ["text", "dedupe", "order", "image"],
   );
   assert.match(plan.blockers.join("\n"), /maxLength/);
 });
@@ -251,4 +251,58 @@ test("overlongText shorter than maxLength omits oversize scenario", () => {
   const plan = planRealtimeMessaging(ready, { overlongText: "短" });
   assert.ok(!plan.scenarios.some((s) => s.kind === "oversize"));
   assert.match(plan.blockers.join("\n"), /overlongText/);
+});
+
+test("image scenario validates IR with ws image frames and target-only ui", () => {
+  const plan = planRealtimeMessaging(ready, baseCtx);
+  const image = plan.scenarios.find((s) => s.kind === "image");
+  assert.ok(image);
+  assert.equal(image!.ir.id, "realtime-messaging-image");
+  assert.deepEqual(
+    image!.ir.steps.map((s) => ({ id: s.id, actor: s.actor })),
+    [
+      { id: "wait-composer", actor: "sender" },
+      { id: "send-image", actor: "sender" },
+      { id: "wait-list", actor: "receiver" },
+    ],
+  );
+  assert.equal(image!.ir.assertions.length, 4);
+  const wsSent = image!.ir.assertions.find((a) => a.id === "ws-sent");
+  const wsReceived = image!.ir.assertions.find((a) => a.id === "ws-received");
+  assert.deepEqual(wsSent?.expect, {
+    contains: '"type":"image"',
+    direction: "sent",
+    urlIncludes: "/ws/chat",
+    timeoutMs: 5000,
+  });
+  assert.deepEqual(wsReceived?.expect, {
+    contains: '"type":"image"',
+    direction: "received",
+    urlIncludes: "/ws/chat",
+    timeoutMs: 5000,
+  });
+  const uiSender = image!.ir.assertions.find((a) => a.id === "ui-sender-image");
+  const uiReceiver = image!.ir.assertions.find((a) => a.id === "ui-receiver-image");
+  assert.equal(uiSender?.target?.testId, "chat-image");
+  assert.equal(uiReceiver?.target?.testId, "chat-image");
+  assert.equal(uiSender?.contains, undefined);
+  assert.equal(uiReceiver?.contains, undefined);
+
+  const validated = validateTestIR(image!.ir);
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? {} : validated.issues));
+  if (validated.ok) assert.deepEqual(validateSemantics(validated.value), []);
+  assert.deepEqual(validateAssertionProviders(image!.ir), []);
+});
+
+test("image scenario honors custom image test ids", () => {
+  const plan = planRealtimeMessaging(ready, {
+    imageTestId: "img-msg",
+    imageButtonTestId: "img-send",
+  });
+  const image = plan.scenarios.find((s) => s.kind === "image")!;
+  assert.equal(image.ir.steps.find((s) => s.id === "send-image")?.target?.testId, "img-send");
+  assert.equal(
+    image.ir.assertions.filter((a) => a.type === "ui").every((a) => a.target?.testId === "img-msg"),
+    true,
+  );
 });

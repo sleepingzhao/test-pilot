@@ -129,6 +129,8 @@ export type PublicRealtimeContext = {
   messageCount?: number;
   maxLength?: number;
   overlongText?: string;
+  imageTestId?: string;
+  imageButtonTestId?: string;
 };
 
 export type MechanismPlanEntry =
@@ -161,6 +163,8 @@ const DEFAULT_WS_INCLUDES = "/ws/chat";
 const DEFAULT_TEXT = "测试消息";
 const DEFAULT_SENDER = "sender";
 const DEFAULT_RECEIVER = "receiver";
+const DEFAULT_IMAGE_TEST = "chat-image";
+const DEFAULT_IMAGE_BUTTON = "chat-send-image";
 
 function readMaxLength(input: Record<string, unknown>): number | undefined {
   const asString = readString(input, "maxLength");
@@ -210,6 +214,8 @@ export function buildRealtimeContext(input: Record<string, unknown> = {}): Realt
   const receiverLogin = readLoginSteps(input, "receiverLoginSteps");
   if (senderLogin) ctx.senderLoginSteps = senderLogin;
   if (receiverLogin) ctx.receiverLoginSteps = receiverLogin;
+  ctx.imageTestId = readString(input, "imageTestId") ?? DEFAULT_IMAGE_TEST;
+  ctx.imageButtonTestId = readString(input, "imageButtonTestId") ?? DEFAULT_IMAGE_BUTTON;
   return ctx;
 }
 
@@ -232,6 +238,8 @@ export function publicRealtimeContext(ctx: RealtimeContext): PublicRealtimeConte
   if (ctx.messageCount !== undefined) out.messageCount = ctx.messageCount;
   if (ctx.maxLength !== undefined) out.maxLength = ctx.maxLength;
   if (ctx.overlongText) out.overlongText = ctx.overlongText;
+  if (ctx.imageTestId) out.imageTestId = ctx.imageTestId;
+  if (ctx.imageButtonTestId) out.imageButtonTestId = ctx.imageButtonTestId;
   return out;
 }
 
@@ -328,6 +336,7 @@ export const REALTIME_SCENARIO_LABELS: Record<RealtimeScenarioKind, string> = {
   dedupe: "多消息去重",
   oversize: "超长消息",
   order: "严格顺序",
+  image: "图片消息",
 };
 
 export { PILOT_REAL_BLOCKER };

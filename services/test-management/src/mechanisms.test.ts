@@ -161,6 +161,6 @@ test("realtime plan runnable when capability present", () => {
   const plan = mechanismPlanForRecord(record, "demo");
   const realtime = plan.mechanisms.find((m) => m.id === "realtime-messaging");
   assert.equal(realtime?.runnable, true);
-  assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text", "dedupe", "order", "oversize"]);
+  assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text", "dedupe", "order", "oversize", "image"]);
   assert.match(realtime?.blockers.join("\n") ?? "", /V7-4b/);
 });

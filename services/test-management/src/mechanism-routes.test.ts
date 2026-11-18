@@ -253,7 +253,7 @@ test("GET mechanisms for realtime profile includes runnable text scenario", asyn
     };
     const realtime = body.mechanisms.find((m) => m.id === "realtime-messaging");
     assert.equal(realtime?.runnable, true);
-    assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text", "dedupe", "order", "oversize"]);
+    assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text", "dedupe", "order", "oversize", "image"]);
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });
@@ -403,6 +403,41 @@ test("POST realtime order draft saves two actors and sequence ws assertions", as
   }
 });
 
+test("POST realtime image draft saves two actors and image ws/ui assertions", async () => {
+  const { app, dataRoot, store, root } = await setupApp();
+  try {
+    await saveRecord(dataRoot, {
+      id: "detect_rt_image",
+      target: "demo",
+      profile: realtimeProfile,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/mechanisms/realtime-messaging/draft",
+      payload: { detectionId: "detect_rt_image", scenario: "image" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as {
+      test: { id: string; approvalStatus: string; title: string; ir: TestIR };
+    };
+    assert.equal(body.test.approvalStatus, "draft");
+    assert.match(body.test.id, /^mechanism-realtime-image-/);
+    assert.equal(body.test.title, "实时消息 · 图片消息");
+    assert.equal(body.test.ir.actors?.length, 2);
+    const ws = body.test.ir.assertions.filter((a) => a.type === "event");
+    assert.equal(ws.length, 2);
+    assert.ok(ws.every((a) => a.expect?.contains === '"type":"image"'));
+    const ui = body.test.ir.assertions.filter((a) => a.type === "ui");
+    assert.equal(ui.length, 2);
+    assert.ok(ui.every((a) => a.target?.testId === "chat-image" && a.contains === undefined));
+    const stored = await store.getTest(body.test.id);
+    assert.equal(stored?.approvalStatus, "draft");
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("POST realtime draft saves two actors and four assertions without auto-approval", async () => {
   const { app, dataRoot, store, root } = await setupApp();
   try {
@@ -476,7 +511,7 @@ test("POST realtime draft rejects unknown detection, bad scenario, and real targ
     const badScenario = await app.inject({
       method: "POST",
       url: "/api/mechanisms/realtime-messaging/draft",
-      payload: { detectionId: "detect_rt_bad_scenario", scenario: "image" },
+      payload: { detectionId: "detect_rt_bad_scenario", scenario: "reconnect" },
     });
     assert.equal(badScenario.statusCode, 400);
   } finally {

@@ -34,6 +34,7 @@ const REALTIME_SCENARIO_LABELS: Record<RealtimeScenarioKind, string> = {
   dedupe: "多消息去重",
   oversize: "超长消息",
   order: "严格顺序",
+  image: "图片消息",
 };
 
 type MechanismContextForm = {
@@ -89,6 +90,8 @@ type RealtimeMechanismContextForm = {
   messageCount: string;
   maxLength: string;
   overlongText: string;
+  imageTestId: string;
+  imageButtonTestId: string;
 };
 
 function realtimeContextFromPlan(
@@ -109,6 +112,8 @@ function realtimeContextFromPlan(
       ctx?.messageCount !== undefined && ctx.messageCount >= 2 ? String(ctx.messageCount) : "3",
     maxLength: ctx?.maxLength !== undefined ? String(ctx.maxLength) : "200",
     overlongText: ctx?.overlongText ?? "",
+    imageTestId: ctx?.imageTestId ?? "chat-image",
+    imageButtonTestId: ctx?.imageButtonTestId ?? "chat-send-image",
   };
 }
 
@@ -125,6 +130,8 @@ function realtimeContextPayload(form: RealtimeMechanismContextForm): Record<stri
     messageCount: form.messageCount.trim() || "3",
     maxLength: form.maxLength.trim() || "200",
     ...(form.overlongText.trim() ? { overlongText: form.overlongText.trim() } : {}),
+    imageTestId: form.imageTestId.trim() || "chat-image",
+    imageButtonTestId: form.imageButtonTestId.trim() || "chat-send-image",
   };
 }
 
@@ -848,6 +855,8 @@ export function SystemProfileView({
                           ["messageCount", "消息条数（去重/严格顺序，2–5）"],
                           ["maxLength", "最大字数（超长场景，10–2000）"],
                           ["overlongText", "超长文本覆盖（可选）"],
+                          ["imageTestId", "图片消息 testId"],
+                          ["imageButtonTestId", "发送图片按钮 testId"],
                         ] as const
                       ).map(([key, label]) => (
                         <label key={key} className="mechanism-field">

@@ -77,12 +77,86 @@ describe("demo /ws/chat", { concurrency: 1 }, () => {
     const res = await fetch(`${base}/chat`);
     assert.equal(res.status, 200);
     const html = await res.text();
-    for (const id of ["chat-status", "chat-list", "chat-composer", "chat-send"]) {
+    for (const id of ["chat-status", "chat-list", "chat-composer", "chat-send", "chat-send-image"]) {
       assert.equal(html.includes(`data-testid="${id}"`), true, id);
     }
     assert.equal(html.includes("测试用户"), true);
     assert.equal(html.includes("已连接"), true);
     assert.equal(html.includes("未连接"), true);
+  });
+
+  const VALID_IMAGE_DATA_URL =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFgAI/Al6c3wAAAABJRU5ErkJggg==";
+
+  test("broadcasts a valid image to sender and a second client", async () => {
+    const sender = await openSocket(base.replace("http", "ws") + "/ws/chat");
+    const receiver = await openSocket(base.replace("http", "ws") + "/ws/chat");
+    try {
+      const heard = Promise.all([nextMessage(sender), nextMessage(receiver)]);
+      sender.send(
+        JSON.stringify({
+          type: "image",
+          user: "甲",
+          dataUrl: VALID_IMAGE_DATA_URL,
+          name: "测试图片.png",
+        }),
+      );
+      const [left, right] = await heard;
+      assert.equal(left.type, "image");
+      assert.equal(right.type, "image");
+      assert.equal(left.user, "甲");
+      assert.equal(left.dataUrl, VALID_IMAGE_DATA_URL);
+      assert.equal(right.dataUrl, VALID_IMAGE_DATA_URL);
+      assert.equal(left.id, right.id);
+      assert.equal(left.name, "测试图片.png");
+    } finally {
+      sender.close();
+      receiver.close();
+    }
+  });
+
+  test("bad_image goes only to sender without broadcast", async () => {
+    const sender = await openSocket(base.replace("http", "ws") + "/ws/chat");
+    const listener = await openSocket(base.replace("http", "ws") + "/ws/chat");
+    let listenerHeard = false;
+    listener.on("message", () => {
+      listenerHeard = true;
+    });
+    try {
+      const errorPromise = nextMessage(sender);
+      sender.send(JSON.stringify({ type: "image", user: "甲", dataUrl: "not-an-image" }));
+      const err = await errorPromise;
+      assert.deepEqual(err, {
+        type: "error",
+        code: "bad_image",
+        message: "图片消息无效",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      assert.equal(listenerHeard, false);
+    } finally {
+      sender.close();
+      listener.close();
+    }
+  });
+
+  test("missing dataUrl returns bad_image only to sender", async () => {
+    const sender = await openSocket(base.replace("http", "ws") + "/ws/chat");
+    const listener = await openSocket(base.replace("http", "ws") + "/ws/chat");
+    let listenerHeard = false;
+    listener.on("message", () => {
+      listenerHeard = true;
+    });
+    try {
+      const errorPromise = nextMessage(sender);
+      sender.send(JSON.stringify({ type: "image", user: "甲" }));
+      const err = await errorPromise;
+      assert.equal(err.code, "bad_image");
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      assert.equal(listenerHeard, false);
+    } finally {
+      sender.close();
+      listener.close();
+    }
   });
 
   test("broadcasts a text message to every connection", async () => {

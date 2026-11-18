@@ -21,7 +21,7 @@ export type DetectionRecord = {
 
 export type FileMediaScenarioKind = "happy" | "invalid-type" | "oversize";
 
-export type RealtimeScenarioKind = "text" | "dedupe" | "oversize" | "order";
+export type RealtimeScenarioKind = "text" | "dedupe" | "oversize" | "order" | "image";
 
 export type MechanismPlanResponse = {
   detectionId: string;
@@ -65,6 +65,8 @@ export type MechanismPlanResponse = {
           messageCount?: number;
           maxLength?: number;
           overlongText?: string;
+          imageTestId?: string;
+          imageButtonTestId?: string;
         };
         scenarios: Array<{ id: string; kind: RealtimeScenarioKind }>;
       }

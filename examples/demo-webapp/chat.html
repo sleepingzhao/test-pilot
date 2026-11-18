@@ -75,6 +75,7 @@
       <div class="composer">
         <input data-testid="chat-composer" type="text" aria-label="消息" />
         <button data-testid="chat-send" type="button">发送</button>
+        <button data-testid="chat-send-image" type="button">图片</button>
       </div>
     </main>
     <script>
@@ -87,6 +88,8 @@
       const list = document.querySelector('[data-testid="chat-list"]');
       const composer = document.querySelector('[data-testid="chat-composer"]');
       const pending = [];
+      const RED_PIXEL_PNG =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFgAI/Al6c3wAAAABJRU5ErkJggg==";
 
       function flush() {
         while (pending.length && ws.readyState === WebSocket.OPEN) ws.send(pending.shift());
@@ -114,10 +117,33 @@
           status.textContent = "发送失败：消息过长";
           return;
         }
+        if (msg.type === "image" && typeof msg.dataUrl === "string") {
+          if (!msg.dataUrl.startsWith("data:image/")) return;
+          const item = document.createElement("li");
+          const img = document.createElement("img");
+          img.dataset.testid = "chat-image";
+          img.alt = "图片消息";
+          img.src = msg.dataUrl;
+          item.appendChild(img);
+          list.appendChild(item);
+          return;
+        }
         if (!msg || msg.type !== "message" || typeof msg.text !== "string") return;
         const item = document.createElement("li");
         item.textContent = (typeof msg.user === "string" ? msg.user : user) + "：" + msg.text;
         list.appendChild(item);
+      });
+
+      document.querySelector('[data-testid="chat-send-image"]').addEventListener("click", () => {
+        pending.push(
+          JSON.stringify({
+            type: "image",
+            user,
+            dataUrl: RED_PIXEL_PNG,
+            name: "测试图片.png",
+          }),
+        );
+        flush();
       });
 
       document.querySelector('[data-testid="chat-send"]').addEventListener("click", () => {

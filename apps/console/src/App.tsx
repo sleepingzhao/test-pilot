@@ -1611,6 +1611,11 @@ export function App() {
                         <span className={`badge ${t.approvalStatus === "draft" ? "draft" : ""}`}>
                           {t.approvalStatus === "draft" ? "草稿" : "已批准"}
                         </span>
+                        {t.autoApproved && (
+                          <span className="badge subtle" title="TESTPILOT_AUTO_APPROVE：试跑通过且强断言门禁通过后自动批准">
+                            自动批准
+                          </span>
+                        )}
                         {(t.weakAssertions?.length ?? 0) > 0 && (
                           <span
                             className="badge weak"

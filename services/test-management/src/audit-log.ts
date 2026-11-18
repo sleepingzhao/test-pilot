@@ -9,6 +9,8 @@ export type AuditEvent = {
   actor: string;
   irHash: string;
   assertionConfigHash: string;
+  /** True when TESTPILOT_AUTO_APPROVE approved the test instead of a person. */
+  auto?: boolean;
 };
 
 export async function appendAuditEvent(dataRoot: string, event: AuditEvent): Promise<void> {

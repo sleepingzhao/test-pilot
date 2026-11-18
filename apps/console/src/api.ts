@@ -132,6 +132,7 @@ export type StoredTest = {
   configHashStale?: boolean;
   approvedAt?: string;
   approvedBy?: string;
+  autoApproved?: boolean;
   weakAssertions?: Array<{ path: string; message: string }>;
   intentSummary?: string;
   sourceChannel?: "intent" | "prd" | "record" | "api" | "mechanism";

@@ -149,7 +149,7 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 | Management API | `services/test-management` |
 | Demo + 种子用例 | `examples/demo-webapp` |
 
-当前进度见 [ROADMAP.md](ROADMAP.md)：业务接入、实时六场景、SSE/WS 证据、多账号执行与审阅、测试数据清理、OpenAPI/cURL 导入、步骤截图、录制期 AI 定位与探索期 AI 观察均已完成；**V7-12a 真实环境自动登录**与 **V7-12b 生产只读门禁**（默认 `readOnlyNetwork`，仅 `policy.allowMutation: true` 放行写操作）已接入。下一步是 **V7-12c 生产证据策略**，随后只读回归模板。
+当前进度见 [ROADMAP.md](ROADMAP.md)：业务接入、实时六场景、SSE/WS 证据、多账号执行与审阅、测试数据清理、OpenAPI/cURL 导入、步骤截图、录制期 AI 定位与探索期 AI 观察均已完成；**V7-12a 真实环境自动登录**与 **V7-12b 生产只读门禁**（默认 `readOnlyNetwork`，仅 `policy.allowMutation: true` 放行写操作）已接入；`TESTPILOT_AUTO_APPROVE=1` 时草稿试跑通过且强断言门禁通过会自动批准（审计 `auto:testpilot`）。下一步是 **V7-12c 生产证据策略**，随后只读回归模板。
 
 视觉能力边界见 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md)：视觉只用于生成期定位建议与证据；已批准的回归保持零 LLM。DeepSeek Flash 已支持图像理解，可作为视觉模型候选。
 

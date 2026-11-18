@@ -33,6 +33,8 @@ export type StoredTest = {
   irHashVersion?: number;
   approvedAt?: string;
   approvedBy?: string;
+  /** Approved by the TESTPILOT_AUTO_APPROVE gate rather than a person. */
+  autoApproved?: boolean;
   /** IR snapshot at approval; lets a hash-algorithm rebuild keep the approval. */
   approvedIr?: TestIR;
   /** Hash of docs assertion-db/agent config at approval time. */

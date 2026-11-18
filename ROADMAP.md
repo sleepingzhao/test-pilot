@@ -13,12 +13,13 @@
 - 业务接入：V7-7 测试数据清理、V7-0f 命名 API 环境、V7-0h cURL 导入、V7-0g 接口用例编辑、V7-5e 机制接线、V7-6b WS 运行详情、V7-0i OpenAPI 导入
 - 实时能力：V7-1b SSE 证据、V7-2a/b 多账号执行与审阅、V7-4a–V7-4b5 实时六场景（text/dedupe/oversize/order/image/reconnect）
 - 视觉与证据：V7-9a 步骤截图时间线、V7-9b 录制期 AI 定位、V7-9c 探索期 AI 观察
+- 自动审批：`TESTPILOT_AUTO_APPROVE=1` 时，草稿试跑通过且强断言门禁通过后自动批准（`approvedBy: auto:testpilot` + 审计），弱断言/占位断言仍留草稿
 
 **基线：** 17 条已批准用例（16 demo + 1 pilot）、5 个断言 Provider、`pnpm verify` 全绿。
 
 ## 1. 红线
 
-- 不自动批准；不删除或放宽弱断言门禁；不为让测试通过而改断言。
+- 自动批准只在 `TESTPILOT_AUTO_APPROVE=1` 显式开启、用例试跑通过、且通过强断言门禁时生效；不放宽弱断言门禁；不为让测试通过而改断言。
 - 回归零 LLM；AI 只用于生成与探索，不参与通过/失败。
 - 真实环境默认只读；密钥只放 `.env`，不进入 IR、日志、证据或 LLM prompt。
 - 不改安全默认值：`127.0.0.1` 绑定、CORS 白名单、目标白名单、远程 token。
@@ -69,7 +70,7 @@ Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
 - `pnpm verify` 全绿。
 - UI 改动浏览器实测。
 - 安全与断言改动有正向 + 负向测试。
-- 不自动批准；证据落盘前脱敏。
+- 自动批准需同时满足：显式开启、试跑通过、强断言门禁通过，并写审计；证据落盘前脱敏。
 
 ## 5. 工作方式
 
@@ -90,6 +91,7 @@ Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
 | 视觉（默认关） | `TESTPILOT_VISION_ENABLED=1`、`TESTPILOT_VISION_API_KEY`、`TESTPILOT_VISION_MODEL=deepseek-flash` |
 | API 访问 | `TESTPILOT_API_TOKEN`、`TESTPILOT_ALLOWED_ORIGINS` |
 | 命名 API 环境 | `TESTPILOT_API_ENVS_FILE` / 本地 `api-envs.json` |
+| 自动审批（默认关） | `TESTPILOT_AUTO_APPROVE=1` |
 
 ## 7. 常用命令
 

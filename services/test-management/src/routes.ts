@@ -543,6 +543,75 @@ async function executeSingleIrRun(
 }
 
 export function registerRoutes(app: FastifyInstance, store: FileStore, artifactsRoot: string, dataRoot: string) {
+  const AUTO_APPROVER_ID = "auto:testpilot";
+
+  function autoApproveEnabled(): boolean {
+    return process.env.TESTPILOT_AUTO_APPROVE === "1";
+  }
+
+  /**
+   * Every gate the manual approve endpoint applies, minus the human actor check.
+   * Weak or placeholder assertions, semantic errors, pilot-forbidden text, or invalid
+   * providers keep the draft unapproved — auto-approval never weakens those gates.
+   */
+  async function autoApproveEligible(test: StoredTest): Promise<boolean> {
+    if (!test.ir.steps?.length) return false;
+    if (test.ir.assertions.some((a) => String((a as { contains?: string }).contains ?? "").includes("REPLACE"))) {
+      return false;
+    }
+    if (validateSemantics(test.ir).length) return false;
+    if (weakAssertionIssues(test.ir).length) return false;
+    if (validateAssertionProviders(test.ir).length) return false;
+    const constraintsDoc = await loadPilotConstraints();
+    if (forbiddenAssertionIssues(test.ir, constraintsDoc?.forbiddenAssertions ?? []).length) return false;
+    return true;
+  }
+
+  async function approveAutomatically(test: StoredTest): Promise<StoredTest> {
+    const configHash = computeAssertionConfigHash(repoRoot);
+    const approved: StoredTest = {
+      ...stampTestMeta(test, { approving: true, assertionConfigHash: configHash }),
+      approvedBy: AUTO_APPROVER_ID,
+      approvedIr: test.ir,
+      autoApproved: true,
+    };
+    await store.saveTest(approved);
+    try {
+      await appendAuditEvent(dataRoot, {
+        at: new Date().toISOString(),
+        action: "test.approve",
+        testId: test.id,
+        title: test.title,
+        actor: AUTO_APPROVER_ID,
+        irHash: computeIRHash(test.ir),
+        assertionConfigHash: configHash,
+        auto: true,
+      });
+    } catch (err) {
+      app.log.error({ err, testId: test.id }, "auto-approval audit append failed");
+    }
+    return approved;
+  }
+
+  /**
+   * Saves a draft and, when TESTPILOT_AUTO_APPROVE=1 and the draft's trial just passed,
+   * approves it if every manual gate passes. Drafts without a passing trial stay drafts.
+   */
+  async function saveDraftWithAutoApproval(
+    test: StoredTest,
+    opts?: { trialPassed?: boolean },
+  ): Promise<StoredTest> {
+    if (!opts?.trialPassed || test.approvalStatus !== "draft" || !autoApproveEnabled()) {
+      await store.saveTest(test);
+      return test;
+    }
+    if (!(await autoApproveEligible(test))) {
+      await store.saveTest(test);
+      return test;
+    }
+    return approveAutomatically(test);
+  }
+
   app.get("/api/health", async () => ({
     ok: true,
     service: "test-management",
@@ -651,6 +720,13 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         artifactsRoot,
         dataRoot,
       );
+      if (run.status === "passed" && test.approvalStatus === "draft" && autoApproveEnabled()) {
+        const trialed = stampTestMeta({ ...test, ir: body.ir });
+        if (await autoApproveEligible(trialed)) {
+          const approved = await approveAutomatically(trialed);
+          return { run, trial: true, test: withWeakAssertions(approved) };
+        }
+      }
       return { run, trial: true };
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
@@ -754,7 +830,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       });
     }
 
-    const test = stampTestMeta({
+    const test = await saveDraftWithAutoApproval(stampTestMeta({
       id: draft.draft.id,
       projectId: "default",
       title: draft.draft.title,
@@ -763,8 +839,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       sourceChannel: "api",
       intentSummary: `${ir.steps[0]?.method ?? "GET"} ${ir.steps[0]?.path ?? "/"}`,
       updatedAt: new Date().toISOString(),
-    });
-    await store.saveTest(test);
+    }));
 
     if (!(await checkTargetReachable(resolvedUrl))) {
       return {
@@ -783,7 +858,11 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         artifactsRoot,
         dataRoot,
       );
-      return { test: withWeakAssertions(test), trial: { run, trial: true }, warnings: draft.warnings };
+      const approved =
+        run.status === "passed" && test.approvalStatus === "draft" && autoApproveEnabled() && (await autoApproveEligible(test))
+          ? await approveAutomatically(test)
+          : test;
+      return { test: withWeakAssertions(approved), trial: { run, trial: true }, warnings: draft.warnings };
     } catch (err) {
       return {
         test: withWeakAssertions(test),
@@ -1028,7 +1107,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       return reply.code(400).send({ issues: validated.issues });
     }
 
-    const test = stampTestMeta({
+    const test = await saveDraftWithAutoApproval(stampTestMeta({
       id: testId,
       projectId: "default",
       title,
@@ -1038,8 +1117,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       sourceChannel: channel,
       plannerNotes: draft.uncertainties,
       updatedAt: new Date().toISOString(),
-    });
-    await store.saveTest(test);
+    }));
     return { test: withWeakAssertions(test), draft: { uncertainties: draft.uncertainties, sources: draft.sources }, llmUsed, llmTokensUsed };
   });
 
@@ -1255,6 +1333,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
 
     onStage("完成");
+    // Approve only after the trial may have refined the assertion, so the approved IR is final.
+    storedTest = await saveDraftWithAutoApproval(storedTest, { trialPassed: trialRun?.status === "passed" });
     out.payload = {
       environment: { target, label: resolved.label, url },
       test: withWeakAssertions(storedTest),
@@ -1524,7 +1604,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
 
     const label = FILE_MEDIA_SCENARIO_LABELS[scenario];
-    const test = stampTestMeta({
+    const test = await saveDraftWithAutoApproval(stampTestMeta({
       id: testId,
       projectId: project.id,
       title: `文件/媒体 · ${label}`,
@@ -1533,8 +1613,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       sourceChannel: "mechanism",
       intentSummary: `file-media ${scenario}`,
       updatedAt: new Date().toISOString(),
-    });
-    await store.saveTest(test);
+    }));
 
     const response: {
       test: ReturnType<typeof withWeakAssertions>;
@@ -1561,6 +1640,14 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
             dataRoot,
           );
           response.trial = { run, trial: true };
+          if (
+            run.status === "passed" &&
+            test.approvalStatus === "draft" &&
+            autoApproveEnabled() &&
+            (await autoApproveEligible(test))
+          ) {
+            response.test = withWeakAssertions(await approveAutomatically(test));
+          }
         } catch (err) {
           response.trialError = err instanceof Error ? err.message : String(err);
         }
@@ -1655,7 +1742,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
 
     const label = REALTIME_SCENARIO_LABELS[scenario];
-    const test = stampTestMeta({
+    const test = await saveDraftWithAutoApproval(stampTestMeta({
       id: testId,
       projectId: project.id,
       title: `实时消息 · ${label}`,
@@ -1664,8 +1751,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       sourceChannel: "mechanism",
       intentSummary: `realtime-messaging ${scenario}`,
       updatedAt: new Date().toISOString(),
-    });
-    await store.saveTest(test);
+    }));
 
     const response: {
       test: ReturnType<typeof withWeakAssertions>;
@@ -1692,6 +1778,14 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
             dataRoot,
           );
           response.trial = { run, trial: true };
+          if (
+            run.status === "passed" &&
+            test.approvalStatus === "draft" &&
+            autoApproveEnabled() &&
+            (await autoApproveEligible(test))
+          ) {
+            response.test = withWeakAssertions(await approveAutomatically(test));
+          }
         } catch (err) {
           response.trialError = err instanceof Error ? err.message : String(err);
         }
@@ -2231,7 +2325,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         if (!validated.ok) {
           throw new Error(`录制 IR 校验失败: ${validated.issues.map((i) => i.message).join("; ")}`);
         }
-        const test = stampTestMeta({
+        await saveDraftWithAutoApproval(stampTestMeta({
           id: testId,
           projectId: "default",
           title: body.title?.trim() || testId,
@@ -2245,8 +2339,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
           sourceChannel: "record",
           plannerNotes: warnings.length ? warnings : undefined,
           updatedAt: new Date().toISOString(),
-        });
-        await store.saveTest(test);
+        }));
         job.status = "completed";
         job.testId = testId;
         job.completedAt = new Date().toISOString();

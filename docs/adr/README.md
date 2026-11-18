@@ -6,6 +6,7 @@
 
 - [ADR-006：可扩展断言引擎](ADR-006-extensible-assertions.md) — Provider 注册表、UI/HTTP/DB/Agent 断言、配置版本、负向验证。
 - [ADR-011：借鉴 Midscene 的视觉能力边界](ADR-011-midscene-visual-assist.md) — 生成期视觉定位、步骤截图回放；已批准回归保持零 LLM；视觉判定只进探索模式。
+- [ADR-012：风险分析](ADR-012-risk-analysis.md) — 生成期风险建议（规则基线 + 可选 LLM 增强）；报告不是断言、不参与门禁；真实环境只发能力/信号 id。
 
 ## 基础约束（历史决策，仍然有效）
 

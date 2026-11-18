@@ -2,8 +2,11 @@ import type { TestAssertion, TestIR, TestStep } from "@testpilot/test-ir";
 
 const REALTIME_CONFIDENCE = 0.6;
 const ACTOR_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const MESSAGE_COUNT_MIN = 2;
+const MESSAGE_COUNT_MAX = 5;
+const DEFAULT_MESSAGE_COUNT = 3;
 
-export const REALTIME_V7_4B_BLOCKER = "图片/超长/重连/顺序/去重场景尚未实现（V7-4b）";
+export const REALTIME_V7_4B_BLOCKER = "图片/超长/重连/严格顺序（V7-4b 后续）";
 
 export type RealtimeProfile = {
   capabilities?: ReadonlyArray<{ id: string; confidence: number }>;
@@ -16,13 +19,14 @@ export type RealtimeContext = {
   listTestId?: string;
   wsUrlIncludes?: string;
   text?: string;
+  messageCount?: number;
   senderActor?: string;
   receiverActor?: string;
   senderLoginSteps?: TestStep[];
   receiverLoginSteps?: TestStep[];
 };
 
-export type RealtimeScenarioKind = "text";
+export type RealtimeScenarioKind = "text" | "dedupe";
 
 export type RealtimeScenario = {
   id: string;
@@ -78,6 +82,18 @@ function validateActorIds(sender: string, receiver: string): string[] {
     blockers.push("senderActor 与 receiverActor 不能相同");
   }
   return blockers;
+}
+
+function resolveMessageCount(ctx: RealtimeContext): { count: number; blocker?: string } {
+  const raw = ctx.messageCount;
+  if (raw === undefined) return { count: DEFAULT_MESSAGE_COUNT };
+  if (!Number.isInteger(raw) || raw < MESSAGE_COUNT_MIN || raw > MESSAGE_COUNT_MAX) {
+    return {
+      count: DEFAULT_MESSAGE_COUNT,
+      blocker: `messageCount 必须在 ${MESSAGE_COUNT_MIN}–${MESSAGE_COUNT_MAX} 之间（当前 ${String(raw)}）`,
+    };
+  }
+  return { count: raw };
 }
 
 function defaultLoginSteps(pagePath: string, openStepId: string): TestStep[] {
@@ -176,6 +192,107 @@ function textScenarioIr(
   };
 }
 
+function dedupeScenarioIr(
+  id: string,
+  sender: string,
+  receiver: string,
+  senderLogin: TestStep[],
+  receiverLogin: TestStep[],
+  composerTestId: string,
+  sendTestId: string,
+  listTestId: string,
+  wsUrlIncludes: string,
+  textBase: string,
+  messageCount: number,
+): TestIR {
+  const steps: TestStep[] = [
+    {
+      id: "wait-composer",
+      action: "wait",
+      target: { testId: composerTestId },
+      actor: sender,
+    },
+  ];
+  const assertions: TestAssertion[] = [];
+
+  for (let i = 1; i <= messageCount; i++) {
+    const text = `${textBase}-${i}`;
+    steps.push({
+      id: `fill-${i}`,
+      action: "fill",
+      target: { testId: composerTestId },
+      value: text,
+      actor: sender,
+    });
+    steps.push({
+      id: `send-${i}`,
+      action: "click",
+      target: { testId: sendTestId },
+      actor: sender,
+    });
+
+    const wsBase = {
+      contains: text,
+      urlIncludes: wsUrlIncludes,
+      minCount: 1,
+      maxCount: 1,
+      timeoutMs: 5000,
+    };
+    assertions.push({
+      id: `ws-sent-${i}`,
+      type: "event",
+      provider: "ws",
+      actor: sender,
+      expect: { ...wsBase, direction: "sent" },
+      oracle: "human-approved",
+    });
+    assertions.push({
+      id: `ws-received-${i}`,
+      type: "event",
+      provider: "ws",
+      actor: receiver,
+      expect: { ...wsBase, direction: "received" },
+      oracle: "human-approved",
+    });
+    assertions.push({
+      id: `ui-sender-list-${i}`,
+      type: "ui",
+      actor: sender,
+      target: { testId: listTestId },
+      contains: text,
+      oracle: "human-approved",
+    });
+    assertions.push({
+      id: `ui-receiver-list-${i}`,
+      type: "ui",
+      actor: receiver,
+      target: { testId: listTestId },
+      contains: text,
+      oracle: "human-approved",
+    });
+  }
+
+  steps.push({
+    id: "wait-list",
+    action: "wait",
+    target: { testId: listTestId },
+    actor: receiver,
+  });
+
+  return {
+    id,
+    version: 1,
+    platform: "web",
+    actors: [
+      { id: sender, loginSteps: senderLogin },
+      { id: receiver, loginSteps: receiverLogin },
+    ],
+    steps,
+    assertions,
+    policy: { screenshots: "on-failure" },
+  };
+}
+
 export function planRealtimeMessaging(profile: RealtimeProfile, ctx: RealtimeContext = {}): RealtimePlan {
   const pagePath = present(ctx.pagePath) ?? "/chat";
   const composerTestId = present(ctx.composerTestId) ?? "chat-composer";
@@ -219,6 +336,11 @@ export function planRealtimeMessaging(profile: RealtimeProfile, ctx: RealtimeCon
       : defaultLoginSteps(pagePath, "receiver-open"),
   );
 
+  const messageCountResult = resolveMessageCount(ctx);
+  if (messageCountResult.blocker) {
+    blockers.push(messageCountResult.blocker);
+  }
+
   blockers.push(REALTIME_V7_4B_BLOCKER);
 
   const scenarios: RealtimeScenario[] = [
@@ -239,6 +361,26 @@ export function planRealtimeMessaging(profile: RealtimeProfile, ctx: RealtimeCon
       ),
     },
   ];
+
+  if (!messageCountResult.blocker) {
+    scenarios.push({
+      id: "dedupe",
+      kind: "dedupe",
+      ir: dedupeScenarioIr(
+        "realtime-messaging-dedupe",
+        sender,
+        receiver,
+        senderLogin,
+        receiverLogin,
+        composerTestId,
+        sendTestId,
+        listTestId,
+        wsUrlIncludes,
+        text,
+        messageCountResult.count,
+      ),
+    });
+  }
 
   return { mechanism: "realtime-messaging", runnable: true, blockers, scenarios };
 }

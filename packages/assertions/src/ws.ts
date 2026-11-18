@@ -11,6 +11,7 @@ const WS_EXPECT_KEYS = new Set([
   "jsonPath",
   "equals",
   "minCount",
+  "maxCount",
   "absent",
   "timeoutMs",
 ]);
@@ -26,6 +27,7 @@ type WsExpect = {
   jsonPath?: string;
   equals?: string | number | boolean;
   minCount?: number;
+  maxCount?: number;
   absent?: true;
   timeoutMs?: number;
 };
@@ -109,6 +111,25 @@ export function validateWsExpect(expect: Record<string, unknown>): ValidationIss
   if (expect.absent === true && "minCount" in expect) {
     issues.push({ path: "expect/minCount", message: "absent 与 minCount 不能同时使用" });
   }
+  if ("maxCount" in expect) {
+    const count = expect.maxCount;
+    if (typeof count !== "number" || !Number.isInteger(count)) {
+      issues.push({ path: "expect/maxCount", message: "maxCount 必须是整数" });
+    } else if (count < 1) {
+      issues.push({ path: "expect/maxCount", message: "maxCount 必须至少为 1" });
+    } else {
+      const effectiveMin =
+        "minCount" in expect && typeof expect.minCount === "number" && Number.isInteger(expect.minCount)
+          ? expect.minCount
+          : 1;
+      if (count < effectiveMin) {
+        issues.push({ path: "expect/maxCount", message: "maxCount 不能小于 minCount" });
+      }
+    }
+  }
+  if (expect.absent === true && "maxCount" in expect) {
+    issues.push({ path: "expect/maxCount", message: "absent 与 maxCount 不能同时使用" });
+  }
   if ("timeoutMs" in expect) {
     const timeout = expect.timeoutMs;
     if (typeof timeout !== "number" || !Number.isFinite(timeout)) {
@@ -124,7 +145,8 @@ export function validateWsExpect(expect: Record<string, unknown>): ValidationIss
   if (!hasCriterion) {
     issues.push({
       path: "expect",
-      message: "ws 断言需要 urlIncludes、direction、contains、regex、jsonPath 与 equals、minCount 或 absent",
+      message:
+        "ws 断言需要 urlIncludes、direction、contains、regex、jsonPath 与 equals、minCount、maxCount 或 absent",
     });
   }
   return issues;
@@ -246,6 +268,14 @@ export async function runWsAssertion(
   }
   const found = matched();
   if (found.length >= minCount) {
+    if (expect.maxCount !== undefined && found.length > expect.maxCount) {
+      return defect(
+        id,
+        expect,
+        `websocket assertion failed: expected at most ${expect.maxCount} matching frame(s), saw ${found.length}. ${summarizeFrames(found)}`,
+        found,
+      );
+    }
     return { assertionId: id, passed: true, expected: expect, actual: found.length };
   }
   const seen = pool().length > 0 ? pool() : frames();

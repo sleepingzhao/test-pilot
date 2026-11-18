@@ -29,6 +29,11 @@ const SCENARIO_LABELS: Record<FileMediaScenarioKind, string> = {
   oversize: "超过大小",
 };
 
+const REALTIME_SCENARIO_LABELS: Record<RealtimeScenarioKind, string> = {
+  text: "文本送达",
+  dedupe: "多消息去重",
+};
+
 type MechanismContextForm = {
   pagePath: string;
   uploadRef: string;
@@ -79,6 +84,7 @@ type RealtimeMechanismContextForm = {
   text: string;
   senderActor: string;
   receiverActor: string;
+  messageCount: string;
 };
 
 function realtimeContextFromPlan(
@@ -95,6 +101,8 @@ function realtimeContextFromPlan(
     text: ctx?.text ?? "测试消息",
     senderActor: ctx?.senderActor ?? "sender",
     receiverActor: ctx?.receiverActor ?? "receiver",
+    messageCount:
+      ctx?.messageCount !== undefined && ctx.messageCount >= 2 ? String(ctx.messageCount) : "3",
   };
 }
 
@@ -108,6 +116,7 @@ function realtimeContextPayload(form: RealtimeMechanismContextForm): Record<stri
     text: form.text,
     senderActor: form.senderActor,
     receiverActor: form.receiverActor,
+    messageCount: form.messageCount.trim() || "3",
   };
 }
 
@@ -176,7 +185,7 @@ export function SystemProfileView({
   const [realtimeContext, setRealtimeContext] = useState<RealtimeMechanismContextForm>(
     realtimeContextFromPlan(undefined),
   );
-  const [realtimeScenario] = useState<RealtimeScenarioKind>("text");
+  const [realtimeScenario, setRealtimeScenario] = useState<RealtimeScenarioKind>("text");
   const [realtimeTrial, setRealtimeTrial] = useState(false);
   const [realtimeSaving, setRealtimeSaving] = useState(false);
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
@@ -218,6 +227,7 @@ export function SystemProfileView({
     setMechScenario("happy");
     setMechTrial(false);
     setRealtimeContext(realtimeContextFromPlan(undefined));
+    setRealtimeScenario("text");
     setRealtimeTrial(false);
   }, [record?.id]);
 
@@ -261,6 +271,14 @@ export function SystemProfileView({
         ) {
           setMechScenario(fileMedia.scenarios[0]!.kind);
         }
+        if (
+          realtime &&
+          realtime.id === "realtime-messaging" &&
+          realtime.scenarios.length &&
+          !realtime.scenarios.some((s) => s.kind === realtimeScenario)
+        ) {
+          setRealtimeScenario(realtime.scenarios[0]!.kind);
+        }
       })
       .catch(() => {
         if (!cancelled) setMechanismPlan(null);
@@ -268,7 +286,7 @@ export function SystemProfileView({
     return () => {
       cancelled = true;
     };
-  }, [record?.id, record?.profile.capabilities, loading, mechContext, realtimeContext]);
+  }, [record?.id, record?.profile.capabilities, loading, mechContext, realtimeContext, realtimeScenario]);
 
   useEffect(() => {
     setMechSaved(null);
@@ -765,6 +783,21 @@ export function SystemProfileView({
                   </p>
                   <div className="mechanism-form-grid">
                     <label className="mechanism-field">
+                      场景
+                      <select
+                        value={realtimeScenario}
+                        onChange={(e) =>
+                          setRealtimeScenario(e.target.value as RealtimeScenarioKind)
+                        }
+                      >
+                        {realtimeMechanism.scenarios.map((scenario) => (
+                          <option key={scenario.id} value={scenario.kind}>
+                            {REALTIME_SCENARIO_LABELS[scenario.kind]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="mechanism-field">
                       测试消息
                       <input
                         value={realtimeContext.text}
@@ -804,6 +837,7 @@ export function SystemProfileView({
                           ["wsUrlIncludes", "WebSocket URL 片段"],
                           ["senderActor", "发送方 actor id"],
                           ["receiverActor", "接收方 actor id"],
+                          ["messageCount", "消息条数（去重场景，2–5）"],
                         ] as const
                       ).map(([key, label]) => (
                         <label key={key} className="mechanism-field">

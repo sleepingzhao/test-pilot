@@ -98,6 +98,30 @@ test("jsonPath and equals must be satisfied by the same frame as contains", asyn
   assert.equal(number.passed, true);
 });
 
+test("maxCount passes at the upper bound and fails when too many frames match", async () => {
+  const single = [frame({ direction: "received", payload: "dup-a" })];
+  const ok = await runAssertion(
+    assertion({ direction: "received", contains: "dup-a", minCount: 1, maxCount: 1 }),
+    ctx(single),
+  );
+  assert.equal(ok.passed, true);
+  assert.equal(ok.actual, 1);
+
+  const duplicated = [
+    frame({ direction: "received", payload: "dup-a" }),
+    frame({ direction: "received", payload: "dup-a" }),
+    frame({ direction: "received", payload: "dup-b" }),
+  ];
+  const extra = await runAssertion(
+    assertion({ direction: "received", contains: "dup-a", minCount: 1, maxCount: 1 }),
+    ctx(duplicated),
+  );
+  assert.equal(extra.passed, false);
+  assert.equal(extra.errorKind, "PRODUCT_DEFECT");
+  assert.match(extra.message ?? "", /expected at most 1 matching frame/);
+  assert.match(extra.message ?? "", /saw 2/);
+});
+
 test("minCount counts frames that satisfy every condition", async () => {
   const frames = [
     frame({ direction: "received", payload: "m-1" }),
@@ -149,6 +173,10 @@ test("illegal expect values are assertion oracle errors", async () => {
     { jsonPath: "message.text" },
     { equals: "x" },
     { contains: "x", timeoutMs: 60001 },
+    { contains: "x", maxCount: 0 },
+    { contains: "x", maxCount: 1.5 },
+    { contains: "x", minCount: 3, maxCount: 2 },
+    { contains: "x", absent: true, maxCount: 1 },
   ];
   for (const expect of cases) {
     const outcome = await runAssertion(assertion(expect), ctx([]));

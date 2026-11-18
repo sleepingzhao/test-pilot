@@ -126,6 +126,7 @@ export type PublicRealtimeContext = {
   text?: string;
   senderActor?: string;
   receiverActor?: string;
+  messageCount?: number;
 };
 
 export type MechanismPlanEntry =
@@ -159,6 +160,19 @@ const DEFAULT_TEXT = "测试消息";
 const DEFAULT_SENDER = "sender";
 const DEFAULT_RECEIVER = "receiver";
 
+function readMessageCount(input: Record<string, unknown>): number | undefined {
+  const asString = readString(input, "messageCount");
+  if (asString !== undefined) {
+    const n = Number(asString);
+    if (Number.isInteger(n)) return n;
+    return Number.NaN;
+  }
+  if (typeof input.messageCount === "number" && Number.isInteger(input.messageCount)) {
+    return input.messageCount;
+  }
+  return undefined;
+}
+
 export function buildRealtimeContext(input: Record<string, unknown> = {}): RealtimeContext {
   const pagePath = readString(input, "pagePath") ?? DEFAULT_REALTIME_PAGE;
   const ctx: RealtimeContext = {
@@ -171,6 +185,8 @@ export function buildRealtimeContext(input: Record<string, unknown> = {}): Realt
     senderActor: readString(input, "senderActor") ?? DEFAULT_SENDER,
     receiverActor: readString(input, "receiverActor") ?? DEFAULT_RECEIVER,
   };
+  const messageCount = readMessageCount(input);
+  if (messageCount !== undefined) ctx.messageCount = messageCount;
   const senderLogin = readLoginSteps(input, "senderLoginSteps");
   const receiverLogin = readLoginSteps(input, "receiverLoginSteps");
   if (senderLogin) ctx.senderLoginSteps = senderLogin;
@@ -194,6 +210,7 @@ export function publicRealtimeContext(ctx: RealtimeContext): PublicRealtimeConte
   if (ctx.text) out.text = ctx.text;
   if (ctx.senderActor) out.senderActor = ctx.senderActor;
   if (ctx.receiverActor) out.receiverActor = ctx.receiverActor;
+  if (ctx.messageCount !== undefined) out.messageCount = ctx.messageCount;
   return out;
 }
 
@@ -287,6 +304,7 @@ export function realtimeScenarioIr(
 
 export const REALTIME_SCENARIO_LABELS: Record<RealtimeScenarioKind, string> = {
   text: "文本送达",
+  dedupe: "多消息去重",
 };
 
 export { PILOT_REAL_BLOCKER };

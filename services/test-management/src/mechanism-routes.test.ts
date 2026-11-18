@@ -253,7 +253,44 @@ test("GET mechanisms for realtime profile includes runnable text scenario", asyn
     };
     const realtime = body.mechanisms.find((m) => m.id === "realtime-messaging");
     assert.equal(realtime?.runnable, true);
-    assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text"]);
+    assert.deepEqual(realtime?.scenarios.map((s) => s.kind), ["text", "dedupe"]);
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("POST realtime dedupe draft saves two actors and maxCount ws assertions", async () => {
+  const { app, dataRoot, store, root } = await setupApp();
+  try {
+    await saveRecord(dataRoot, {
+      id: "detect_rt_dedupe",
+      target: "demo",
+      profile: realtimeProfile,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/mechanisms/realtime-messaging/draft",
+      payload: {
+        detectionId: "detect_rt_dedupe",
+        scenario: "dedupe",
+        context: { messageCount: "3" },
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as {
+      test: { id: string; approvalStatus: string; title: string; ir: TestIR };
+    };
+    assert.equal(body.test.approvalStatus, "draft");
+    assert.match(body.test.id, /^mechanism-realtime-dedupe-/);
+    assert.equal(body.test.title, "实时消息 · 多消息去重");
+    assert.equal(body.test.ir.actors?.length, 2);
+    assert.equal(body.test.ir.assertions.length, 12);
+    const ws = body.test.ir.assertions.filter((a) => a.type === "event");
+    assert.equal(ws.length, 6);
+    assert.ok(ws.every((a) => a.expect?.maxCount === 1));
+    const stored = await store.getTest(body.test.id);
+    assert.equal(stored?.approvalStatus, "draft");
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });
@@ -324,6 +361,18 @@ test("POST realtime draft rejects unknown detection, bad scenario, and real targ
       payload: { detectionId: "detect_rt_low", scenario: "text" },
     });
     assert.equal(blocked.statusCode, 400);
+
+    await saveRecord(dataRoot, {
+      id: "detect_rt_bad_scenario",
+      target: "demo",
+      profile: realtimeProfile,
+    });
+    const badScenario = await app.inject({
+      method: "POST",
+      url: "/api/mechanisms/realtime-messaging/draft",
+      payload: { detectionId: "detect_rt_bad_scenario", scenario: "image" },
+    });
+    assert.equal(badScenario.statusCode, 400);
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });

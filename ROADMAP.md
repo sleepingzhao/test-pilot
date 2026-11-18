@@ -22,7 +22,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 
 **当前方向：Web 业务系统优先。** 先把「测试人员安全接入一个业务系统 → 生成/审阅用例 → 跑出可信证据 → 清理测试数据」做通。移动端、CI、多项目/RBAC、平台化暂不投入；实时与 Agent 在业务接入闭环之后继续。
 
-**V7-4a realtime 文本送达机制包已验收（2026-11-18）。** `planRealtimeMessaging` 双 actor + WS/UI 断言；画像 `GET …/mechanisms` 与 `POST /api/mechanisms/realtime-messaging/draft`；控制台「实时消息」机制卡片；demo 首页链到 `/chat`。**下一开工：** V7-4b（图片/超长/重连/顺序/去重）；录制期 actor 选择、`waitForEvent` 跨 actor 仍后置。
+**V7-4a realtime 文本送达机制包已验收（2026-11-18）。** `planRealtimeMessaging` 双 actor + WS/UI 断言；画像 `GET …/mechanisms` 与 `POST /api/mechanisms/realtime-messaging/draft`；控制台「实时消息」机制卡片；demo 首页链到 `/chat`。**V7-4b1 多消息去重已验收（2026-11-18）。** `dedupe` 场景 + `ws` 断言 `maxCount`；**下一开工：** V7-4b 余项（图片/超长/重连/严格顺序）；录制期 actor 选择、`waitForEvent` 跨 actor 仍后置。
 
 **本阶段要证明的事：** 一条业务系统的正常功能回归，可以被人审阅、能在失败时给出证据、能在通过后不留下脏数据。
 
@@ -53,7 +53,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 ### 未完成 / 明确后置
 
 - **P0（V0.7.5）**：机制包接线、WS 证据入口、OpenAPI 导入（V7-0i 已完成）。
-- **P1**：~~多账号核心（V7-2a / V7-2b 控制台）~~、~~realtime 文本机制包（V7-4a）~~、~~SSE 证据（V7-1b）~~、~~生成期视觉定位（V7-9b）~~ 已完成；**V7-4b**（图片/重连/顺序/去重）、**录制期多账号 UI** 仍待做。
+- **P1**：~~多账号核心（V7-2a / V7-2b 控制台）~~、~~realtime 文本机制包（V7-4a）~~、~~SSE 证据（V7-1b）~~、~~生成期视觉定位（V7-9b）~~、~~realtime 去重（V7-4b1）~~ 已完成；**V7-4b**（图片/超长/重连/严格顺序）、**录制期多账号 UI** 仍待做。
 - **P2**：Agent 语义断言与 `llm-judge`、风险分析、主动探索、探索模式视觉判定（V7-9c，不进门禁）。
 - **后置**：Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
 
@@ -99,7 +99,7 @@ v0.2 是架构草案，功能面铺得宽，但没有回答三个问题：什么
 | API 直连 | 可用（V7-0） | `request` 步骤、登录 Cookie 复用、`{{runId}}` / `{{var}}` / `{{env.KEY}}`、`saveAs` / `saveFields`、`stepRef` 断言；控制台「接口测试」生成草稿并试跑 |
 | 文件/媒体 | 可用（V7-5） | `upload` 步骤 + fixture 目录约束；demo `/files`；`planFileMedia` 生成正常/类型/大小场景；负向故障注入 |
 | 测试数据清理 | 可用（V7-7） | `policy.cleanup` + `teardownSteps`；通过/失败都清理；清理失败单独标记 `TEST_DATA`；控制台审阅/运行详情/接口模式均可配置 |
-| 实时/富媒体证据 | 部分（V7-1a / V7-1b / V7-2a / V7-2b / V7-3a / V7-4a / V7-6a） | WS 收发帧、`ws.json`、`ws` 断言、demo `/chat`；SSE `sse.json`；**多 context 执行（V7-2a）**；**审阅/运行详情多账号（V7-2b）**；**realtime 文本机制包（V7-4a）**；录制 actor 选择；图片/重连/顺序/去重（V7-4b）未做 |
+| 实时/富媒体证据 | 部分（V7-1a / V7-1b / V7-2a / V7-2b / V7-3a / V7-4a / V7-4b1 / V7-6a） | WS 收发帧、`ws.json`、`ws` 断言（含 `maxCount`）、demo `/chat`；SSE `sse.json`；**多 context 执行（V7-2a）**；**审阅/运行详情多账号（V7-2b）**；**realtime 文本 + 去重机制包（V7-4a / V7-4b1）**；录制 actor 选择；图片/超长/重连/严格顺序（V7-4b）未做 |
 | Agent 语义断言 | 部分（V0.8） | OTel trace 工具调用断言已有；无幻觉 rubric / LLM judge |
 | 管理 API | 文件存储 | 安全边界已加固；本机无登录；无数据库 |
 | 试点用例 | 16 条已批准（15 demo + 1 pilot） | 弱断言 0；`pilot-ticket-submit-success` 仍须在真实试点校对后批准 |
@@ -506,7 +506,8 @@ interface MechanismPack {
 - [x] V7-2a 多账号执行（核心，2026-11-18）— IR `actors` + `step.actor` / `assertion.actor`；schema/语义校验（未知 actor、重复 id、无 actors 时 actor 字段报错、teardown 禁止 actor）；runner 单 browser 多 context、loginSteps、按 actor 证据 `artifacts/<runId>/actors/<id>/`；`RunResult.actorMode: "single" | "multi"`；teardown 仍仅 primary；`multi-actor.test.ts`；`pnpm --filter @testpilot/test-ir test`、`pnpm --filter @testpilot/runner-web test`、`pnpm verify` 全绿
 - [x] V7-2b 多账号控制台（审阅/运行详情，2026-11-18）— `ActorsReviewPanel` actors JSON 保存；步骤 actor 徽章；运行详情 `actorMode` + 账号证据 `actors/<id>/` 链接；`isSafeArtifactRelativePath` + `security.test.ts` 嵌套证据；`run-detail-evidence.test.ts`；**未做：** 录制 actor 选择、`waitForEvent` 跨 actor；浏览器：未在控制台跑通全新多账号 trial（UI 以 seeded run + 单元测试佐证）；`pnpm verify` 全绿
 - [x] V7-4a realtime-messaging 机制包 · 文本送达（2026-11-18）— `packages/mechanisms/src/realtime.ts` `planRealtimeMessaging`（sender/receiver actors、4 断言、V7-4b blocker）；`realtime.test.ts`；`mechanisms.ts` 多机制响应 + `POST /api/mechanisms/realtime-messaging/draft`；`mechanism-routes.test.ts`；控制台 `SystemProfileView` 实时消息卡片；demo `index.html` → `/chat` + `chat.test.mjs`；`pnpm verify` 全绿
-- [ ] V7-4b realtime-messaging — 图片、超长、重连、顺序、去重
+- [x] V7-4b1 realtime-messaging · 多消息去重（2026-11-18）— `ws` 断言 `maxCount`（`ws.ts`/`ws.test.ts`）；`planRealtimeMessaging` `dedupe` 场景（`realtime-messaging-dedupe`、每消息 `minCount`/`maxCount` 1）；`REALTIME_V7_4B_BLOCKER` 仅列图片/超长/重连/严格顺序；`POST …/realtime-messaging/draft` `dedupe` + `messageCount`；控制台场景选择与消息条数；`pnpm verify` 全绿
+- [ ] V7-4b realtime-messaging — 图片、超长、重连、严格顺序
 - [x] V7-9b 生成期视觉定位建议（2026-11-18）— 录制 `POST …/locate` + 控制台 AI 定位；确定性 css 写入由人手抄；运行时零模型；默认关闭；证据见 §0.1 V7-9b
 
 **第二批：文件/媒体（接口直连验收后）**
@@ -521,7 +522,7 @@ interface MechanismPack {
 **第一波：WS 管道（先做，单页面即可验证）**
 
 - [x] V7-1a WS 帧证据 — 用 Playwright `page.on("websocket")` 采集 framesent/framereceived：方向、URL、大小、前 N 条 payload；单条截断、总数上限；`ws.json` 可下载；Authorization/Cookie 等敏感内容按现有规则脱敏（`ws-frames.test.ts`：收发方向、4500 截断到 4000、超过 200 帧丢弃并写入 note、token/email/password 不落盘；`network.json` 仍是数组；2026-11-10）
-- [x] V7-3a `ws` 断言 Provider — `type: "event"` + `provider: "ws"`；expect 支持 `urlIncludes`、`direction`、`contains`、`regex`、`jsonPath` + `equals`、`minCount`、`absent`、`timeoutMs`（`ws.test.ts`：同一帧命中/不命中、direction、regex、jsonPath、minCount、absent、超时为 PRODUCT_DEFECT、非法 expect 为 ASSERTION_ORACLE；阻断广播的负向探针在 V7-6a；2026-11-10）
+- [x] V7-3a `ws` 断言 Provider — `type: "event"` + `provider: "ws"`；expect 支持 `urlIncludes`、`direction`、`contains`、`regex`、`jsonPath` + `equals`、`minCount`、`maxCount`（V7-4b1）、`absent`、`timeoutMs`（`ws.test.ts`：同一帧命中/不命中、direction、regex、jsonPath、minCount、maxCount、absent、超时为 PRODUCT_DEFECT、非法 expect 为 ASSERTION_ORACLE；阻断广播的负向探针在 V7-6a；2026-11-10）
 - [x] V7-6a demo `/chat` + 集成验证 — `examples/demo-webapp` 加 `/chat`（消息列表/输入框/发送按钮）与 `/ws/chat` 广播；`DEMO_CHAT_DROP=1` 与 `?drop=1` 只丢弃广播；runner 集成：发送 → 出站帧 + 入站帧 + 页面文案；drop 时 received 为 PRODUCT_DEFECT；`pnpm negative-probes` 5 个 provider；`pnpm verify` 全绿（2026-11-10）
 
 **第二波：多账号与 realtime 机制包（V0.7.5 之后）**

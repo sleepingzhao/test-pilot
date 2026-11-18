@@ -35,7 +35,7 @@ test("runnable text plan validates IR and uses default actors and expectations",
   const plan = planRealtimeMessaging(ready, baseCtx);
   assert.equal(plan.runnable, true);
   assert.ok(plan.blockers.includes(REALTIME_V7_4B_BLOCKER));
-  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text"]);
+  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text", "dedupe"]);
   const scenario = plan.scenarios[0]!;
   assert.equal(scenario.id, "text");
   assert.deepEqual(scenario.ir.actors?.map((a) => a.id), ["sender", "receiver"]);
@@ -112,6 +112,48 @@ test("login steps cannot carry actor", () => {
   });
   assert.equal(plan.runnable, false);
   assert.match(plan.blockers.join("\n"), /不能设置 actor/);
+});
+
+test("dedupe scenario validates with maxCount 1 on ws assertions", () => {
+  const plan = planRealtimeMessaging(ready, baseCtx);
+  const dedupe = plan.scenarios.find((s) => s.kind === "dedupe");
+  assert.ok(dedupe);
+  assert.equal(dedupe!.ir.id, "realtime-messaging-dedupe");
+  assert.equal(dedupe!.ir.steps[0]?.id, "wait-composer");
+  assert.deepEqual(
+    dedupe!.ir.steps.filter((s) => s.action === "fill").map((s) => s.id),
+    ["fill-1", "fill-2", "fill-3"],
+  );
+  assert.deepEqual(
+    dedupe!.ir.steps.filter((s) => s.action === "click").map((s) => s.id),
+    ["send-1", "send-2", "send-3"],
+  );
+  assert.equal(dedupe!.ir.steps.at(-1)?.id, "wait-list");
+  assert.equal(dedupe!.ir.assertions.length, 12);
+  const wsAssertions = dedupe!.ir.assertions.filter((a) => a.type === "event");
+  assert.equal(wsAssertions.length, 6);
+  assert.ok(wsAssertions.every((a) => a.expect?.minCount === 1 && a.expect?.maxCount === 1));
+  assert.equal(wsAssertions.find((a) => a.id === "ws-received-1")?.expect?.contains, "测试消息-1");
+
+  const validated = validateTestIR(dedupe!.ir);
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? {} : validated.issues));
+  if (validated.ok) assert.deepEqual(validateSemantics(validated.value), []);
+  assert.deepEqual(validateAssertionProviders(dedupe!.ir), []);
+});
+
+test("dedupe messageCount 2 adjusts steps and assertion counts", () => {
+  const plan = planRealtimeMessaging(ready, { messageCount: 2 });
+  const dedupe = plan.scenarios.find((s) => s.kind === "dedupe");
+  assert.ok(dedupe);
+  assert.equal(dedupe!.ir.steps.filter((s) => s.action === "fill").length, 2);
+  assert.equal(dedupe!.ir.assertions.length, 8);
+  assert.equal(dedupe!.ir.steps.find((s) => s.id === "fill-2")?.value, "测试消息-2");
+});
+
+test("invalid messageCount omits dedupe scenario and adds blocker", () => {
+  const plan = planRealtimeMessaging(ready, { messageCount: 99 });
+  assert.deepEqual(plan.scenarios.map((s) => s.kind), ["text"]);
+  assert.match(plan.blockers.join("\n"), /messageCount/);
 });
 
 test("custom login steps without actor are used as-is", () => {

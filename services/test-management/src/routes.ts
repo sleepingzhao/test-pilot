@@ -1626,7 +1626,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
     const project = store.project();
     const slug = randomUUID().slice(0, 8);
-    const testId = `mechanism-realtime-text-${slug}`;
+    const testIdPrefix = scenario === "dedupe" ? "mechanism-realtime-dedupe" : "mechanism-realtime-text";
+    const testId = `${testIdPrefix}-${slug}`;
     if (!isSafeTestId(testId)) {
       return reply.code(500).send({ error: "无法生成安全的用例 id" });
     }

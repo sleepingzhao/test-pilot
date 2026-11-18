@@ -149,11 +149,11 @@ Agent 工作边界见 [`AGENTS.md`](AGENTS.md)，执行计划见 [`ROADMAP.md`](
 | Management API | `services/test-management` |
 | Demo + 种子用例 | `examples/demo-webapp` |
 
-当前进度见 [ROADMAP.md](ROADMAP.md) §0.1：业务接口直连、文件/媒体机制、**realtime 六场景机制包（V7-4a–V7-4b5：text/dedupe/oversize/order/image/reconnect；重连为 demo `dropAfter`/`reconnect` 模拟）**、WS 证据与运行详情 WS 帧入口（V7-6b）、SSE 证据 `sse.json`（V7-1b）、**多账号多 context 执行（V7-2a）与控制台审阅/运行详情多账号（V7-2b）**、测试数据清理（V7-7）、命名 API 环境（V7-0f）、cURL / OpenAPI 导入、接口用例审阅编辑（V7-0g）、步骤截图时间线（V7-9a）、画像机制接线（V7-5e）、生成期录制 AI 定位（V7-9b，默认关闭）、探索期录制 AI 观察（V7-9c，默认关闭、非回归门禁）已完成；下一步 P1 录制期 actor 选择。
+当前进度见 [ROADMAP.md](ROADMAP.md)：业务接入、实时六场景、SSE/WS 证据、多账号执行与审阅、测试数据清理、OpenAPI/cURL 导入、步骤截图、录制期 AI 定位与探索期 AI 观察均已完成。下一步是 **V7-12 生产只读接入**：真实环境登录、只读门禁、证据策略与只读回归模板。
 
 视觉能力边界见 [ADR-011](docs/adr/ADR-011-midscene-visual-assist.md)：视觉只用于生成期定位建议与证据；已批准的回归保持零 LLM。DeepSeek Flash 已支持图像理解，可作为视觉模型候选。
 
-高级用户仍可用 `pnpm cli run …`（见 `ROADMAP.md` 附录）。
+高级用户仍可用 `pnpm cli run …`（见 `ROADMAP.md` 常用命令）。
 
 提交前自检（唯一硬门槛，无自动 CI）：
 

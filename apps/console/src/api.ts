@@ -19,6 +19,46 @@ export type DetectionRecord = {
   profile: SystemProfile;
 };
 
+export type RiskCategory =
+  | "data-lifecycle"
+  | "authz"
+  | "money-order"
+  | "realtime"
+  | "concurrency"
+  | "validation"
+  | "privacy"
+  | "reliability"
+  | "compatibility"
+  | "coverage";
+
+export type RiskItem = {
+  id: string;
+  title: string;
+  category: RiskCategory;
+  severity: "high" | "medium" | "low";
+  confidence: number;
+  capabilityIds: string[];
+  evidenceRefs: string[];
+  assumption?: true;
+  testIdeas: string[];
+  missingInfo: string[];
+  suggestedMechanism?: "file-media" | "realtime-messaging" | "api" | "ui" | "none";
+};
+
+export type RiskReport = {
+  id: string;
+  detectionId: string;
+  createdAt: string;
+  inputHash: string;
+  source: "rules" | "rules+llm";
+  model?: string;
+  tokensUsed?: number;
+  risks: RiskItem[];
+  blockers: string[];
+  questions: string[];
+  llm?: { used: boolean; error?: string };
+};
+
 export type FileMediaScenarioKind = "happy" | "invalid-type" | "oversize";
 
 export type RealtimeScenarioKind = "text" | "dedupe" | "oversize" | "order" | "image" | "reconnect";

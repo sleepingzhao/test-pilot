@@ -1511,7 +1511,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
           const { parsed, tokensUsed } = await chatCompletionsJson(config, {
             system,
             user,
-            maxOutputTokens: 2_000,
+            maxOutputTokens: 3_500,
           });
           return { parsed, tokensUsed };
         },

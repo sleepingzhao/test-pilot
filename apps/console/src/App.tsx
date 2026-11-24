@@ -144,6 +144,11 @@ export function App() {
   const [createTitle, setCreateTitle] = useState("");
   const [createUrl, setCreateUrl] = useState("");
   const [createMode, setCreateMode] = useState<"requirement" | "api">("requirement");
+  const [createPrefill, setCreatePrefill] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (view !== "create" && createPrefill) setCreatePrefill(null);
+  }, [view, createPrefill]);
   const [recordJob, setRecordJob] = useState<string | null>(null);
   const [locateInstruction, setLocateInstruction] = useState("");
   const [locateBusy, setLocateBusy] = useState(false);
@@ -1683,6 +1688,8 @@ export function App() {
             </div>
             {createMode === "requirement" ? (
               <RequirementFlowView
+                key={`create-${createPrefill ?? "blank"}`}
+                initialText={createPrefill ?? undefined}
                 demoUrl={demoUrl}
                 demoReachable={demoOk}
                 pilotReachable={pilotOk}
@@ -1870,6 +1877,14 @@ export function App() {
             realReachable={realOk}
             realSecretsConfigured={realSecrets}
             onOpenReview={(testId) => void openReviewById(testId)}
+            onCreateDraftFromRisk={(risk) => {
+              setCreatePrefill(
+                [risk.title, risk.testIdeas[0] ?? "", risk.missingInfo[0] ?? ""]
+                  .filter(Boolean)
+                  .join("；"),
+              );
+              setView("create");
+            }}
             onRefresh={() => void refresh()}
           />
         )}

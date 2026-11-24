@@ -485,7 +485,7 @@ export async function enrichRiskReportWithLlm(
   const known = new Set(profile.capabilities.map((cap) => cap.id));
   const system = [
     "You are a senior QA risk analyst.",
-    "Return ONE JSON object: {\"risks\": [...]} with at most 12 items.",
+    "Return ONE JSON object: {\"risks\": [...]} with at most 10 items.",
     "Each item: title (<=120 chars), category (data-lifecycle|authz|money-order|realtime|concurrency|validation|privacy|reliability|compatibility|coverage), severity (high|medium|low), confidence (0..1), capabilityIds (subset of the given ids), testIdeas (<=5, each <=160 chars), missingInfo (<=5), optional suggestedMechanism (file-media|realtime-messaging|api|ui|none).",
     "Only propose risks grounded in the given capabilities, signals, and unknowns. Do not repeat existingRules. Do not lower their severity. No prose outside JSON.",
   ].join("\n");

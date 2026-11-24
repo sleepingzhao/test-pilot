@@ -31,6 +31,8 @@ type Props = {
   onOpenRun: (runId: string) => void;
   onOpenReview: (testId: string) => void;
   onOpenProfile: () => void;
+  /** Prefill from a risk-report suggestion; the user still reviews and submits. */
+  initialText?: string;
 };
 
 export function RequirementFlowView({
@@ -42,9 +44,10 @@ export function RequirementFlowView({
   onOpenRun,
   onOpenReview,
   onOpenProfile,
+  initialText,
 }: Props) {
   const [title, setTitle] = useState("");
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText ?? "");
   const [target, setTarget] = useState<Target>("demo");
   const [customUrl, setCustomUrl] = useState("");
   const [detected, setDetected] = useState<DetectionRecord | null>(null);

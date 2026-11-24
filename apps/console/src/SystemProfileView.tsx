@@ -7,6 +7,9 @@ import {
   type FileMediaScenarioKind,
   type MechanismPlanResponse,
   type RealtimeScenarioKind,
+  type RiskCategory,
+  type RiskItem,
+  type RiskReport,
   type StoredTest,
 } from "./api";
 import { CAPABILITY_LABELS, REQUIREMENT_LABELS, SIGNAL_LABELS } from "./capabilityLabels";
@@ -20,8 +23,24 @@ type Props = {
   realReachable: boolean | null;
   realSecretsConfigured: boolean | null;
   onOpenReview: (testId: string) => void;
+  onCreateDraftFromRisk?: (risk: RiskItem) => void;
   onRefresh?: () => void;
 };
+
+const RISK_CATEGORY_LABELS: Record<RiskCategory, string> = {
+  "data-lifecycle": "数据生命周期",
+  authz: "权限",
+  "money-order": "金额/订单",
+  realtime: "实时",
+  concurrency: "并发",
+  validation: "校验",
+  privacy: "隐私",
+  reliability: "可靠性",
+  compatibility: "兼容性",
+  coverage: "覆盖",
+};
+
+const RISK_SEVERITY_LABELS = { high: "高", medium: "中", low: "低" } as const;
 
 const SCENARIO_LABELS: Record<FileMediaScenarioKind, string> = {
   happy: "正常上传",
@@ -186,6 +205,7 @@ export function SystemProfileView({
   realReachable,
   realSecretsConfigured,
   onOpenReview,
+  onCreateDraftFromRisk,
   onRefresh,
 }: Props) {
   const [target, setTarget] = useState<DetectionTarget>("demo");
@@ -212,6 +232,38 @@ export function SystemProfileView({
   const [realtimeSaving, setRealtimeSaving] = useState(false);
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
   const [realtimeSaved, setRealtimeSaved] = useState<{ title: string; testId: string } | null>(null);
+  const [risk, setRisk] = useState<RiskReport | null>(null);
+  const [riskLoading, setRiskLoading] = useState(false);
+  const [riskError, setRiskError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRisk(null);
+    setRiskError(null);
+    const detectionId = record?.id;
+    if (!detectionId) return;
+    let cancelled = false;
+    api<RiskReport>(`/api/detect/${detectionId}/risk-report`)
+      .then((report) => {
+        if (!cancelled) setRisk(report);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [record?.id]);
+
+  const generateRiskReport = async () => {
+    if (!record) return;
+    setRiskLoading(true);
+    setRiskError(null);
+    try {
+      setRisk(await api<RiskReport>(`/api/detect/${record.id}/risk-report`, { method: "POST" }));
+    } catch (err) {
+      setRiskError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRiskLoading(false);
+    }
+  };
 
   const loadRecent = async () => {
     try {
@@ -915,6 +967,77 @@ export function SystemProfileView({
               {realtimeError ? <p className="diagnose-msg">{realtimeError}</p> : null}
             </div>
           ) : null}
+
+          <div className="card-panel risk-panel">
+            <header className="mechanism-card-header">
+              <h3>风险与缺口</h3>
+              <button
+                type="button"
+                className="btn-small"
+                disabled={riskLoading}
+                onClick={() => void generateRiskReport()}
+              >
+                {riskLoading ? "分析中…" : risk ? "重新分析" : "生成分析"}
+              </button>
+            </header>
+            <p className="stat-note">规则优先，LLM 仅补充建议；不参与批准与门禁。</p>
+            {riskError ? <p className="diagnose-msg">{riskError}</p> : null}
+            {risk ? (
+              <>
+                <p className="stat-note">
+                  来源：{risk.source === "rules+llm" ? "规则 + LLM" : "规则"}
+                  {risk.model ? ` · ${risk.model}` : ""}
+                  {risk.tokensUsed ? ` · ${risk.tokensUsed} tokens` : ""} · {risk.risks.length} 条风险
+                  {risk.llm?.error ? ` · LLM 失败：${risk.llm.error}` : ""}
+                </p>
+                {risk.blockers.length > 0 ? (
+                  <ul className="risk-blockers">
+                    {risk.blockers.map((blocker) => (
+                      <li key={blocker}>{blocker}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {risk.risks.length === 0 ? (
+                  <p className="stat-note">当前没有需要提示的风险。</p>
+                ) : (
+                  <ul className="risk-list">
+                    {risk.risks.map((item) => (
+                      <li key={item.id} className={`risk-item risk-${item.severity}`}>
+                        <div className="risk-item-head">
+                          <span className={`badge ${item.severity === "high" ? "weak" : item.severity === "medium" ? "warn" : "subtle"}`}>
+                            {RISK_SEVERITY_LABELS[item.severity]}
+                          </span>
+                          <strong>{item.title}</strong>
+                          {item.assumption ? <span className="badge subtle">假设</span> : null}
+                        </div>
+                        <p className="stat-note">
+                          {RISK_CATEGORY_LABELS[item.category]} · 能力 {item.capabilityIds.join(" / ") || "—"} · 证据{" "}
+                          {item.evidenceRefs.length}
+                        </p>
+                        {item.testIdeas.length > 0 ? (
+                          <ul className="risk-ideas">
+                            {item.testIdeas.map((idea) => (
+                              <li key={idea}>{idea}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        {item.missingInfo.length > 0 ? (
+                          <p className="stat-note">待确认：{item.missingInfo.join("；")}</p>
+                        ) : null}
+                        {onCreateDraftFromRisk ? (
+                          <button type="button" className="link-button" onClick={() => onCreateDraftFromRisk(item)}>
+                            创建草稿
+                          </button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : (
+              <p className="stat-note">尚无风险报告，点击「生成分析」。</p>
+            )}
+          </div>
 
           {questionCount > 0 ? (
             <div className="card-panel">

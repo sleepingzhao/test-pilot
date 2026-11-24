@@ -507,6 +507,18 @@ type ActorSession = {
   evidence: ReturnType<typeof createEvidenceCollector>;
 };
 
+/** Render {{runId}} in assertion text so a run-unique marker can be asserted. */
+function renderAssertionRunId<T extends { contains?: string; target?: { name?: string } }>(assertion: T, runId: string): T {
+  const contains = assertion.contains?.replace(/\{\{runId\}\}/g, runId);
+  const name = assertion.target?.name?.replace(/\{\{runId\}\}/g, runId);
+  if (contains === assertion.contains && name === assertion.target?.name) return assertion;
+  return {
+    ...assertion,
+    ...(contains !== undefined ? { contains } : {}),
+    ...(assertion.target && name !== undefined ? { target: { ...assertion.target, name } } : {}),
+  };
+}
+
 function lookupActorSession(sessions: Map<string, ActorSession>, actorId: string): ActorSession | undefined {
   return sessions.get(actorId);
 }
@@ -930,7 +942,9 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
           traces: traceClient,
           resolveAgentConfig: (ref: string) => getAgentConfigBundle(ref),
         };
-        const outcome = redactAssertionForEvidence(await runAssertion(assertion, assertionCtx));
+        const outcome = redactAssertionForEvidence(
+          await runAssertion(renderAssertionRunId(assertion, runId), assertionCtx),
+        );
         assertionResults.push(outcome);
         if (!outcome.passed) {
           status = "failed";

@@ -34,7 +34,7 @@ pnpm start     # 生产式单端口：http://127.0.0.1:8787（API 托管控制�
 - **可信回归**：Test IR 是唯一契约；批准绑定 IR hash 与断言配置 hash；已批准回归不调用模型。
 - **质量门禁**：弱断言、占位断言、Provider 校验不通过不能批准；UI 断言支持 `notContains`（需搭配 `contains`/`target`）；自动审批可开，但不放宽门禁。
 - **证据**：步骤截图、network、WebSocket、SSE、Trace；运行详情可下载（真实环境自动脱敏，见下）。
-- **多账号**：IR `actors` 多上下文执行，真实环境按 `primary` / `alt` 分别登录；录制时可选多账号，登录步骤写入 IR；`waitForEvent` 可等待另一 actor 的 WS/SSE 事件。
+- **多账号**：IR `actors` 多上下文执行，真实环境按 `primary` / `alt` 分别登录；录制时可选多账号，登录步骤写入 IR；`waitForEvent` 可等待另一 actor 的 WS/SSE 事件；真实双账号互发消息已验证。
 - **测试数据清理**：`policy.cleanup` + `teardownSteps`，失败也按策略清理。
 - **系统画像**：规则 + LLM 识别能力与未知项；真实环境只做只读画像。
 - **风险与缺口**：规则报告 + 可选 LLM 增强（分层取材、严格 JSON、去重、失败回退），存 `data/risk-reports/`。
@@ -47,6 +47,7 @@ pnpm start     # 生产式单端口：http://127.0.0.1:8787（API 托管控制�
 - 真实环境默认**只读**：写请求、上传、WS 发送会被阻止；只有 IR `policy.allowMutation: true` 才放行（高风险）。
 - 真实运行不落截图 / Trace，network / WS / SSE 不落正文与 query，断言仍使用内存中的实时数据。
 - 只读回归模板已跑通：9 条真实用例（通讯录列表/部门筛选/详情/搜索过滤、任务、文档、提醒事项、会议），本地批次 9/9 通过（用例在本地 `data/`，不随仓库分发），运行均为只读且证据脱敏。
+- 双账号消息已验证：两个真实账号同时在线互发一条带 `runId` 的消息，双端断言；该用例显式 `policy.allowMutation: true`，每轮会发送一条消息（前置：两账号已有会话）。
 
 ## 配置与安全
 

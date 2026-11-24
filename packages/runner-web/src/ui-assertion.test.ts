@@ -67,6 +67,21 @@ test("ui assertion requires text to be present and absent together", async () =>
   }
 });
 
+test("ui assertion target resolves by visible text name", async () => {
+  const srv = server();
+  const port = await listen(srv);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const run = await runTestIR(
+      ir(baseUrl, [{ id: "member", type: "ui", target: { name: "陈佳行" }, oracle: "human-approved" }]),
+      { env: { baseUrl }, headless: true, artifactsDir: await mkdtemp(join(tmpdir(), "tp-ui-name-")) },
+    );
+    assert.equal(run.status, "passed", JSON.stringify(run.assertions));
+  } finally {
+    await new Promise<void>((resolve) => srv.close(() => resolve()));
+  }
+});
+
 test("ui assertion can wait for text to disappear after a filter", async () => {
   const srv = server();
   const port = await listen(srv);
@@ -86,6 +101,39 @@ test("ui assertion can wait for text to disappear after a filter", async () => {
     );
     assert.equal(run.status, "passed", JSON.stringify(run.assertions));
     assert.equal(run.assertions[0]?.passed, true);
+  } finally {
+    await new Promise<void>((resolve) => srv.close(() => resolve()));
+  }
+});
+
+test("assertion targets render {{runId}} so a run-unique marker can be asserted", async () => {
+  const srv = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(`<!doctype html><body>
+      <h1>模板夹具</h1>
+      <input id="marker" />
+      <div id="echo"></div>
+      <script>
+        document.getElementById("marker").addEventListener("input", (event) => {
+          document.getElementById("echo").textContent = event.target.value;
+        });
+      </script>
+    </body>`);
+  });
+  const port = await listen(srv);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const run = await runTestIR(
+      {
+        ...ir(baseUrl, [{ id: "echo", type: "ui", target: { name: "M-{{runId}}" }, oracle: "human-approved" }]),
+        steps: [
+          { id: "open", action: "navigate", path: "/" },
+          { id: "type", action: "fill", target: { css: "#marker" }, value: "M-{{runId}}" },
+        ],
+      },
+      { env: { baseUrl }, headless: true, artifactsDir: await mkdtemp(join(tmpdir(), "tp-ui-runid-")) },
+    );
+    assert.equal(run.status, "passed", JSON.stringify(run.assertions));
   } finally {
     await new Promise<void>((resolve) => srv.close(() => resolve()));
   }

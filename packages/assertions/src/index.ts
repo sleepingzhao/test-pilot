@@ -92,6 +92,7 @@ export async function runUiAssertion(
         return t.name
           ? root.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name, exact: true })
           : root.getByRole(t.role as Parameters<Page["getByRole"]>[0]);
+      if (t.name) return root.getByText(t.name, { exact: false });
       if (t.label) return root.getByLabel(t.label);
       if (t.placeholder) return root.getByPlaceholder(t.placeholder);
       if (t.css) return root.locator(t.css);
@@ -102,12 +103,12 @@ export async function runUiAssertion(
       (!assertion.notContains || !text.includes(assertion.notContains));
 
     if (assertion.target && !assertion.contains && !assertion.notContains) {
-      await findTarget(assertion.target).waitFor({ state: "visible", timeout: 10_000 });
+      await findTarget(assertion.target).first().waitFor({ state: "visible", timeout: 10_000 });
       return { assertionId: id, passed: true, expected: "visible", actual: "visible" };
     }
 
     if (assertion.target) {
-      const el = findTarget(assertion.target);
+      const el = findTarget(assertion.target).first();
       await el.waitFor({ state: "visible", timeout: 10_000 });
       const deadline = Date.now() + uiAssertTimeoutMs();
       let text = await el.innerText().catch(() => "");

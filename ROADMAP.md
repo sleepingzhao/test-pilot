@@ -16,12 +16,13 @@
 - 自动审批：`TESTPILOT_AUTO_APPROVE=1` 时，草稿试跑通过且强断言门禁通过后自动批准（`approvedBy: auto:testpilot` + 审计），弱断言/占位断言仍留草稿
 - 双账号真实登录：`actors[].account`（`primary`/`alt`），每个 actor 用对应 `TESTPILOT_ENV_REAL_*` / `_ALT_*` 登录；登录失败标注 actor
 - 真实只读回归：9 条 `real-*` 用例（通讯录列表/部门筛选/详情/搜索过滤、任务、文档、提醒事项列表/已完成筛选、会议首页），批次 9/9 通过
+- 双账号消息：真实环境两个账号同时在线互发一条带 `runId` 的消息并双端断言（`allowMutation` 显式开启，每轮发送一条；前置：两账号已有会话）
 - 风险报告：规则基线 + 持久化 + API（V7-10a），LLM 增强与回退（V7-10b），控制台面板与创建草稿入口（V7-10c）
 - 录制多账号：录制表单配置 actor，登录步骤写入 IR（V7-2c）
 - 跨 actor 事件等待：`waitForEvent` 等待另一 actor 的 WS/SSE 事件（V7-2d）
 - 主动探索：未访问页面、覆盖缺口与未知项建议（V7-13），只建议不自动执行
 
-**本地基线：** 27 条已批准用例（17 demo + 1 pilot + 9 真实只读；10 条自动批准，均在本地 `data/`，不随仓库分发）、5 个断言 Provider、`pnpm verify` 全绿。
+**本地基线：** 28 条已批准用例（17 demo + 1 pilot + 9 真实只读 + 1 双账号消息；11 条自动批准，均在本地 `data/`，不随仓库分发）、5 个断言 Provider、`pnpm verify` 全绿。
 
 ## 1. 红线
 
@@ -46,7 +47,7 @@
 
 4. [x] **V7-12d 只读回归模板（P0）**
    登录 → 列表 → 搜索 → 筛选 → 详情，5–8 条已批准用例；批量跑通；生产只跑只读。
-   _证据（本地 `data/`，不随仓库分发）：9 条 `real-*` 用例（含搜索过滤）全部 `baseUrlRef: "real-env"`，运行均为 `readOnly` + `realTarget`；批次 8/8、8/8、9/9 连续通过（`batch_mwusbfk1_81b95be0`、`batch_mwusdydu_008f6407`、`batch_mwutcmqw_ff9ff717`），自动审批审计 `auto:testpilot`；证据无截图/Trace，network/WS/SSE 无正文与 query。支撑改动：IR/断言 `frame` iframe 支持、UI 断言 `notContains`（搜索后证明成员被过滤，单独使用会被弱断言门禁拒绝）、`runOptionsFor` 解析 IR `baseUrlRef`（此前误用 demo 回退）、批次显式 `testIds`、企业账号登录切换重试。_
+   _证据（本地 `data/`，不随仓库分发）：9 条 `real-*` 用例（含搜索过滤）全部 `baseUrlRef: "real-env"`，运行均为 `readOnly` + `realTarget`；批次 8/8、8/8、9/9、10/10 连续通过（`batch_mwusbfk1_81b95be0`、`batch_mwusdydu_008f6407`、`batch_mwutcmqw_ff9ff717`、`batch_mwuuiggz_fb192b62`，最后一批含双账号消息用例），自动审批审计 `auto:testpilot`；证据无截图/Trace，network/WS/SSE 无正文与 query。支撑改动：IR/断言 `frame` iframe 支持、UI 断言 `notContains`（搜索后证明成员被过滤，单独使用会被弱断言门禁拒绝）、`runOptionsFor` 解析 IR `baseUrlRef`（此前误用 demo 回退）、批次显式 `testIds`、企业账号登录切换重试。_
 
 5. [x] **V7-10a 风险报告规则基线（P1）**
    RiskReport + 8 条规则 + `data/risk-reports/`；无 LLM 也能用；正反测试。

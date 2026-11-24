@@ -484,6 +484,21 @@ test("accepts valid two-actor IR", () => {
   if (result.ok) assert.deepEqual(validateSemantics(result.value), []);
 });
 
+test("accepts a URL assertion without text or target", () => {
+  const result = validateTestIR({
+    id: "url-only",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    assertions: [{ id: "routed", type: "ui", urlIncludes: "/micro/chat", oracle: "human-approved" }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.deepEqual(weakAssertionIssues(result.value), []);
+    assert.deepEqual(validateSemantics(result.value), []);
+  }
+});
+
 test("notContains is accepted with a positive assertion and weak on its own", () => {
   const paired = validateTestIR({
     id: "not-contains",

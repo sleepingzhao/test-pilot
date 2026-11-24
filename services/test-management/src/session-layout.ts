@@ -434,6 +434,11 @@ export async function pruneSessions(opts: {
   }
   metas.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   const keep = new Set(metas.slice(0, opts.keepSessions).map((item) => item.meta.id));
+  // Detection profiles drive dashboard/read-only generation; a burst of runs must
+  // not evict them before the user can open 系统画像.
+  for (const item of metas.filter((entry) => entry.meta.id.startsWith("session_detect_")).slice(0, 5)) {
+    keep.add(item.meta.id);
+  }
   let removed = 0;
   for (const { meta } of metas) {
     if (keep.has(meta.id)) continue;

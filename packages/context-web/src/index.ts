@@ -11,9 +11,15 @@ export async function snapshotPageContext(page: Page, scope?: string): Promise<P
   const elements = await page.evaluate((scopeSelector) => {
     const root = scopeSelector ? document.querySelector(scopeSelector) : document.body;
     if (!root) return [];
-    const nodes = root.querySelectorAll(
-      "button, a, input, select, textarea, [role], [data-testid]",
-    );
+    const selector = "button, a, input, select, textarea, [role], [data-testid]";
+    const nodes: Element[] = [];
+    const walk = (scopeRoot: Document | ShadowRoot) => {
+      for (const el of Array.from(scopeRoot.querySelectorAll(selector))) nodes.push(el);
+      for (const el of Array.from(scopeRoot.querySelectorAll("*"))) {
+        if (el.shadowRoot) walk(el.shadowRoot);
+      }
+    };
+    walk(root.ownerDocument ?? document);
     const isVisible = (el: Element) => {
       const style = window.getComputedStyle(el);
       if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
@@ -23,21 +29,37 @@ export async function snapshotPageContext(page: Page, scope?: string): Promise<P
       const rect = el.getBoundingClientRect();
       return rect.width > 0 && rect.height > 0;
     };
-    const out: Array<{ role?: string; name?: string; testId?: string; inputType?: string }> = [];
-    nodes.forEach((el) => {
+    const out: Array<{
+      role?: string;
+      name?: string;
+      testId?: string;
+      inputType?: string;
+      placeholder?: string;
+      ariaLabel?: string;
+    }> = [];
+    nodes.forEach((el: Element) => {
       if (out.length >= 160) return;
       if (!isVisible(el)) return;
       const testId = el.getAttribute("data-testid") ?? undefined;
       const tag = el.tagName.toLowerCase();
       const role = el.getAttribute("role") ?? tag;
       const inputType = tag === "input" ? el.getAttribute("type") ?? "text" : undefined;
+      const ariaLabel = el.getAttribute("aria-label") ?? undefined;
+      const placeholder = el.getAttribute("placeholder") ?? undefined;
       const name =
-        el.getAttribute("aria-label") ??
+        ariaLabel ??
         (el as HTMLInputElement).labels?.[0]?.textContent?.trim() ??
-        el.getAttribute("placeholder") ??
+        placeholder ??
         (el as HTMLElement).innerText?.trim().slice(0, 80) ??
         undefined;
-      out.push({ role, name, testId, inputType });
+      out.push({
+        role,
+        name,
+        testId,
+        inputType,
+        ...(placeholder ? { placeholder } : {}),
+        ...(ariaLabel ? { ariaLabel } : {}),
+      });
     });
     return out;
   }, scope ?? "");

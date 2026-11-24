@@ -185,7 +185,7 @@ export type StoredTest = {
   autoApproved?: boolean;
   weakAssertions?: Array<{ path: string; message: string }>;
   intentSummary?: string;
-  sourceChannel?: "intent" | "prd" | "record" | "api" | "mechanism";
+  sourceChannel?: "intent" | "prd" | "record" | "api" | "mechanism" | "suite";
   plannerNotes?: string[];
   updatedAt: string;
 };
@@ -268,6 +268,26 @@ export type StoredBatch = {
   repeatCount?: number;
   error?: string;
   artifactBytesTotal?: number;
+};
+
+export type ReadOnlySuiteResult = {
+  testId: string;
+  title: string;
+  status: "passed" | "failed" | "error";
+  approved: boolean;
+  message?: string;
+};
+
+export type ReadOnlySuiteJob = {
+  id: string;
+  status: "running" | "completed" | "failed";
+  total: number;
+  completed: number;
+  results: ReadOnlySuiteResult[];
+  approvedIds: string[];
+  error?: string;
+  startedAt: string;
+  completedAt?: string;
 };
 
 function approvalHeaders(): Record<string, string> {

@@ -2571,6 +2571,18 @@ button.status-chip {
   flex-wrap: wrap;
 }
 
+.read-only-suite-panel .flow-actions {
+  margin-top: 10px;
+}
+
+.read-only-suite-run {
+  margin-top: 12px;
+}
+
+.read-only-suite-results {
+  margin-top: 12px;
+}
+
 .explore-item-head .badge {
   margin-left: 0;
 }

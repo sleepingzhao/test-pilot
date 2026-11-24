@@ -98,6 +98,27 @@ export async function runUiAssertion(
       if (t.css) return root.locator(t.css);
       throw new Error("empty target");
     };
+    if (assertion.urlIncludes) {
+      const deadline = Date.now() + uiAssertTimeoutMs();
+      let current = ctx.page.url();
+      while (!current.includes(assertion.urlIncludes) && Date.now() < deadline) {
+        await sleep(100);
+        current = ctx.page.url();
+      }
+      if (!current.includes(assertion.urlIncludes)) {
+        return {
+          assertionId: id,
+          passed: false,
+          expected: `url includes "${assertion.urlIncludes}"`,
+          actual: current,
+          errorKind: "PRODUCT_DEFECT",
+          message: `url does not include "${assertion.urlIncludes}"`,
+        };
+      }
+      if (!assertion.target && !assertion.contains && !assertion.notContains) {
+        return { assertionId: id, passed: true, expected: `url includes "${assertion.urlIncludes}"`, actual: current };
+      }
+    }
     const matches = (text: string) =>
       (!assertion.contains || text.includes(assertion.contains)) &&
       (!assertion.notContains || !text.includes(assertion.notContains));

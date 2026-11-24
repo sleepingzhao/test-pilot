@@ -234,10 +234,10 @@ export function validateSemantics(ir: TestIR): ValidationIssue[] {
     issues.push({ path: "/assertions", message: "at least one assertion is required for approved runs" });
   }
   for (const [i, a] of ir.assertions.entries()) {
-    if (a.type === "ui" && !a.target && !a.contains) {
+    if (a.type === "ui" && !a.target && !a.contains && !a.urlIncludes) {
       issues.push({
         path: `/assertions/${i}`,
-        message: "ui assertion requires target and/or contains",
+        message: "ui assertion requires target, contains, or urlIncludes",
       });
     }
   }

@@ -74,7 +74,7 @@ export type Signal = {
 export type SurfaceSnapshot = {
   route: string;
   title?: string;
-  elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string }>;
+  elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string; placeholder?: string; ariaLabel?: string }>;
 };
 
 export type CapabilityAssessment = {
@@ -104,12 +104,12 @@ export type DetectionEvidence = {
     route: string;
     title?: string;
     text: string;
-    elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string }>;
+    elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string; placeholder?: string; ariaLabel?: string }>;
   }>;
   frames: Array<{
     route: string;
     text: string;
-    elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string }>;
+    elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string; placeholder?: string; ariaLabel?: string }>;
   }>;
   endpoints: Array<{ method: string; path: string; status?: number }>;
 };

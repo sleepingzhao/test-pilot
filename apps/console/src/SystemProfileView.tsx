@@ -7,10 +7,13 @@ import {
   type ExplorationSuggestion,
   type FileMediaScenarioKind,
   type MechanismPlanResponse,
+  type ReadOnlySuiteJob,
+  type ReadOnlySuiteResult,
   type RealtimeScenarioKind,
   type RiskCategory,
   type RiskItem,
   type RiskReport,
+  type StoredRun,
   type StoredTest,
 } from "./api";
 import { CAPABILITY_LABELS, REQUIREMENT_LABELS, SIGNAL_LABELS } from "./capabilityLabels";
@@ -26,6 +29,13 @@ type Props = {
   onOpenReview: (testId: string) => void;
   onCreateDraftFromRisk?: (risk: RiskItem) => void;
   onRefresh?: () => void;
+  onOpenBatch?: (batchId: string) => void;
+};
+
+const READ_ONLY_SUITE_STATUS_LABELS: Record<ReadOnlySuiteResult["status"], string> = {
+  passed: "通过",
+  failed: "失败",
+  error: "错误",
 };
 
 const RISK_CATEGORY_LABELS: Record<RiskCategory, string> = {
@@ -208,6 +218,7 @@ export function SystemProfileView({
   onOpenReview,
   onCreateDraftFromRisk,
   onRefresh,
+  onOpenBatch,
 }: Props) {
   const [target, setTarget] = useState<DetectionTarget>("demo");
   const [customUrl, setCustomUrl] = useState("");
@@ -239,6 +250,11 @@ export function SystemProfileView({
   const [suggestions, setSuggestions] = useState<ExplorationSuggestion[] | null>(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState<string | null>(null);
+  const [readOnlySuiteBusy, setReadOnlySuiteBusy] = useState(false);
+  const [readOnlySuiteJob, setReadOnlySuiteJob] = useState<ReadOnlySuiteJob | null>(null);
+  const [readOnlySuiteError, setReadOnlySuiteError] = useState<string | null>(null);
+  const [readOnlySuiteBatchMsg, setReadOnlySuiteBatchMsg] = useState<string | null>(null);
+  const [readOnlySuiteRunBusy, setReadOnlySuiteRunBusy] = useState(false);
 
   useEffect(() => {
     setRisk(null);
@@ -390,6 +406,71 @@ export function SystemProfileView({
     setRealtimeSaved(null);
     setRealtimeError(null);
   }, [record?.id]);
+
+  useEffect(() => {
+    setReadOnlySuiteBusy(false);
+    setReadOnlySuiteJob(null);
+    setReadOnlySuiteError(null);
+    setReadOnlySuiteBatchMsg(null);
+    setReadOnlySuiteRunBusy(false);
+  }, [record?.id]);
+
+  const startReadOnlySuite = async () => {
+    if (!record) return;
+    setReadOnlySuiteBusy(true);
+    setReadOnlySuiteError(null);
+    setReadOnlySuiteBatchMsg(null);
+    setReadOnlySuiteJob(null);
+    try {
+      const { jobId } = await api<{ jobId: string; total: number }>(
+        `/api/detect/${record.id}/read-only-suite`,
+        { method: "POST", body: JSON.stringify({ limit: 8 }) },
+      );
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const job = await api<ReadOnlySuiteJob>(`/api/read-only-suite/jobs/${jobId}`);
+        setReadOnlySuiteJob(job);
+        if (job.status !== "running") {
+          if (job.status === "failed") {
+            setReadOnlySuiteError(job.error ?? "只读套件生成失败");
+          }
+          onRefresh?.();
+          break;
+        }
+      }
+    } catch (err) {
+      setReadOnlySuiteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReadOnlySuiteBusy(false);
+    }
+  };
+
+  const runApprovedReadOnlySuite = async () => {
+    const approvedIds = readOnlySuiteJob?.approvedIds ?? [];
+    if (approvedIds.length === 0) return;
+    setReadOnlySuiteRunBusy(true);
+    setReadOnlySuiteError(null);
+    setReadOnlySuiteBatchMsg(null);
+    try {
+      const res = await api<{ runs?: StoredRun[]; async?: boolean; jobId?: string }>(
+        "/api/projects/default/runs",
+        { method: "POST", body: JSON.stringify({ testIds: approvedIds }) },
+      );
+      if (res.async && res.jobId) {
+        onOpenBatch?.(res.jobId);
+        setReadOnlySuiteBatchMsg(`已启动批次 ${res.jobId}`);
+      } else {
+        const runs = res.runs ?? [];
+        const passed = runs.filter((r) => r.status === "passed").length;
+        setReadOnlySuiteBatchMsg(`运行完成：${passed}/${runs.length} 通过`);
+        onRefresh?.();
+      }
+    } catch (err) {
+      setReadOnlySuiteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReadOnlySuiteRunBusy(false);
+    }
+  };
 
   const startDetection = async () => {
     if (target === "custom" && !customUrl.trim()) {
@@ -754,6 +835,79 @@ export function SystemProfileView({
               </div>
             )}
           </div>
+
+          {record.target === "real" ? (
+            <div className="card-panel read-only-suite-panel">
+              <header className="mechanism-card-header">
+                <h3>真实只读套件</h3>
+              </header>
+              <p className="stat-note">
+                基于当前画像，为尚未被已批准用例覆盖的路由生成只读用例；自动试跑，强断言门禁通过后自动批准。不会写业务数据。
+              </p>
+              <div className="flow-actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={readOnlySuiteBusy}
+                  onClick={() => void startReadOnlySuite()}
+                >
+                  {readOnlySuiteBusy ? "生成并试跑中…" : "生成并试跑"}
+                </button>
+                {readOnlySuiteBusy && readOnlySuiteJob ? (
+                  <span className="stat-note" role="status" aria-live="polite">
+                    生成并试跑中…{readOnlySuiteJob.completed}/{readOnlySuiteJob.total}
+                  </span>
+                ) : readOnlySuiteBusy ? (
+                  <span className="stat-note" role="status" aria-live="polite">
+                    生成并试跑中…
+                  </span>
+                ) : null}
+              </div>
+              {readOnlySuiteError ? <p className="diagnose-msg">{readOnlySuiteError}</p> : null}
+              {readOnlySuiteJob && readOnlySuiteJob.status !== "running" ? (
+                <>
+                  <p className="stat-note">
+                    共 {readOnlySuiteJob.total} 条 · 自动批准 {readOnlySuiteJob.approvedIds.length} 条
+                  </p>
+                  {readOnlySuiteJob.results.length > 0 ? (
+                    <ul className="explore-list read-only-suite-results">
+                      {readOnlySuiteJob.results.map((item) => (
+                        <li key={item.testId}>
+                          <div className="explore-item-head">
+                            <span className="badge subtle">
+                              {READ_ONLY_SUITE_STATUS_LABELS[item.status]}
+                            </span>
+                            <strong>{item.title}</strong>
+                            {item.approved ? <span className="badge">已自动批准</span> : null}
+                          </div>
+                          {item.message ? <p className="stat-note">{item.message}</p> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {readOnlySuiteJob.approvedIds.length > 0 ? (
+                    <div className="flow-actions read-only-suite-run">
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={readOnlySuiteRunBusy}
+                        onClick={() => void runApprovedReadOnlySuite()}
+                      >
+                        {readOnlySuiteRunBusy ? "启动中…" : "运行套件"}
+                      </button>
+                      {readOnlySuiteBatchMsg ? (
+                        <span className="stat-note" role="status">
+                          {readOnlySuiteBatchMsg}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="stat-note">本轮没有可自动批准的用例（未试跑通过或被门禁拦下）</p>
+                  )}
+                </>
+              ) : null}
+            </div>
+          ) : null}
 
           {hasFileMediaCapability && fileMediaMechanism && fileMediaMechanism.id === "file-media" ? (
             <div className="card-panel mechanism-card">
@@ -1146,6 +1300,13 @@ export function SystemProfileView({
             </ul>
           </details>
 
+
+        </>
+      ) : !loading ? (
+        <div className="card-panel">
+          <p className="stat-note">还没有系统画像。选择环境后点击「开始探测」。</p>
+        </div>
+      ) : null}
           {recent.length > 0 ? (
             <div className="card-panel">
               <h3>最近探测</h3>
@@ -1162,12 +1323,6 @@ export function SystemProfileView({
               </ul>
             </div>
           ) : null}
-        </>
-      ) : !loading ? (
-        <div className="card-panel">
-          <p className="stat-note">还没有系统画像。选择环境后点击「开始探测」。</p>
-        </div>
-      ) : null}
     </section>
   );
 }

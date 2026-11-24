@@ -22,7 +22,7 @@ export type FormHint = {
 
 export type PageContext = {
   url: string;
-  elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string }>;
+  elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string; placeholder?: string; ariaLabel?: string }>;
   /** Captured after opening the form; lets planning see fields that only exist in a dialog. */
   form?: FormHint;
 };

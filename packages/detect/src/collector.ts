@@ -164,6 +164,9 @@ export async function collectSystemProfile(
             if (extra) {
               found.push(...extra.signals);
               mergeEvidence(evidence, extra.evidence);
+              if (!surfaces.some((surface) => surface.route === extra.surface.route)) {
+                surfaces.push(extra.surface);
+              }
             }
           } catch {
             // One view switch must not abort the rest of the crawl.
@@ -276,6 +279,7 @@ async function collectSpaView(
 ): Promise<
   | {
       signals: Signal[];
+      surface: SurfaceSnapshot;
       evidence: {
         page: DetectionEvidence["pages"][number];
         frames: DetectionEvidence["frames"];
@@ -306,10 +310,16 @@ async function collectSpaView(
     ];
     const pageText = await readPageText(page);
     const title = await page.title().catch(() => undefined);
+    const surface = await readSurface(page).catch(() => undefined);
     await closeOpenedForm(page, opened.beforeUrl, timing.routeTimeoutMs);
     if (!samePlace(before, page.url())) await restore(page, before, timing.routeTimeoutMs);
     return {
       signals,
+      surface: surface ?? {
+        route,
+        title,
+        elements: evidenceElements(opened.dom),
+      },
       evidence: {
         page: {
           route,
@@ -853,7 +863,14 @@ const OBSERVE_DOM = `(() => {
 })()`;
 
 const DISCOVER_LINKS = `(() => {
-  const nodes = document.querySelectorAll(${JSON.stringify(NAV_SELECTOR)});
+  const nodes = [];
+  const walk = (scopeRoot) => {
+    for (const el of scopeRoot.querySelectorAll(${JSON.stringify(NAV_SELECTOR)})) nodes.push(el);
+    for (const el of scopeRoot.querySelectorAll("*")) {
+      if (el.shadowRoot) walk(el.shadowRoot);
+    }
+  };
+  walk(document);
   const seen = new Set();
   const out = [];
   for (let i = 0; i < nodes.length; i++) {

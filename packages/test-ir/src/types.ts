@@ -85,6 +85,8 @@ export interface TestAssertion {
   contains?: string;
   /** Text that must be absent; pair it with `contains` or `target` so a blank page cannot pass. */
   notContains?: string;
+  /** Require the page URL to contain this fragment (proves routing even for iframe-shell pages). */
+  urlIncludes?: string;
   requestRef?: string;
   /** Match the response of a `request` step by its id; no requestRef map needed. */
   stepRef?: string;

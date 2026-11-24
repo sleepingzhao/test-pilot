@@ -1936,6 +1936,7 @@ export function App() {
               setView("create");
             }}
             onRefresh={() => void refresh()}
+            onOpenBatch={openBatch}
           />
         )}
 

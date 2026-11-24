@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { FileStore, type StoredBatch, type StoredRun } from "./store.js";
-import { migrateArtifactLayout } from "./session-layout.js";
+import { migrateArtifactLayout, pruneSessions, sessionMetaPath } from "./session-layout.js";
 
 function makeRun(runId: string, batchId?: string): StoredRun {
   return {
@@ -119,5 +119,30 @@ test("artifact migration moves runs into session folders and rewrites evidence p
     assert.equal(stored.artifacts.artifacts[0]?.path, join(newDir, "trace.zip"));
   } finally {
     await rm(repo, { recursive: true, force: true });
+  }
+});
+
+
+test("pruneSessions keeps recent detection profiles even in a run burst", async () => {
+  const root = await mkdtemp(join(tmpdir(), "testpilot-prune-"));
+  const dataRoot = join(root, "data");
+  const artifactsRoot = join(root, "artifacts");
+  const writeSession = async (id: string, startedAt: string) => {
+    await mkdir(join(dataRoot, "sessions", id), { recursive: true });
+    await writeFile(
+      sessionMetaPath(dataRoot, id),
+      JSON.stringify({ id, kind: id.includes("detect") ? "detect" : "trial", startedAt, status: "completed", runIds: [] }),
+    );
+  };
+  try {
+    await writeSession("session_detect_old", "2026-01-01T00:00:00.000Z");
+    for (let i = 0; i < 25; i += 1) {
+      await writeSession(`session_run_${i}`, `2026-06-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`);
+    }
+    const result = await pruneSessions({ dataRoot, artifactsRoot, keepSessions: 5 });
+    assert.equal(result.sessions.includes("session_detect_old"), true);
+    assert.equal(result.sessions.includes("session_run_0"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

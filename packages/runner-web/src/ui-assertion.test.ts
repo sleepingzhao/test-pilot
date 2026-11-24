@@ -138,3 +138,25 @@ test("assertion targets render {{runId}} so a run-unique marker can be asserted"
     await new Promise<void>((resolve) => srv.close(() => resolve()));
   }
 });
+
+test("ui assertion checks the page URL fragment", async () => {
+  const srv = server();
+  const port = await listen(srv);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const pass = await runTestIR(
+      ir(baseUrl, [{ id: "route", type: "ui", urlIncludes: "/", oracle: "human-approved" }]),
+      { env: { baseUrl }, headless: true, artifactsDir: await mkdtemp(join(tmpdir(), "tp-ui-url-")) },
+    );
+    assert.equal(pass.status, "passed", JSON.stringify(pass.assertions));
+
+    const fail = await runTestIR(
+      ir(baseUrl, [{ id: "route", type: "ui", urlIncludes: "/missing-route", oracle: "human-approved" }]),
+      { env: { baseUrl }, headless: true, artifactsDir: await mkdtemp(join(tmpdir(), "tp-ui-url-b-")) },
+    );
+    assert.equal(fail.status, "failed");
+    assert.match(fail.assertions[0]?.message ?? "", /url does not include/);
+  } finally {
+    await new Promise<void>((resolve) => srv.close(() => resolve()));
+  }
+});

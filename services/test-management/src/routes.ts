@@ -47,6 +47,7 @@ import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-ide
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
 import { buildRiskReport, enrichRiskReportWithLlm, readLatestRiskReport, saveRiskReport } from "./risk-report.js";
 import { buildExplorationSuggestions } from "./explore-suggestions.js";
+import { planReadOnlyCases } from "./read-only-suite.js";
 import { buildFlakeMetricsReport, computeFlakeStats, normalizeRepeatCount } from "./flake-metrics.js";
 import {
   assertionConfigCatalog,
@@ -145,6 +146,26 @@ export type RunBatchJob = {
 };
 
 const batchJobs = new Map<string, RunBatchJob>();
+
+type ReadOnlySuiteJob = {
+  id: string;
+  status: "running" | "completed" | "failed";
+  total: number;
+  completed: number;
+  results: Array<{
+    testId: string;
+    title: string;
+    status: "passed" | "failed" | "error";
+    approved: boolean;
+    message?: string;
+  }>;
+  approvedIds: string[];
+  error?: string;
+  startedAt: string;
+  completedAt?: string;
+};
+
+const readOnlySuiteJobs = new Map<string, ReadOnlySuiteJob>();
 
 function stampTestMeta(test: StoredTest, opts?: { approving?: boolean; assertionConfigHash?: string }): StoredTest {
   const irHash = computeIRHash(test.ir);
@@ -1521,6 +1542,121 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
     await saveRiskReport(dataRoot, report);
     return report;
+  });
+
+  app.post("/api/detect/:detectionId/read-only-suite", async (req, reply) => {
+    const { detectionId } = req.params as { detectionId: string };
+    if (!isSafeRunId(detectionId)) return reply.notFound("detection not found");
+    const record = await readDetection(dataRoot, detectionId);
+    if (!record) return reply.notFound("detection not found");
+    if (record.target !== "real") {
+      return reply.code(400).send({ error: "只读套件仅支持真实环境画像" });
+    }
+    const body = (req.body ?? {}) as { limit?: number };
+    const candidates = planReadOnlyCases({
+      detectionId,
+      profile: record.profile,
+      tests: await store.listTests(),
+      targetMode: record.target,
+      limit: body.limit,
+    });
+    const jobId = `rosuite_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
+    const job: ReadOnlySuiteJob = {
+      id: jobId,
+      status: "running",
+      total: candidates.length,
+      completed: 0,
+      results: [],
+      approvedIds: [],
+      startedAt: new Date().toISOString(),
+    };
+    readOnlySuiteJobs.set(jobId, job);
+    const project = store.project();
+
+    void (async () => {
+      try {
+        for (const candidate of candidates) {
+          const existing = await store.getTest(candidate.testId);
+          if (existing?.approvalStatus === "approved") {
+            job.results.push({
+              testId: candidate.testId,
+              title: candidate.title,
+              status: "passed",
+              approved: true,
+              message: "已批准，跳过",
+            });
+            job.completed += 1;
+            job.approvedIds.push(candidate.testId);
+            continue;
+          }
+          const validated = validateTestIR(candidate.ir);
+          if (!validated.ok) {
+            job.results.push({
+              testId: candidate.testId,
+              title: candidate.title,
+              status: "error",
+              approved: false,
+              message: `IR 校验失败: ${validated.issues.map((issue) => issue.message).join("; ")}`,
+            });
+            job.completed += 1;
+            continue;
+          }
+          const draft = stampTestMeta({
+            id: candidate.testId,
+            projectId: project.id,
+            title: candidate.title,
+            ir: validated.value,
+            approvalStatus: "draft",
+            sourceChannel: "suite",
+            plannerNotes: candidate.notes,
+            updatedAt: new Date().toISOString(),
+          });
+          await store.saveTest(draft);
+          let status: "passed" | "failed" | "error" = "error";
+          let message: string | undefined;
+          let approved = false;
+          try {
+            const run = await executeSingleIrRun(
+              store,
+              draft,
+              validated.value,
+              project.defaultBaseUrl,
+              project.id,
+              artifactsRoot,
+              dataRoot,
+            );
+            status = run.status === "passed" ? "passed" : "failed";
+            message = run.status === "passed" ? undefined : run.artifacts.notes ?? run.metrics.failureKind;
+            if (run.status === "passed") {
+              const saved = await saveDraftWithAutoApproval(draft, { trialPassed: true });
+              approved = saved.approvalStatus === "approved";
+              if (approved) job.approvedIds.push(candidate.testId);
+            }
+          } catch (err) {
+            status = "error";
+            message = err instanceof Error ? err.message : String(err);
+          }
+          job.results.push({ testId: candidate.testId, title: candidate.title, status, approved, message });
+          job.completed += 1;
+        }
+        job.status = "completed";
+        job.completedAt = new Date().toISOString();
+      } catch (err) {
+        job.status = "failed";
+        job.error = err instanceof Error ? err.message : String(err);
+        job.completedAt = new Date().toISOString();
+      }
+    })();
+
+    return reply.code(202).send({ jobId, total: candidates.length });
+  });
+
+  app.get("/api/read-only-suite/jobs/:jobId", async (req, reply) => {
+    const { jobId } = req.params as { jobId: string };
+    if (!isSafeRunId(jobId)) return reply.notFound("job not found");
+    const job = readOnlySuiteJobs.get(jobId);
+    if (!job) return reply.notFound("job not found");
+    return job;
   });
 
   app.get("/api/detect/:detectionId/explore-suggestions", async (req, reply) => {

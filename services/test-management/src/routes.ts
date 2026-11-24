@@ -23,6 +23,7 @@ import type { FileStore, RecordJob, StoredBatch, StoredRun, StoredTest } from ".
 import { llmUsageSnapshot } from "./llm-usage.js";
 import {
   applyOptionalLlmDraft,
+  chatCompletionsJson,
   llmPlannerConfigFromEnv,
   llmPlannerPublicInfo,
   suggestDiagnoseWithLlm,
@@ -44,7 +45,7 @@ import {
 import { readNegativeProbeReport } from "./negative-probes.js";
 import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-identity.js";
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
-import { buildRiskReport, readLatestRiskReport, saveRiskReport } from "./risk-report.js";
+import { buildRiskReport, enrichRiskReportWithLlm, readLatestRiskReport, saveRiskReport } from "./risk-report.js";
 import { buildFlakeMetricsReport, computeFlakeStats, normalizeRepeatCount } from "./flake-metrics.js";
 import {
   assertionConfigCatalog,
@@ -1495,12 +1496,27 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (!isSafeRunId(detectionId)) return reply.notFound("detection not found");
     const record = await readDetection(dataRoot, detectionId);
     if (!record) return reply.notFound("detection not found");
-    const report = buildRiskReport({
+    const body = (req.body ?? {}) as { llm?: boolean };
+    let report = buildRiskReport({
       detectionId,
       profile: record.profile,
       tests: await store.listTests(),
       targetMode: record.target,
     });
+    const config = body.llm === false ? null : llmPlannerConfigFromEnv();
+    if (config) {
+      report = await enrichRiskReportWithLlm(report, record.profile, record.target, {
+        model: config.model,
+        complete: async ({ system, user }) => {
+          const { parsed, tokensUsed } = await chatCompletionsJson(config, {
+            system,
+            user,
+            maxOutputTokens: 2_000,
+          });
+          return { parsed, tokensUsed };
+        },
+      });
+    }
     await saveRiskReport(dataRoot, report);
     return report;
   });

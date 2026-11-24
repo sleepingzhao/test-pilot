@@ -369,3 +369,153 @@ export async function readLatestRiskReport(
   }
   return undefined;
 }
+
+export type RiskLlmClient = {
+  model: string;
+  complete(input: { system: string; user: string }): Promise<{ parsed: unknown; tokensUsed: number }>;
+};
+
+const RISK_CATEGORIES: RiskCategory[] = [
+  "data-lifecycle",
+  "authz",
+  "money-order",
+  "realtime",
+  "concurrency",
+  "validation",
+  "privacy",
+  "reliability",
+  "compatibility",
+  "coverage",
+];
+
+/** Target-tiered digest: never includes page text, screenshots, cookies, or credentials. */
+export function buildRiskLlmInput(
+  profile: DetectionReport,
+  existing: RiskItem[],
+  targetMode: "demo" | "custom" | "pilot" | "real",
+): Record<string, unknown> {
+  return {
+    targetMode,
+    capabilities: profile.capabilities.map((cap) => ({
+      id: cap.id,
+      confidence: Number(cap.confidence.toFixed(2)),
+      unknowns: cap.unknowns.slice(0, 5),
+      testIdeas: (cap.testIdeas ?? []).slice(0, 3),
+    })),
+    signals: profile.signals.map((signal) => signal.id),
+    questions: profile.questions.map((question) => question.question).slice(0, 10),
+    existingRules: existing.map((item) => ({
+      category: item.category,
+      severity: item.severity,
+      title: item.title,
+      capabilityIds: item.capabilityIds,
+    })),
+  };
+}
+
+function normalizeTitle(title: string): string {
+  return title.toLowerCase().replace(/[\s\p{P}]+/gu, "");
+}
+
+function asStringArray(value: unknown, limit: number, maxLength: number): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().slice(0, maxLength))
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function parseLlmRisks(raw: unknown, knownCapabilityIds: Set<string>, targetMode: string): RiskItem[] {
+  const record = (raw ?? {}) as { risks?: unknown };
+  if (!Array.isArray(record.risks)) throw new Error("LLM 输出缺少 risks 数组");
+  const items: RiskItem[] = [];
+  for (const entry of record.risks.slice(0, 20)) {
+    if (!entry || typeof entry !== "object") continue;
+    const item = entry as Record<string, unknown>;
+    const title = typeof item.title === "string" ? item.title.trim().slice(0, 120) : "";
+    if (!title) continue;
+    const category = RISK_CATEGORIES.includes(item.category as RiskCategory)
+      ? (item.category as RiskCategory)
+      : "coverage";
+    const severity = item.severity === "high" || item.severity === "medium" || item.severity === "low"
+      ? item.severity
+      : "low";
+    const rawCapabilities = asStringArray(item.capabilityIds, 6, 40);
+    const capabilityIds = rawCapabilities.filter((id) => knownCapabilityIds.has(id));
+    const evidenceRefs = asStringArray(item.evidenceRefs, 6, 120);
+    if (targetMode === "real" || targetMode === "pilot") {
+      // Only capability ids are meaningful against pilot/real profiles.
+      evidenceRefs.length = 0;
+    }
+    const confidence =
+      typeof item.confidence === "number" && Number.isFinite(item.confidence)
+        ? Math.min(1, Math.max(0, item.confidence))
+        : 0.5;
+    items.push({
+      id: `risk-${randomUUID().slice(0, 8)}`,
+      title,
+      category,
+      severity,
+      confidence,
+      capabilityIds,
+      evidenceRefs,
+      ...(capabilityIds.length === 0 ? { assumption: true as const } : {}),
+      testIdeas: asStringArray(item.testIdeas, 5, 160),
+      missingInfo: asStringArray(item.missingInfo, 5, 160),
+      ...(typeof item.suggestedMechanism === "string" &&
+      ["file-media", "realtime-messaging", "api", "ui", "none"].includes(item.suggestedMechanism)
+        ? { suggestedMechanism: item.suggestedMechanism as RiskItem["suggestedMechanism"] }
+        : {}),
+    });
+  }
+  return items;
+}
+
+/**
+ * Rules-first enrichment: LLM suggestions are merged only when they add a new
+ * category+title; a duplicate never changes a rule item's severity.
+ */
+export async function enrichRiskReportWithLlm(
+  base: RiskReport,
+  profile: DetectionReport,
+  targetMode: "demo" | "custom" | "pilot" | "real",
+  client: RiskLlmClient,
+): Promise<RiskReport> {
+  const known = new Set(profile.capabilities.map((cap) => cap.id));
+  const system = [
+    "You are a senior QA risk analyst.",
+    "Return ONE JSON object: {\"risks\": [...]} with at most 12 items.",
+    "Each item: title (<=120 chars), category (data-lifecycle|authz|money-order|realtime|concurrency|validation|privacy|reliability|compatibility|coverage), severity (high|medium|low), confidence (0..1), capabilityIds (subset of the given ids), testIdeas (<=5, each <=160 chars), missingInfo (<=5), optional suggestedMechanism (file-media|realtime-messaging|api|ui|none).",
+    "Only propose risks grounded in the given capabilities, signals, and unknowns. Do not repeat existingRules. Do not lower their severity. No prose outside JSON.",
+  ].join("\n");
+  const user = JSON.stringify(buildRiskLlmInput(profile, base.risks, targetMode));
+  try {
+    const { parsed, tokensUsed } = await client.complete({ system, user });
+    const suggestions = parseLlmRisks(parsed, known, targetMode);
+    const seen = new Set(base.risks.map((item) => `${item.category}|${normalizeTitle(item.title)}`));
+    const merged: RiskItem[] = [];
+    for (const item of suggestions) {
+      const key = `${item.category}|${normalizeTitle(item.title)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+    }
+    const severityRank = { high: 0, medium: 1, low: 2 } as const;
+    const risks = [...base.risks, ...merged].sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
+    return {
+      ...base,
+      source: "rules+llm",
+      model: client.model,
+      tokensUsed,
+      risks,
+      llm: { used: true },
+    };
+  } catch (err) {
+    return {
+      ...base,
+      source: "rules",
+      llm: { used: true, error: err instanceof Error ? err.message : String(err) },
+    };
+  }
+}

@@ -248,3 +248,105 @@ test("input hash is stable for identical inputs", () => {
   });
   assert.notEqual(a.inputHash, changed.inputHash);
 });
+
+import { buildRiskLlmInput, enrichRiskReportWithLlm, type RiskLlmClient } from "./risk-report.js";
+
+function baseReport(profileDoc = profile([cap("crud")])) {
+  return buildRiskReport({ detectionId: "det_llm", profile: profileDoc, tests: [], targetMode: "demo" });
+}
+
+test("LLM enrichment merges new risks and keeps rule severity on duplicates", async () => {
+  const base = baseReport();
+  const duplicate = base.risks[0]!;
+  const client: RiskLlmClient = {
+    model: "fake-model",
+    complete: async () => ({
+      parsed: {
+        risks: [
+          { title: duplicate.title, category: duplicate.category, severity: "low", capabilityIds: ["crud"] },
+          {
+            title: "并发创建可能覆盖同一条记录",
+            category: "concurrency",
+            severity: "medium",
+            confidence: 0.6,
+            capabilityIds: ["crud"],
+            testIdeas: ["两个 actor 同时创建"],
+            missingInfo: ["需要唯一约束说明"],
+          },
+        ],
+      },
+      tokensUsed: 42,
+    }),
+  };
+  const report = await enrichRiskReportWithLlm(base, profile([cap("crud")]), "demo", client);
+  assert.equal(report.source, "rules+llm");
+  assert.equal(report.model, "fake-model");
+  assert.equal(report.tokensUsed, 42);
+  const ruleItem = report.risks.find((item) => item.title === duplicate.title);
+  assert.equal(ruleItem?.severity, "high");
+  assert.equal(report.risks.filter((item) => item.title === duplicate.title).length, 1);
+  assert.ok(report.risks.some((item) => item.category === "concurrency"));
+});
+
+test("invalid LLM output falls back to the rule report with an error", async () => {
+  const base = baseReport();
+  const client: RiskLlmClient = {
+    model: "fake-model",
+    complete: async () => ({ parsed: { nope: true }, tokensUsed: 1 }),
+  };
+  const report = await enrichRiskReportWithLlm(base, profile([cap("crud")]), "demo", client);
+  assert.equal(report.source, "rules");
+  assert.deepEqual(report.risks, base.risks);
+  assert.match(report.llm?.error ?? "", /risks/);
+});
+
+test("LLM input excludes page text and marks ungrounded suggestions as assumptions", async () => {
+  const profileWithEvidence = {
+    ...profile([cap("crud")]),
+    evidence: { pages: [{ route: "/", text: "PRIVATE-PAGE-TEXT", elements: [] }], frames: [], endpoints: [] },
+  } as DetectionReport;
+  const input = JSON.stringify(buildRiskLlmInput(profileWithEvidence, [], "real"));
+  assert.equal(input.includes("PRIVATE-PAGE-TEXT"), false);
+
+  const client: RiskLlmClient = {
+    model: "fake-model",
+    complete: async () => ({
+      parsed: {
+        risks: [
+          { title: "未绑定能力的猜测", category: "coverage", severity: "low", confidence: 0.3 },
+          { title: "真实环境的已知风险", category: "reliability", severity: "medium", evidenceRefs: ["ev-1"] },
+        ],
+      },
+      tokensUsed: 2,
+    }),
+  };
+  const report = await enrichRiskReportWithLlm(baseReport(), profileWithEvidence, "real", client);
+  const guess = report.risks.find((item) => item.title === "未绑定能力的猜测");
+  assert.equal(guess?.assumption, true);
+  const other = report.risks.find((item) => item.title === "真实环境的已知风险");
+  assert.deepEqual(other?.evidenceRefs, []);
+});
+
+test("LLM enrichment caps items and truncates long fields", async () => {
+  const client: RiskLlmClient = {
+    model: "fake-model",
+    complete: async () => ({
+      parsed: {
+        risks: Array.from({ length: 30 }, (_, i) => ({
+          title: `风险 ${i} ${"x".repeat(200)}`,
+          category: "coverage",
+          severity: "low",
+          capabilityIds: ["crud"],
+          testIdeas: Array.from({ length: 9 }, () => "y".repeat(400)),
+        })),
+      },
+      tokensUsed: 3,
+    }),
+  };
+  const report = await enrichRiskReportWithLlm(baseReport(), profile([cap("crud")]), "demo", client);
+  const added = report.risks.filter((item) => item.title.startsWith("风险 "));
+  assert.equal(added.length, 20);
+  assert.ok(added.every((item) => item.title.length <= 120));
+  assert.ok(added.every((item) => item.testIdeas.length <= 5));
+  assert.ok(added.every((item) => item.testIdeas.every((idea) => idea.length <= 160)));
+});

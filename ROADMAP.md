@@ -16,7 +16,7 @@
 - 自动审批：`TESTPILOT_AUTO_APPROVE=1` 时，草稿试跑通过且强断言门禁通过后自动批准（`approvedBy: auto:testpilot` + 审计），弱断言/占位断言仍留草稿
 - 双账号真实登录：`actors[].account`（`primary`/`alt`），每个 actor 用对应 `TESTPILOT_ENV_REAL_*` / `_ALT_*` 登录；登录失败标注 actor
 - 真实只读回归：8 条 `real-*` 用例（通讯录列表/部门筛选/详情、任务、文档、提醒事项列表/已完成筛选、会议首页），两轮批次 8/8 通过
-- 风险报告：规则基线 + 持久化 + API（V7-10a），LLM 可选增强留待 V7-10b
+- 风险报告：规则基线 + 持久化 + API（V7-10a），LLM 增强与回退（V7-10b）
 
 **基线：** 26 条已批准用例（17 demo + 1 pilot + 8 真实只读；9 条自动批准）、5 个断言 Provider、`pnpm verify` 全绿。
 
@@ -49,8 +49,9 @@
    RiskReport + 8 条规则 + `data/risk-reports/`；无 LLM 也能用；正反测试。
    _证据：`risk-report.ts` 8 条规则（数据残留、上传缺口、实时送达、权限、覆盖、未知约束、仅 UI 证据、试点/真实写草稿阻断）；`POST/GET /api/detect/:id/risk-report`；`risk-report.test.ts` 覆盖正反与持久化；demo 画像实测生成 3 条风险（file-media、realtime、未知约束），LLM 未参与；报告落 `data/risk-reports/`（已 gitignore）。_
 
-6. [ ] **V7-10b 风险分析 LLM 增强（P1）**
+6. [x] **V7-10b 风险分析 LLM 增强（P1）**
    按目标分层取材；严格 JSON schema；去重合并；失败回退规则报告。
+   _证据：`enrichRiskReportWithLlm` 只发送能力/信号/未知项/规则摘要，从不含页面文本、截图、Cookie；输出限 12 条建议、字段截断、未知能力/非法分类过滤；与规则项按 category+标题去重且不降级；失败回退规则报告并记录 `llm.error`。测试：`risk-report.test.ts` 的 4 条 LLM 用例（合并/回退/隐私/上限）。demo 实测：`source: rules+llm`、deepseek-flash、5,427 tokens、14 条风险（3 规则 + 11 建议）。POST 支持 `{"llm": false}` 关闭。_
 
 7. [ ] **V7-10c 控制台「风险与缺口」面板（P1）**
    severity 排序、证据/assumption 标注、创建草稿入口；不自动批准、不参与门禁。

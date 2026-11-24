@@ -140,6 +140,18 @@ export type DetectionReport = {
   questions: DetectionQuestion[];
   /** Same-origin links discovered but not visited because the route budget ran out. */
   unvisited?: Array<{ route: string }>;
+  /** Same-origin iframe content pages (route + structural elements) seen during collection. */
+  frameSurfaces?: Array<{
+    route: string;
+    elements: Array<{
+      role?: string;
+      name?: string;
+      testId?: string;
+      inputType?: string;
+      placeholder?: string;
+      ariaLabel?: string;
+    }>;
+  }>;
   /** Transient LLM evidence; stripped before saving. */
   evidence?: DetectionEvidence;
   /** Capabilities the LLM discovered beyond the fixed taxonomy. */

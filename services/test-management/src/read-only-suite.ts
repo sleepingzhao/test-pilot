@@ -13,18 +13,6 @@ export type ReadOnlyCandidate = {
 
 const GENERIC_NAMES =
   /^(搜索.*|全部|部门|首页|返回|确定|取消|保存|提交|新建|添加|编辑|删除|上传|登录|退出|关闭|更多|查看|详情|操作|是|否)$/;
-const ARIA_ROLES = new Set([
-  "button",
-  "link",
-  "tab",
-  "heading",
-  "table",
-  "row",
-  "cell",
-  "columnheader",
-  "list",
-  "listitem",
-]);
 
 function routeKey(path: string): string {
   const trimmed = path.split("?")[0]!.split("#")[0]!.replace(/\/+$/, "");
@@ -45,21 +33,29 @@ function isRealTest(test: StoredTest, origin: string): boolean {
   }
 }
 
-function coveredRoutes(profile: DetectionReport, tests: StoredTest[]): Set<string> {
+function coveredRoutes(
+  profile: DetectionReport,
+  tests: StoredTest[],
+): { load: Set<string>; search: Set<string> } {
   let origin = "";
   try {
     origin = new URL(profile.target.url).origin;
   } catch {
     /* keep empty */
   }
-  const covered = new Set<string>();
+  const load = new Set<string>();
+  const search = new Set<string>();
   for (const test of tests) {
     if (test.approvalStatus !== "approved" || !isRealTest(test, origin)) continue;
+    const fills = test.ir.steps.some((step) => step.action === "fill");
     for (const step of test.ir.steps) {
-      if (step.action === "navigate" && step.path) covered.add(routeKey(step.path));
+      if (step.action !== "navigate" || !step.path) continue;
+      const route = routeKey(step.path);
+      load.add(route);
+      if (fills) search.add(route);
     }
   }
-  return covered;
+  return { load, search };
 }
 
 function elementKey(element: { testId?: string; name?: string }): string | undefined {
@@ -80,8 +76,8 @@ function globalKeys(surfaces: DetectionReport["surfaces"]): Set<string> {
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
-  const threshold = Math.max(2, Math.ceil(surfaces.length * 0.6));
-  return new Set([...counts.entries()].filter(([, count]) => count >= threshold).map(([key]) => key));
+  // Two appearances already means shared chrome; excluding a repeated tab is safer than asserting it.
+  return new Set([...counts.entries()].filter(([, count]) => count >= 2).map(([key]) => key));
 }
 
 function stableTarget(
@@ -97,7 +93,15 @@ function stableTarget(
   const named = usable
     .filter((element) => {
       if (!element.name) return false;
-      if (element.role === "input" || element.role === "textarea" || element.role === "select") return false;
+      if (
+        element.role === "input" ||
+        element.role === "textarea" ||
+        element.role === "select" ||
+        element.role === "textbox" ||
+        element.role === "combobox"
+      ) {
+        return false;
+      }
       const name = element.name.trim();
       if (name.length < 2 || name.length > 30) return false;
       if (GENERIC_NAMES.test(name)) return false;
@@ -111,13 +115,15 @@ function stableTarget(
     });
   const best = named[0];
   if (!best?.name) return undefined;
-  if (best.role && ARIA_ROLES.has(best.role)) return { role: best.role, name: best.name };
-  return { name: best.name };
+  if (best.role === "heading" || best.role === "columnheader" || best.role === "tab" || best.role === "table" || best.role === "list" || best.role === "listitem" || best.role === "cell") {
+    return { role: best.role, name: best.name };
+  }
+  return undefined;
 }
 
 function searchTarget(surface: DetectionReport["surfaces"][number]): Locator | undefined {
   const input = surface.elements.find((element) => {
-    if (element.role !== "input" && element.role !== "textarea") return false;
+    if (element.role !== "input" && element.role !== "textarea" && element.role !== "textbox") return false;
     const hint = element.placeholder ?? element.ariaLabel ?? element.name ?? "";
     return element.inputType === "search" || /搜索|search/i.test(hint);
   });
@@ -132,36 +138,69 @@ function searchTarget(surface: DetectionReport["surfaces"][number]): Locator | u
  * Never enables mutation and never asserts absence it cannot prove; search cases only
  * prove the page stays usable after typing.
  */
+export type SnapshotElement = {
+  role?: string;
+  name?: string;
+  testId?: string;
+  inputType?: string;
+  placeholder?: string;
+  ariaLabel?: string;
+};
+
 export function planReadOnlyCases(input: {
   detectionId: string;
   profile: DetectionReport;
   tests: StoredTest[];
   targetMode: "demo" | "custom" | "pilot" | "real";
   limit?: number;
+  /** Standalone snapshots of iframe content routes; replaces shell-frame elements. */
+  contentElements?: Record<string, SnapshotElement[]>;
+  /** The exact standalone path that produced the snapshot (trailing slash matters). */
+  contentPaths?: Record<string, string>;
 }): ReadOnlyCandidate[] {
   if (input.targetMode !== "real") return [];
   const limit = Math.min(Math.max(input.limit ?? 12, 1), 20);
   const covered = coveredRoutes(input.profile, input.tests);
-  const global = globalKeys(input.profile.surfaces);
+  const frameRoutes = new Set((input.profile.frameSurfaces ?? []).map((frame) => frame.route));
+  const surfaces = [
+    ...input.profile.surfaces.filter((surface) => !frameRoutes.has(surface.route)),
+    ...(input.profile.frameSurfaces ?? []).map((frame) => ({
+      route: frame.route,
+      elements: input.contentElements?.[frame.route] ?? frame.elements,
+    })),
+  ];
+  const global = globalKeys(surfaces);
   const seen = new Set<string>();
   const candidates: ReadOnlyCandidate[] = [];
 
-  for (const surface of input.profile.surfaces) {
+  for (const surface of surfaces) {
+    const contentPage = frameRoutes.has(surface.route);
     const route = routeKey(surface.route);
-    if (route === "/" || seen.has(route) || covered.has(route)) continue;
+    if (route === "/" || seen.has(route)) continue;
     const stable = stableTarget(surface, global);
+    const frameSurface = contentPage
+      ? input.profile.frameSurfaces?.find((frame) => frame.route === surface.route)
+      : undefined;
+    const search = searchTarget(surface) ?? (frameSurface ? searchTarget(frameSurface) : undefined);
+    const wantLoad = !covered.load.has(route);
+    const wantSearch = Boolean(search) && !covered.search.has(route);
+    if (!wantLoad && !wantSearch) continue;
     seen.add(route);
-    const baseId = `ro-${slug(input.detectionId)}-${slug(route)}`.slice(0, 110);
-    const baseSteps = [{ id: "open", action: "navigate" as const, path: surface.route }];
+    const baseId = `ro-${slug(input.detectionId)}-${contentPage ? "content-" : ""}${slug(route)}`.slice(0, 110);
+    const pageLabel = contentPage ? "内容页" : "";
+    const pagePath = (contentPage ? input.contentPaths?.[surface.route] : undefined) ?? surface.route;
+    const baseSteps = [{ id: "open", action: "navigate" as const, path: pagePath }];
     const policy = { screenshots: "never" as const, cleanup: "none" as const };
 
-    candidates.push({
+    if (wantLoad) candidates.push({
       testId: `${baseId}-load`,
-      title: `真实只读·${route} 加载`,
+      title: `真实只读·${pageLabel}${route} 加载`,
       route,
       kind: "load",
       notes: [
-        `由画像表面 ${route} 自动生成；断言路由 URL 落到该页面`,
+        contentPage
+          ? `由画像中的 iframe 内容页 ${route} 自动生成；独立打开该内容页，断言路由与页面元素`
+          : `由画像表面 ${route} 自动生成；断言路由 URL 落到该页面`,
         ...(stable ? ["附加断言目标来自该页面的非全局元素"] : ["该页只有全局元素，未生成可见性断言"]),
       ],
       ir: {
@@ -171,18 +210,17 @@ export function planReadOnlyCases(input: {
         baseUrlRef: "real-env",
         steps: baseSteps,
         assertions: [
-          { id: "routed", type: "ui", urlIncludes: surface.route, oracle: "human-approved" },
+          { id: "routed", type: "ui", urlIncludes: pagePath, oracle: "human-approved" },
           ...(stable ? [{ id: "visible", type: "ui" as const, target: stable, oracle: "human-approved" as const }] : []),
         ],
         policy,
       },
     });
 
-    const search = searchTarget(surface);
-    if (search) {
+    if (wantSearch && search) {
       candidates.push({
         testId: `${baseId}-search`,
-        title: `真实只读·${route} 搜索冒烟`,
+        title: `真实只读·${pageLabel}${route} 搜索冒烟`,
         route,
         kind: "search",
         notes: [
@@ -195,12 +233,12 @@ export function planReadOnlyCases(input: {
           platform: "web",
           baseUrlRef: "real-env",
           steps: [
-            { id: "open", action: "navigate", path: surface.route },
+            { id: "open", action: "navigate", path: pagePath },
             { id: "wait-page", action: "wait", target: stable },
             { id: "search", action: "fill", target: search, value: "zzzz" },
           ],
           assertions: [
-            { id: "routed", type: "ui", urlIncludes: surface.route, oracle: "human-approved" },
+            { id: "routed", type: "ui", urlIncludes: pagePath, oracle: "human-approved" },
             ...(stable ? [{ id: "still-usable", type: "ui" as const, target: stable, oracle: "human-approved" as const }] : []),
           ],
           policy,

@@ -126,3 +126,30 @@ test("records discovered links that the route budget did not visit", async () =>
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test("records iframe content pages as frame surfaces", async () => {
+  const server = createServer((req, res) => {
+    const url = req.url ?? "/";
+    if (url === "/inner") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end("<!doctype html><body><h1>内部页面</h1><input placeholder=\"搜索相册\" /></body>");
+      return;
+    }
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end('<!doctype html><body><h1>外壳</h1><iframe name="inner" src="/inner"></iframe></body>');
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const port = (server.address() as { port: number }).port;
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+    const profile = await collectSystemProfile(page, { maxRoutes: 1, settleMs: 2000 });
+    const inner = (profile.frameSurfaces ?? []).find((frame) => frame.route === "/inner");
+    assert.ok(inner, JSON.stringify(profile.frameSurfaces));
+    assert.ok(inner!.elements.some((element) => element.placeholder === "搜索相册"));
+  } finally {
+    await browser.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

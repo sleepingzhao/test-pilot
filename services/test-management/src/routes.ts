@@ -47,7 +47,8 @@ import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-ide
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
 import { buildRiskReport, enrichRiskReportWithLlm, readLatestRiskReport, saveRiskReport } from "./risk-report.js";
 import { buildExplorationSuggestions } from "./explore-suggestions.js";
-import { planReadOnlyCases } from "./read-only-suite.js";
+import { planReadOnlyCases, type SnapshotElement } from "./read-only-suite.js";
+import { openRealPage } from "./real-login.js";
 import { buildFlakeMetricsReport, computeFlakeStats, normalizeRepeatCount } from "./flake-metrics.js";
 import {
   assertionConfigCatalog,
@@ -166,6 +167,68 @@ type ReadOnlySuiteJob = {
 };
 
 const readOnlySuiteJobs = new Map<string, ReadOnlySuiteJob>();
+
+/** Ground content-page assertions on the standalone page, not the shell's iframe snapshot. */
+async function exploreContentRoutes(
+  routes: string[],
+  origin: string,
+): Promise<{ elements: Record<string, SnapshotElement[]>; paths: Record<string, string> }> {
+  const out: Record<string, SnapshotElement[]> = {};
+  const paths: Record<string, string> = {};
+  const handle = await openRealPage(origin).catch(() => undefined);
+  if (!handle) return { elements: out, paths };
+  try {
+    const base = new URL(origin).origin;
+    const baseline = new Set<string>();
+    try {
+      await handle.page.goto(`${base}/welcome`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await handle.page.waitForTimeout(1_500);
+      for (const element of (await snapshotPageContext(handle.page)).elements) {
+        const key = element.testId ? `id:${element.testId}` : element.name ? `name:${element.name}` : "";
+        if (key) baseline.add(key);
+      }
+    } catch {
+      /* no baseline page; keep unfiltered snapshots */
+    }
+    for (const route of routes) {
+      const candidates = route.endsWith("/") ? [route] : [`${route}/`, route];
+      let elements: SnapshotElement[] = [];
+      for (const path of candidates) {
+        try {
+          await handle.page.goto(`${base}${path}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            await handle.page.waitForTimeout(2_000);
+            const snapshot = await snapshotPageContext(handle.page);
+            const filtered = snapshot.elements.filter((element) => {
+              const hint = element.placeholder ?? element.ariaLabel ?? element.name ?? "";
+              const searchLike = element.role === "input" && /搜索|search|筛选|filter/i.test(hint);
+              if (searchLike) return true;
+              const key = element.testId ? `id:${element.testId}` : element.name ? `name:${element.name}` : "";
+              return key ? !baseline.has(key) : false;
+            });
+            if (filtered.some((element) => element.role === "input")) {
+              elements = filtered;
+              paths[route] = path;
+              break;
+            }
+            if (filtered.length && !elements.length) elements = filtered;
+          }
+          if (elements.length) {
+            paths[route] = path;
+            break;
+          }
+        } catch {
+          /* try the other trailing-slash form */
+        }
+      }
+      out[route] = elements;
+      if (!paths[route]) paths[route] = candidates[0]!;
+    }
+  } finally {
+    await handle.browser.close().catch(() => undefined);
+  }
+  return { elements: out, paths };
+}
 
 function stampTestMeta(test: StoredTest, opts?: { approving?: boolean; assertionConfigHash?: string }): StoredTest {
   const irHash = computeIRHash(test.ir);
@@ -1553,13 +1616,27 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       return reply.code(400).send({ error: "只读套件仅支持真实环境画像" });
     }
     const body = (req.body ?? {}) as { limit?: number };
-    const candidates = planReadOnlyCases({
+    const tests = await store.listTests();
+    let candidates = planReadOnlyCases({
       detectionId,
       profile: record.profile,
-      tests: await store.listTests(),
+      tests,
       targetMode: record.target,
       limit: body.limit,
     });
+    const contentRoutes = [...new Set(candidates.filter((item) => item.testId.includes("-content-")).map((item) => item.route))].slice(0, 8);
+    if (contentRoutes.length) {
+      const explored = await exploreContentRoutes(contentRoutes, record.profile.target.url);
+      candidates = planReadOnlyCases({
+        detectionId,
+        profile: record.profile,
+        tests,
+        targetMode: record.target,
+        limit: body.limit,
+        contentElements: explored.elements,
+        contentPaths: explored.paths,
+      });
+    }
     const jobId = `rosuite_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
     const job: ReadOnlySuiteJob = {
       id: jobId,
@@ -1616,19 +1693,50 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
           let message: string | undefined;
           let approved = false;
           try {
-            const run = await executeSingleIrRun(
+            let activeDraft = draft;
+            let run = await executeSingleIrRun(
               store,
-              draft,
+              activeDraft,
               validated.value,
               project.defaultBaseUrl,
               project.id,
               artifactsRoot,
               dataRoot,
             );
+            if (run.status !== "passed" && candidate.testId.includes("-content-")) {
+              // Content-element assertions are best-effort; keep a routing smoke instead of a stuck draft.
+              const openStep = validated.value.steps.find((step) => step.action === "navigate");
+              const urlAssertions = validated.value.assertions.filter((assertion) => assertion.urlIncludes);
+              const fallbackIr = openStep && urlAssertions.length
+                ? validateTestIR({ ...validated.value, steps: [openStep], assertions: urlAssertions })
+                : undefined;
+              if (fallbackIr?.ok) {
+                activeDraft = stampTestMeta({
+                  ...draft,
+                  ir: fallbackIr.value,
+                  plannerNotes: [...(draft.plannerNotes ?? []), "内容元素断言未通过，已降级为 URL 路由断言"],
+                });
+                await store.saveTest(activeDraft);
+                run = await executeSingleIrRun(
+                  store,
+                  activeDraft,
+                  fallbackIr.value,
+                  project.defaultBaseUrl,
+                  project.id,
+                  artifactsRoot,
+                  dataRoot,
+                );
+                if (run.status === "passed") {
+                  message = "内容元素断言未通过，已降级为 URL 路由断言";
+                }
+              }
+            }
             status = run.status === "passed" ? "passed" : "failed";
-            message = run.status === "passed" ? undefined : run.artifacts.notes ?? run.metrics.failureKind;
+            if (run.status !== "passed") {
+              message = run.artifacts.notes ?? run.metrics.failureKind;
+            }
             if (run.status === "passed") {
-              const saved = await saveDraftWithAutoApproval(draft, { trialPassed: true });
+              const saved = await saveDraftWithAutoApproval(activeDraft, { trialPassed: true });
               approved = saved.approvalStatus === "approved";
               if (approved) job.approvedIds.push(candidate.testId);
             }

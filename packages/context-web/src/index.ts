@@ -42,7 +42,27 @@ export async function snapshotPageContext(page: Page, scope?: string): Promise<P
       if (!isVisible(el)) return;
       const testId = el.getAttribute("data-testid") ?? undefined;
       const tag = el.tagName.toLowerCase();
-      const role = el.getAttribute("role") ?? tag;
+      const roleByTag: Record<string, string> = {
+        h1: "heading",
+        h2: "heading",
+        h3: "heading",
+        h4: "heading",
+        h5: "heading",
+        h6: "heading",
+        table: "table",
+        tr: "row",
+        th: "columnheader",
+        td: "cell",
+        ul: "list",
+        ol: "list",
+        li: "listitem",
+        a: "link",
+        button: "button",
+        input: "textbox",
+        textarea: "textbox",
+        select: "combobox",
+      };
+      const role = el.getAttribute("role") ?? roleByTag[tag] ?? tag;
       const inputType = tag === "input" ? el.getAttribute("type") ?? "text" : undefined;
       const ariaLabel = el.getAttribute("aria-label") ?? undefined;
       const placeholder = el.getAttribute("placeholder") ?? undefined;

@@ -11,6 +11,19 @@ function profile(): DetectionReport {
     signals: [],
     questions: [],
     capabilities: [],
+    frameSurfaces: [
+      {
+        route: "/album/",
+        elements: [
+          { role: "heading", name: "团队相册" },
+          { role: "input", name: "搜索相册", inputType: "text", placeholder: "搜索相册" },
+        ],
+      },
+      {
+        route: "/chat/",
+        elements: [{ role: "heading", name: "聊天记录" }],
+      },
+    ],
     surfaces: [
       {
         route: "/contacts/",
@@ -55,10 +68,12 @@ test("plans load and search cases only for uncovered real routes", () => {
   const cases = planReadOnlyCases({
     detectionId: "detect_x",
     profile: profile(),
-    tests: [approvedReal("/covered/")],
+    tests: [approvedReal("/covered/"), approvedReal("/chat/")],
     targetMode: "real",
   });
   assert.deepEqual(cases.map((item) => `${item.route}:${item.kind}`).sort(), [
+    "/album:load",
+    "/album:search",
     "/bare:load",
     "/contacts:load",
     "/contacts:search",
@@ -74,8 +89,23 @@ test("plans load and search cases only for uncovered real routes", () => {
     );
     assert.match(item.testId, /^[a-z0-9][a-z0-9-]*$/);
   }
-  const search = cases.find((item) => item.kind === "search")!;
+  const search = cases.find((item) => item.route === "/contacts" && item.kind === "search")!;
   assert.deepEqual(search.ir.steps[2]?.target, { placeholder: "搜索" });
+  const content = cases.find((item) => item.route === "/album" && item.kind === "load")!;
+  assert.match(content.testId, /-content-/);
+  assert.match(content.title, /内容页/);
+  assert.equal(cases.some((item) => item.route === "/chat"), false);
+});
+
+test("a load-only approved case still lets the search scenario generate", () => {
+  const cases = planReadOnlyCases({
+    detectionId: "detect_x",
+    profile: profile(),
+    tests: [approvedReal("/contacts/")],
+    targetMode: "real",
+  });
+  assert.equal(cases.some((item) => item.route === "/contacts" && item.kind === "load"), false);
+  assert.equal(cases.some((item) => item.route === "/contacts" && item.kind === "search"), true);
 });
 
 test("does not generate for non-real targets and respects the limit", () => {

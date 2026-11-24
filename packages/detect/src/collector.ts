@@ -96,6 +96,7 @@ export async function collectSystemProfile(
   };
   const entryUrl = page.url();
   const surfaces: SurfaceSnapshot[] = [];
+  const frameSurfaces: NonNullable<DetectionReport["frameSurfaces"]> = [];
   const unvisited: Array<{ route: string }> = [];
   const found: Signal[] = [];
   const evidence: DetectionEvidence = { pages: [], frames: [], endpoints: [] };
@@ -137,6 +138,7 @@ export async function collectSystemProfile(
         surfaces.push(sampled.surface);
         found.push(...sampled.signals);
         mergeEvidence(evidence, sampled.evidence);
+        mergeFrameSurfaces(frameSurfaces, sampled.evidence.frames);
         seen.add(pathOf(page.url()));
         for (const href of sampled.routes) {
           const path = pathOf(href);
@@ -164,6 +166,7 @@ export async function collectSystemProfile(
             if (extra) {
               found.push(...extra.signals);
               mergeEvidence(evidence, extra.evidence);
+              mergeFrameSurfaces(frameSurfaces, extra.evidence.frames);
               if (!surfaces.some((surface) => surface.route === extra.surface.route)) {
                 surfaces.push(extra.surface);
               }
@@ -191,6 +194,7 @@ export async function collectSystemProfile(
     capabilities: evaluated.capabilities,
     questions: evaluated.questions,
     ...(unvisited.length ? { unvisited } : {}),
+    ...(frameSurfaces.length ? { frameSurfaces } : {}),
     evidence,
   };
 }
@@ -758,14 +762,52 @@ async function collectFrames(
 }
 
 async function readPageText(page: Page | Frame, limit = 4_000): Promise<string> {
-  const text = await page.locator("body").innerText().catch(() => "");
+  // locator() is empty inside wujie-managed iframes; evaluate still reads the frame document.
+  const text = await page
+    .evaluate(`(document.body && document.body.innerText) || ""`)
+    .then((value) => String(value))
+    .catch(() => "");
   return text.replace(/\s+/g, " ").trim().slice(0, limit);
 }
 
 function evidenceElements(
-  elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string }>,
-): Array<{ role?: string; name?: string; testId?: string; inputType?: string }> {
-  return elements.map(({ role, name, testId, inputType }) => ({ role, name, testId, inputType }));
+  elements: Array<{
+    role?: string;
+    name?: string;
+    testId?: string;
+    inputType?: string;
+    placeholder?: string;
+    ariaLabel?: string;
+  }>,
+): Array<{
+  role?: string;
+  name?: string;
+  testId?: string;
+  inputType?: string;
+  placeholder?: string;
+  ariaLabel?: string;
+}> {
+  return elements.map(({ role, name, testId, inputType, placeholder, ariaLabel }) => ({
+    role,
+    name,
+    testId,
+    inputType,
+    ...(placeholder ? { placeholder } : {}),
+    ...(ariaLabel ? { ariaLabel } : {}),
+  }));
+}
+
+function mergeFrameSurfaces(
+  target: NonNullable<DetectionReport["frameSurfaces"]>,
+  frames: DetectionEvidence["frames"],
+): void {
+  for (const frame of frames) {
+    if (!frame.route || frame.route === "/") continue;
+    const existing = target.find((item) => item.route === frame.route);
+    if (existing) continue;
+    target.push({ route: frame.route, elements: frame.elements });
+    if (target.length >= 12) return;
+  }
 }
 
 function endpointsFrom(records: NetworkObservation[]): DetectionEvidence["endpoints"] {

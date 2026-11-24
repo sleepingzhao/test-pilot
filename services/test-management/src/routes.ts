@@ -156,7 +156,7 @@ type ReadOnlySuiteJob = {
   results: Array<{
     testId: string;
     title: string;
-    status: "passed" | "failed" | "error";
+    status: "passed" | "failed" | "error" | "skipped";
     approved: boolean;
     message?: string;
   }>;
@@ -167,6 +167,9 @@ type ReadOnlySuiteJob = {
 };
 
 const readOnlySuiteJobs = new Map<string, ReadOnlySuiteJob>();
+
+/** Suite tests that cannot be verified read-only are kept as annotated drafts and not retried. */
+const SUITE_READONLY_SKIP = "suite:skip:read-only-blocked";
 
 /** Ground content-page assertions on the standalone page, not the shell's iframe snapshot. */
 async function exploreContentRoutes(
@@ -1687,16 +1690,20 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       try {
         for (const candidate of candidates) {
           const existing = await store.getTest(candidate.testId);
-          if (existing?.approvalStatus === "approved") {
+          const readOnlyBlocked = (existing?.plannerNotes ?? []).some((note) =>
+            note.startsWith(SUITE_READONLY_SKIP),
+          );
+          if (existing?.approvalStatus === "approved" || readOnlyBlocked) {
+            const approved = existing?.approvalStatus === "approved";
             job.results.push({
               testId: candidate.testId,
               title: candidate.title,
-              status: "passed",
-              approved: true,
-              message: "已批准，跳过",
+              status: approved ? "passed" : "skipped",
+              approved,
+              message: approved ? "已批准，跳过" : "只读模式下无法验证，跳过重试",
             });
             job.completed += 1;
-            job.approvedIds.push(candidate.testId);
+            if (approved) job.approvedIds.push(candidate.testId);
             continue;
           }
           const validated = validateTestIR(candidate.ir);
@@ -1770,6 +1777,17 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
               }
             }
             status = run.status === "passed" ? "passed" : "failed";
+            if (run.status !== "passed" && (run.readOnlyBlockedRequests ?? 0) > 0) {
+              // The page's own query needs a write request; read-only cannot verify it, so stop retrying.
+              activeDraft = stampTestMeta({
+                ...activeDraft,
+                plannerNotes: [
+                  ...(activeDraft.plannerNotes ?? []),
+                  `${SUITE_READONLY_SKIP} 只读模式阻止了页面的查询请求（应用以 POST 提交），该页面搜索无法在只读下验证`,
+                ],
+              });
+              await store.saveTest(activeDraft);
+            }
             if (run.status !== "passed") {
               const failedAssertion = run.assertions.find((assertion) => !assertion.passed);
               message = run.artifacts.notes ?? failedAssertion?.message ?? run.metrics.failureKind;

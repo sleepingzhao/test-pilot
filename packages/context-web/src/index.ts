@@ -72,15 +72,14 @@ export async function snapshotPageContext(page: Page, scope?: string): Promise<P
             const usable: string[] = [];
             for (const child of children) {
               const rawText = (child as HTMLElement).innerText ?? "";
-              // Cards usually put the searchable title on the first line; the whole card reads as one blob.
-              const firstLine = rawText.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
-              const text =
-                firstLine.length >= 4 && firstLine.length <= 80
-                  ? firstLine
-                  : rawText.replace(/\s+/g, " ").trim();
-              if (text.length < 4 || text.length > 80) continue;
-              if (!hasLetters(text)) continue;
-              usable.push(text);
+              // Use one real line, never the joined blob: "sender\nmessage" does not exist as one string,
+              // so asserting or searching the blob fails even when the item is on screen.
+              const line = rawText
+                .split("\n")
+                .map((part) => part.trim())
+                .find((part) => part.length >= 4 && part.length <= 80);
+              if (!line || !hasLetters(line)) continue;
+              usable.push(line);
             }
             if (usable.length < 3) continue;
 

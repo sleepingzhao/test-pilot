@@ -36,6 +36,7 @@ const READ_ONLY_SUITE_STATUS_LABELS: Record<ReadOnlySuiteResult["status"], strin
   passed: "通过",
   failed: "失败",
   error: "错误",
+  skipped: "跳过",
 };
 
 const RISK_CATEGORY_LABELS: Record<RiskCategory, string> = {

@@ -273,7 +273,7 @@ export type StoredBatch = {
 export type ReadOnlySuiteResult = {
   testId: string;
   title: string;
-  status: "passed" | "failed" | "error";
+  status: "passed" | "failed" | "error" | "skipped";
   approved: boolean;
   message?: string;
 };

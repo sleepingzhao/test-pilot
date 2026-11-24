@@ -127,6 +127,10 @@
           "type": "string",
           "minLength": 1,
           "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+        },
+        "frame": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "allOf": [
@@ -197,6 +201,10 @@
           "type": "string",
           "minLength": 1,
           "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+        },
+        "frame": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

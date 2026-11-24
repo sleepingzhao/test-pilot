@@ -596,3 +596,19 @@ test("single-actor IR without actors unchanged", () => {
   assert.equal(result.ok, true);
   if (result.ok) assert.deepEqual(validateSemantics(result.value), []);
 });
+
+test("accepts frame selectors on steps and assertions", () => {
+  const result = validateTestIR({
+    id: "frame-ir",
+    version: 1,
+    platform: "web",
+    steps: [
+      { id: "open", action: "navigate", path: "/" },
+      { id: "fill", action: "fill", frame: 'iframe[name="inner"]', target: { placeholder: "搜索" }, value: "x" },
+    ],
+    assertions: [
+      { id: "ok", type: "ui", frame: 'iframe[name="inner"]', contains: "done ok", oracle: "human-approved" },
+    ],
+  });
+  assert.equal(result.ok, true);
+});

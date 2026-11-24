@@ -15,8 +15,9 @@
 - 视觉与证据：V7-9a 步骤截图时间线、V7-9b 录制期 AI 定位、V7-9c 探索期 AI 观察
 - 自动审批：`TESTPILOT_AUTO_APPROVE=1` 时，草稿试跑通过且强断言门禁通过后自动批准（`approvedBy: auto:testpilot` + 审计），弱断言/占位断言仍留草稿
 - 双账号真实登录：`actors[].account`（`primary`/`alt`），每个 actor 用对应 `TESTPILOT_ENV_REAL_*` / `_ALT_*` 登录；登录失败标注 actor
+- 真实只读回归：8 条 `real-*` 用例（通讯录列表/部门筛选/详情、任务、文档、提醒事项列表/已完成筛选、会议首页），两轮批次 8/8 通过
 
-**基线：** 17 条已批准用例（16 demo + 1 pilot）、5 个断言 Provider、`pnpm verify` 全绿。
+**基线：** 26 条已批准用例（17 demo + 1 pilot + 8 真实只读；9 条自动批准）、5 个断言 Provider、`pnpm verify` 全绿。
 
 ## 1. 红线
 
@@ -39,8 +40,9 @@
    真实环境默认不落截图/Trace/响应正文，或明确保留期与 PII 提示；证据仍可下载。
    _证据：`runOptionsFor` 对真实源设 `realTarget`；证据采集器强制无截图、无 Trace，`network.json` 去 query/请求体/响应体/头，`ws.json` 去 payload 与 query，`sse.json` 去 data；断言仍在内存使用原始数据。测试：`pnpm --filter @testpilot/evidence test`（`real target ...`）、`pnpm --filter @testpilot/runner-web test`（`realTarget evidence policy ...`）；控制台运行详情「证据已脱敏」徽章已浏览器验证。未对生产站点实测。_
 
-4. [ ] **V7-12d 只读回归模板（P0）**
+4. [x] **V7-12d 只读回归模板（P0）**
    登录 → 列表 → 搜索 → 筛选 → 详情，5–8 条已批准用例；批量跑通；生产只跑只读。
+   _证据：8 条 `real-*` 用例全部 `baseUrlRef: "real-env"`，运行均为 `readOnly` + `realTarget`；两轮独立批次 8/8 通过（`batch_mwusbfk1_81b95be0`、`batch_mwusdydu_008f6407`），自动审批审计 `auto:testpilot`；证据无截图/Trace，network/WS/SSE 无正文与 query。支撑改动：IR/断言 `frame` iframe 支持、`runOptionsFor` 解析 IR `baseUrlRef`（此前误用 demo 回退）、批次显式 `testIds`、企业账号登录切换重试。搜索断言需负向断言能力，未纳入本轮。_
 
 5. [ ] **V7-10a 风险报告规则基线（P1）**
    RiskReport + 8 条规则 + `data/risk-reports/`；无 LLM 也能用；正反测试。

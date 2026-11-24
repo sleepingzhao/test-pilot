@@ -85,17 +85,18 @@ export async function runUiAssertion(
   }
 
   try {
+    const root = ctx.frame ? ctx.page.frameLocator(ctx.frame) : ctx.page;
     if (assertion.target && !assertion.contains) {
       const t = assertion.target;
       let el;
-      if (t.testId) el = ctx.page.getByTestId(t.testId);
+      if (t.testId) el = root.getByTestId(t.testId);
       else if (t.role)
         el = t.name
-          ? ctx.page.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name, exact: true })
-          : ctx.page.getByRole(t.role as Parameters<Page["getByRole"]>[0]);
-      else if (t.label) el = ctx.page.getByLabel(t.label);
-      else if (t.placeholder) el = ctx.page.getByPlaceholder(t.placeholder);
-      else if (t.css) el = ctx.page.locator(t.css);
+          ? root.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name, exact: true })
+          : root.getByRole(t.role as Parameters<Page["getByRole"]>[0]);
+      else if (t.label) el = root.getByLabel(t.label);
+      else if (t.placeholder) el = root.getByPlaceholder(t.placeholder);
+      else if (t.css) el = root.locator(t.css);
       else throw new Error("empty target");
       await el.waitFor({ state: "visible", timeout: 10_000 });
       return { assertionId: id, passed: true, expected: "visible", actual: "visible" };
@@ -104,14 +105,14 @@ export async function runUiAssertion(
     if (assertion.contains && assertion.target) {
       let el;
       const t = assertion.target;
-      if (t.testId) el = ctx.page.getByTestId(t.testId);
+      if (t.testId) el = root.getByTestId(t.testId);
       else if (t.role)
         el = t.name
-          ? ctx.page.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name, exact: true })
-          : ctx.page.getByRole(t.role as Parameters<Page["getByRole"]>[0]);
-      else if (t.label) el = ctx.page.getByLabel(t.label);
-      else if (t.placeholder) el = ctx.page.getByPlaceholder(t.placeholder);
-      else if (t.css) el = ctx.page.locator(t.css);
+          ? root.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name, exact: true })
+          : root.getByRole(t.role as Parameters<Page["getByRole"]>[0]);
+      else if (t.label) el = root.getByLabel(t.label);
+      else if (t.placeholder) el = root.getByPlaceholder(t.placeholder);
+      else if (t.css) el = root.locator(t.css);
       else throw new Error("empty target");
       await el.waitFor({ state: "visible", timeout: 10_000 });
       const deadline = Date.now() + uiAssertTimeoutMs();
@@ -132,6 +133,23 @@ export async function runUiAssertion(
     }
 
     if (assertion.contains) {
+      if (ctx.frame) {
+        const body = root.locator("body");
+        const deadline = Date.now() + uiAssertTimeoutMs();
+        let text = await body.innerText().catch(() => "");
+        while (!text.includes(assertion.contains) && Date.now() < deadline) {
+          await sleep(100);
+          text = await body.innerText().catch(() => text);
+        }
+        const passed = text.includes(assertion.contains);
+        return {
+          assertionId: id,
+          passed,
+          expected: assertion.contains,
+          actual: text.slice(0, 500),
+          errorKind: passed ? undefined : "PRODUCT_DEFECT",
+        };
+      }
       await ctx.page
         .waitForFunction("document.body && document.body.innerText.trim().length > 0", { timeout: 20_000 })
         .catch(() => undefined);

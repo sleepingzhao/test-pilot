@@ -29,6 +29,8 @@ export interface TestStep {
   action: StepAction;
   /** When omitted, steps run as the primary actor. Requires `actors` on the IR. */
   actor?: string;
+  /** CSS selector of the containing iframe; locators then resolve inside that frame. */
+  frame?: string;
   path?: string;
   target?: Locator;
   value?: string;
@@ -57,6 +59,8 @@ export interface TestAssertion {
   id?: string;
   /** When omitted, assertion runs against the primary actor. Requires `actors` on the IR. */
   actor?: string;
+  /** CSS selector of the containing iframe; UI assertions resolve inside that frame. */
+  frame?: string;
   type: "ui" | "api" | "db" | "event" | "agent" | "custom";
   provider?: string;
   configRef?: string;

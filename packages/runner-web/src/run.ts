@@ -13,7 +13,7 @@ import {
   renderRequestStep,
   requestBodyForEvidence,
 } from "./request-template.js";
-import { chromium, type Browser, type BrowserContext, type Locator as PwLocator, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type FrameLocator, type Locator as PwLocator, type Page } from "playwright";
 
 export type RunStatus = "passed" | "failed" | "error";
 
@@ -104,24 +104,26 @@ function redactAssertionForEvidence(outcome: AssertionResult): AssertionResult {
   };
 }
 
-function locatorCandidates(page: Page, target: TargetLocator): PwLocator[] {
+type LocatorRoot = Page | FrameLocator;
+
+function locatorCandidates(root: LocatorRoot, target: TargetLocator): PwLocator[] {
   const out: PwLocator[] = [];
-  if (target.testId) out.push(page.getByTestId(target.testId));
+  if (target.testId) out.push(root.getByTestId(target.testId));
   if (target.role) {
     out.push(
       target.name
-        ? page.getByRole(target.role as Parameters<Page["getByRole"]>[0], { name: target.name, exact: true })
-        : page.getByRole(target.role as Parameters<Page["getByRole"]>[0]),
+        ? root.getByRole(target.role as Parameters<Page["getByRole"]>[0], { name: target.name, exact: true })
+        : root.getByRole(target.role as Parameters<Page["getByRole"]>[0]),
     );
     if (target.name) {
-      out.push(page.getByText(target.name, { exact: false }));
+      out.push(root.getByText(target.name, { exact: false }));
     }
   } else if (target.name) {
-    out.push(page.getByText(target.name, { exact: false }));
+    out.push(root.getByText(target.name, { exact: false }));
   }
-  if (target.label) out.push(page.getByLabel(target.label));
-  if (target.placeholder) out.push(page.getByPlaceholder(target.placeholder));
-  if (target.css) out.push(page.locator(target.css));
+  if (target.label) out.push(root.getByLabel(target.label));
+  if (target.placeholder) out.push(root.getByPlaceholder(target.placeholder));
+  if (target.css) out.push(root.locator(target.css));
   if (out.length === 0) throw new Error("unsupported locator");
   return out;
 }
@@ -142,8 +144,8 @@ async function captureFinalSignals(page: Page): Promise<string[]> {
   return (raw as string[]).map((text) => redactStringBody(text));
 }
 
-async function resolveStepLocator(page: Page, target: TargetLocator, timeoutMs = 4_000) {
-  const candidates = locatorCandidates(page, target);
+async function resolveStepLocator(root: LocatorRoot, target: TargetLocator, timeoutMs = 4_000) {
+  const candidates = locatorCandidates(root, target);
   for (let i = 0; i < candidates.length; i++) {
     const loc = candidates[i]!;
     try {
@@ -222,6 +224,7 @@ async function executeStep(
   options?: ExecuteStepOptions,
 ): Promise<StepResult> {
   const started = Date.now();
+  const root: LocatorRoot = step.frame ? page.frameLocator(step.frame) : page;
   try {
     switch (step.action) {
       case "navigate": {
@@ -238,7 +241,7 @@ async function executeStep(
       }
       case "click": {
         if (!step.target) throw new Error("click requires target");
-        const loc = await resolveStepLocator(page, step.target);
+        const loc = await resolveStepLocator(root, step.target);
         await loc.click({ timeout: 15_000 });
         break;
       }
@@ -247,7 +250,7 @@ async function executeStep(
         const raw = step.value ?? (step.valueRef ? refs[step.valueRef] : undefined);
         if (raw === undefined) throw new Error("fill requires value or resolvable valueRef");
         const value = raw.replace(/\{\{runId\}\}/g, runId);
-        const loc = await resolveStepLocator(page, step.target);
+        const loc = await resolveStepLocator(root, step.target);
         await loc.fill(value, { timeout: 15_000 });
         break;
       }
@@ -256,7 +259,7 @@ async function executeStep(
         const raw = step.value ?? (step.valueRef ? refs[step.valueRef] : undefined);
         if (raw === undefined) throw new Error("select requires value or resolvable valueRef");
         const value = raw.replace(/\{\{runId\}\}/g, runId);
-        const loc = await resolveStepLocator(page, step.target);
+        const loc = await resolveStepLocator(root, step.target);
         await loc.selectOption(value, { timeout: 15_000 });
         break;
       }
@@ -267,7 +270,7 @@ async function executeStep(
       }
       case "wait": {
         if (step.target) {
-          await resolveStepLocator(page, step.target, 15_000);
+          await resolveStepLocator(root, step.target, 15_000);
         } else {
           await page.waitForLoadState("domcontentloaded");
           await page
@@ -279,7 +282,7 @@ async function executeStep(
       case "selectCascader": {
         if (!step.target) throw new Error("selectCascader requires target");
         await executeSelectCascader(page, step, async () => {
-          const loc = await resolveStepLocator(page, step.target!);
+          const loc = await resolveStepLocator(root, step.target!);
           await loc.click({ timeout: 15_000 });
         });
         break;
@@ -291,7 +294,7 @@ async function executeStep(
           throw new Error("upload step must not store a file path in value; resolve it from valueRef");
         }
         const filePath = resolveUploadFixturePath(step.valueRef, refs, env);
-        const loc = await resolveStepLocator(page, step.target);
+        const loc = await resolveStepLocator(root, step.target);
         await loc.setInputFiles(filePath, { timeout: 15_000 });
         break;
       }
@@ -857,6 +860,7 @@ async function runTestIROnce(ir: TestIR, options: RunOptions): Promise<RunResult
         const networkLog = session.evidence.getNetworkLog();
         const assertionCtx: AssertionContext = {
           page: session.page,
+          ...(assertion.frame ? { frame: assertion.frame } : {}),
           runId,
           network: networkLog,
           wsFrames: session.evidence.getWebSocketFrames(),

@@ -87,9 +87,7 @@ export async function loginRealPage(
   await page.waitForTimeout(2_500);
 
   if (/\/login/i.test(new URL(page.url()).pathname)) {
-    await switchToEnterpriseLogin(page);
-    const tenant = page.locator('input[name="tenantCode"]');
-    await tenant.waitFor({ state: "visible", timeout: 10_000 });
+    const tenant = await waitForEnterpriseLoginForm(page);
     await tenant.fill(enterpriseId);
     await page.locator('input[name="userCode"]').fill(userId);
     await page.locator('input[name="password"]').fill(password);
@@ -124,13 +122,43 @@ export async function openRealPage(baseUrl: string): Promise<RealPageHandle> {
   }
 }
 
+/**
+ * The enterprise tab can still be rendering when the login page first paints;
+ * retry the switch until the tenant input is actually visible.
+ */
+async function waitForEnterpriseLoginForm(page: Page): Promise<ReturnType<Page["locator"]>> {
+  const tenant = page.locator('input[name="tenantCode"]');
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (await tenant.isVisible().catch(() => false)) return tenant;
+    if (attempt === 0) {
+      await page
+        .locator("body")
+        .filter({ hasText: "企业账号登录" })
+        .waitFor({ state: "visible", timeout: 15_000 })
+        .catch(() => undefined);
+    }
+    await switchToEnterpriseLogin(page);
+    await page.waitForTimeout(900);
+  }
+  if (await tenant.isVisible().catch(() => false)) return tenant;
+  throw new Error("真实环境登录页未切换到企业账号登录");
+}
+
 async function switchToEnterpriseLogin(page: Page): Promise<void> {
   await page.evaluate(() => {
     const doc = (globalThis as any).document;
-    const button = [...doc.querySelectorAll("button")].find(
-      (item: any) => (item.textContent || "").trim() === "企业账号登录",
+    const candidates = [...doc.querySelectorAll("button,[role=tab],a,li,div,span")].filter(
+      (item: any) => {
+        const text = (item.textContent || "").trim();
+        if (!text.includes("企业账号登录")) return false;
+        const rect = item.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      },
     );
-    if (button) button.click();
+    const target = candidates[candidates.length - 1];
+    if (!target) return;
+    const clickable = target.closest("button,[role=tab],a,[role=button]") || target;
+    clickable.click();
   });
   await page.waitForTimeout(800);
 }

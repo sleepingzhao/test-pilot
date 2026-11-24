@@ -20,7 +20,14 @@ function withEnv(vars: Record<string, string | undefined>, fn: () => void): void
   }
 }
 
-const minimalIr = (policy?: TestIR["policy"]): Pick<TestIR, "policy"> => ({ policy });
+const minimalIr = (
+  policy?: TestIR["policy"],
+): Pick<TestIR, "policy" | "baseUrl" | "baseUrlRef" | "actors"> => ({
+  policy,
+  baseUrl: undefined,
+  baseUrlRef: undefined,
+  actors: undefined,
+});
 
 test("shouldReadOnlyNetwork: real origin without allowMutation is read-only", () => {
   withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com" }, () => {
@@ -66,5 +73,27 @@ test("runOptionsFor omits readOnlyNetwork when allowMutation is true", () => {
       minimalIr({ allowMutation: true }),
     );
     assert.equal(opts.readOnlyNetwork, undefined);
+  });
+});
+test("runOptionsFor resolves the IR's baseUrlRef, not the demo fallback", () => {
+  withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com" }, () => {
+    const opts = runOptionsFor(DEMO_BASE_URL, "run_x", "/tmp/art", {
+      ...minimalIr(),
+      baseUrlRef: "real-env",
+    });
+    assert.equal(opts.realTarget, true);
+    assert.equal(opts.readOnlyNetwork, true);
+    assert.equal(typeof opts.login, "function");
+  });
+});
+
+test("runOptionsFor honors a primary actor's own baseUrl", () => {
+  withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com" }, () => {
+    const opts = runOptionsFor(DEMO_BASE_URL, "run_x", "/tmp/art", {
+      ...minimalIr(),
+      actors: [{ id: "primary", baseUrl: "https://real.example.com" }],
+    });
+    assert.equal(opts.readOnlyNetwork, true);
+    assert.equal(opts.realTarget, true);
   });
 });

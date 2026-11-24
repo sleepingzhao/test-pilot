@@ -37,6 +37,8 @@ export type AssertionOutcome = {
 
 export type AssertionContext = {
   page: Page;
+  /** CSS selector of the containing iframe; UI assertions resolve inside it. */
+  frame?: string;
   runId?: string;
   network?: CapturedNetworkEntry[];
   wsFrames?: WsFrame[];

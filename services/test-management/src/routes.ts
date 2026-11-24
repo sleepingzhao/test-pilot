@@ -1942,6 +1942,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const { projectId } = req.params as { projectId: string };
     const body = (req.body ?? {}) as {
       testId?: string;
+      testIds?: string[];
       baseUrl?: string;
       includeDraft?: boolean;
       repeatCount?: number;
@@ -1952,6 +1953,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (body.testId && !isSafeTestId(body.testId)) {
       return reply.code(400).send({ error: "invalid testId" });
     }
+    if (body.testIds?.length) {
+      if (body.testId) return reply.code(400).send({ error: "testId 与 testIds 不能同时指定" });
+      if (body.testIds.some((id) => !isSafeTestId(id))) {
+        return reply.code(400).send({ error: "invalid testId in testIds" });
+      }
+    }
     if (!isAllowedTargetUrl(baseUrl)) {
       return reply.code(400).send({
         error:
@@ -1959,10 +1966,17 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       });
     }
 
-    let tests = body.testId
-      ? [await store.getTest(body.testId)].filter(Boolean)
-      : await store.listTests();
-    if (!body.testId && !body.includeDraft) {
+    let tests = body.testIds?.length
+      ? (await Promise.all(body.testIds.map((id) => store.getTest(id)))).filter(
+          (item): item is StoredTest => Boolean(item),
+        )
+      : body.testId
+        ? [await store.getTest(body.testId)].filter(Boolean)
+        : await store.listTests();
+    if (body.testIds?.length && (tests as StoredTest[]).length !== body.testIds.length) {
+      return reply.code(400).send({ error: "部分用例不存在" });
+    }
+    if (!body.testId && !body.testIds?.length && !body.includeDraft) {
       tests = (tests as StoredTest[]).filter((t) => t.approvalStatus === "approved");
     }
     const baseList = tests as StoredTest[];
@@ -2026,7 +2040,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       passed: 0,
       status: "running",
       runIds: [],
-      mode: body.testId ? "selected" : body.includeDraft ? "include-draft" : "full",
+      mode: body.testId || body.testIds?.length ? "selected" : body.includeDraft ? "include-draft" : "full",
       repeatCount,
     };
     await store.saveBatch(batchRecord);

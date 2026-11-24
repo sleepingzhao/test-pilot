@@ -204,6 +204,7 @@
         "configRef": { "type": "string", "minLength": 1 },
         "target": { "$ref": "#/$defs/locator" },
         "contains": { "type": "string" },
+        "notContains": { "type": "string", "minLength": 1 },
         "requestRef": { "type": "string", "minLength": 1 },
         "stepRef": { "type": "string", "minLength": 1 },
         "expect": { "type": "object" },

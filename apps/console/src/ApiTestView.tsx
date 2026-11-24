@@ -668,7 +668,7 @@ export function ApiTestView({ demoUrl, demoReachable, onRefresh, onOpenRun, onOp
         </div>
 
         <p className="stat-note">
-          支持模板：{"{{runId}}"}、{"{{env.apiToken}}"}（解析到 TESTPILOT_ENV_API_TOKEN）。仅允许同源接口。
+          支持模板：{"{{runId}}"}、{"{{env.apiToken}}"}（解析到 TESTPILOT_ENV_APITOKEN）。仅允许同源接口。
         </p>
         <button
           type="button"

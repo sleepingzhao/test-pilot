@@ -15,13 +15,13 @@
 - 视觉与证据：V7-9a 步骤截图时间线、V7-9b 录制期 AI 定位、V7-9c 探索期 AI 观察
 - 自动审批：`TESTPILOT_AUTO_APPROVE=1` 时，草稿试跑通过且强断言门禁通过后自动批准（`approvedBy: auto:testpilot` + 审计），弱断言/占位断言仍留草稿
 - 双账号真实登录：`actors[].account`（`primary`/`alt`），每个 actor 用对应 `TESTPILOT_ENV_REAL_*` / `_ALT_*` 登录；登录失败标注 actor
-- 真实只读回归：8 条 `real-*` 用例（通讯录列表/部门筛选/详情、任务、文档、提醒事项列表/已完成筛选、会议首页），两轮批次 8/8 通过
+- 真实只读回归：9 条 `real-*` 用例（通讯录列表/部门筛选/详情/搜索过滤、任务、文档、提醒事项列表/已完成筛选、会议首页），批次 9/9 通过
 - 风险报告：规则基线 + 持久化 + API（V7-10a），LLM 增强与回退（V7-10b），控制台面板与创建草稿入口（V7-10c）
 - 录制多账号：录制表单配置 actor，登录步骤写入 IR（V7-2c）
 - 跨 actor 事件等待：`waitForEvent` 等待另一 actor 的 WS/SSE 事件（V7-2d）
 - 主动探索：未访问页面、覆盖缺口与未知项建议（V7-13），只建议不自动执行
 
-**基线：** 26 条已批准用例（17 demo + 1 pilot + 8 真实只读；9 条自动批准）、5 个断言 Provider、`pnpm verify` 全绿。
+**本地基线：** 27 条已批准用例（17 demo + 1 pilot + 9 真实只读；10 条自动批准，均在本地 `data/`，不随仓库分发）、5 个断言 Provider、`pnpm verify` 全绿。
 
 ## 1. 红线
 
@@ -46,7 +46,7 @@
 
 4. [x] **V7-12d 只读回归模板（P0）**
    登录 → 列表 → 搜索 → 筛选 → 详情，5–8 条已批准用例；批量跑通；生产只跑只读。
-   _证据：8 条 `real-*` 用例全部 `baseUrlRef: "real-env"`，运行均为 `readOnly` + `realTarget`；两轮独立批次 8/8 通过（`batch_mwusbfk1_81b95be0`、`batch_mwusdydu_008f6407`），自动审批审计 `auto:testpilot`；证据无截图/Trace，network/WS/SSE 无正文与 query。支撑改动：IR/断言 `frame` iframe 支持、`runOptionsFor` 解析 IR `baseUrlRef`（此前误用 demo 回退）、批次显式 `testIds`、企业账号登录切换重试。搜索断言需负向断言能力，未纳入本轮。_
+   _证据（本地 `data/`，不随仓库分发）：9 条 `real-*` 用例（含搜索过滤）全部 `baseUrlRef: "real-env"`，运行均为 `readOnly` + `realTarget`；批次 8/8、8/8、9/9 连续通过（`batch_mwusbfk1_81b95be0`、`batch_mwusdydu_008f6407`、`batch_mwutcmqw_ff9ff717`），自动审批审计 `auto:testpilot`；证据无截图/Trace，network/WS/SSE 无正文与 query。支撑改动：IR/断言 `frame` iframe 支持、UI 断言 `notContains`（搜索后证明成员被过滤，单独使用会被弱断言门禁拒绝）、`runOptionsFor` 解析 IR `baseUrlRef`（此前误用 demo 回退）、批次显式 `testIds`、企业账号登录切换重试。_
 
 5. [x] **V7-10a 风险报告规则基线（P1）**
    RiskReport + 8 条规则 + `data/risk-reports/`；无 LLM 也能用；正反测试。
@@ -70,7 +70,7 @@
 
 10. [x] **V7-13 主动探索（P2）**
     建议未访问页面/链接与补充场景；只作为建议，不自动生成或批准。
-    _证据：采集器在路由预算用尽时记录 `unvisited`（≤20，`collector.test.ts` 覆盖）；`buildExplorationSuggestions` 汇总未访问页面、未覆盖能力（复用风险覆盖判定）与画像未知项（≤20 条），只读建议；`GET /api/detect/:id/explore-suggestions`；控制台画像页「主动探索（建议）」面板，浏览器实测生成 file-media / realtime 覆盖缺口与测试思路，无自动生成/批准入口。_
+    _证据：采集器在路由预算用尽时记录 `unvisited`（≤20，`collector.test.ts` 覆盖）；`buildExplorationSuggestions` 汇总未访问页面、未覆盖能力（复用风险覆盖判定）与画像未知项（合计 ≤20 条，其中问题最多 8 条），只读建议；`GET /api/detect/:id/explore-suggestions`；控制台画像页「主动探索（建议）」面板，浏览器实测生成 file-media / realtime 覆盖缺口与测试思路，无自动生成/批准入口。_
 
 11. [ ] **llm-judge（暂缓）**
     仅探索模式，不进入回归门禁；边界未定前不开工。
@@ -98,12 +98,12 @@ Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
 
 | 用途 | 变量 |
 |---|---|
-| LLM（文本） | `TESTPILOT_LLM_API_KEY`、`TESTPILOT_LLM_BASE_URL`、`TESTPILOT_LLM_MODEL` |
+| LLM（文本） | `TESTPILOT_LLM_API_KEY`、`TESTPILOT_LLM_BASE_URL`、`TESTPILOT_LLM_MODEL`、`TESTPILOT_LLM_PROVIDER`、`TESTPILOT_LLM_TEMPERATURE`、`TESTPILOT_LLM_MAX_TOKENS`、`TESTPILOT_LLM_TIMEOUT_MS` |
 | 真实环境 | `TESTPILOT_REAL_BASE_URL`、`TESTPILOT_ENV_REAL_ENTERPRISE_ID`、`TESTPILOT_ENV_REAL_USER_ID`、`TESTPILOT_ENV_REAL_PASSWORD` |
 | 真实环境第二账号 | `TESTPILOT_ENV_REAL_ALT_ENTERPRISE_ID`、`TESTPILOT_ENV_REAL_ALT_USER_ID`、`TESTPILOT_ENV_REAL_ALT_PASSWORD`（IR `actors[].account: "alt"`） |
 | 业务试点 | `TESTPILOT_PILOT_BASE_URL`、`TESTPILOT_ENV_ADMIN_PHONE`、`TESTPILOT_ENV_ADMIN_PASSWORD` |
 | 目标白名单 | `TESTPILOT_ALLOWED_TARGETS`（加入真实/试点域名的 origin） |
-| 视觉（默认关） | `TESTPILOT_VISION_ENABLED=1`、`TESTPILOT_VISION_API_KEY`、`TESTPILOT_VISION_MODEL=deepseek-flash` |
+| 视觉（默认关） | `TESTPILOT_VISION_ENABLED=1`、`TESTPILOT_VISION_API_KEY`、`TESTPILOT_VISION_MODEL=deepseek-flash`、`TESTPILOT_VISION_BASE_URL`、`TESTPILOT_VISION_TIMEOUT_MS` |
 | API 访问 | `TESTPILOT_API_TOKEN`、`TESTPILOT_ALLOWED_ORIGINS` |
 | 命名 API 环境 | `TESTPILOT_API_ENVS_FILE` / 本地 `api-envs.json` |
 | 自动审批（默认关） | `TESTPILOT_AUTO_APPROVE=1` |

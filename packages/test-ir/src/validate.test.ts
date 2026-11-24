@@ -484,6 +484,30 @@ test("accepts valid two-actor IR", () => {
   if (result.ok) assert.deepEqual(validateSemantics(result.value), []);
 });
 
+test("notContains is accepted with a positive assertion and weak on its own", () => {
+  const paired = validateTestIR({
+    id: "not-contains",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    assertions: [
+      { id: "ok", type: "ui", contains: "联系人列表", notContains: "已删除成员", oracle: "human-approved" },
+    ],
+  });
+  assert.equal(paired.ok, true);
+  if (paired.ok) assert.deepEqual(weakAssertionIssues(paired.value), []);
+
+  const alone = validateTestIR({
+    id: "not-contains-alone",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    assertions: [{ id: "bad", type: "ui", notContains: "已删除成员", oracle: "human-approved" }],
+  });
+  assert.equal(alone.ok, true);
+  if (alone.ok) assert.equal(weakAssertionIssues(alone.value).length, 1);
+});
+
 test("accepts waitForEvent against another actor and rejects missing config", () => {
   const ok = validateTestIR({
     id: "wait-event",

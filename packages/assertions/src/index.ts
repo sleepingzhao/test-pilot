@@ -86,93 +86,72 @@ export async function runUiAssertion(
 
   try {
     const root = ctx.frame ? ctx.page.frameLocator(ctx.frame) : ctx.page;
-    if (assertion.target && !assertion.contains) {
-      const t = assertion.target;
-      let el;
-      if (t.testId) el = root.getByTestId(t.testId);
-      else if (t.role)
-        el = t.name
+    const findTarget = (t: NonNullable<typeof assertion.target>) => {
+      if (t.testId) return root.getByTestId(t.testId);
+      if (t.role)
+        return t.name
           ? root.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name, exact: true })
           : root.getByRole(t.role as Parameters<Page["getByRole"]>[0]);
-      else if (t.label) el = root.getByLabel(t.label);
-      else if (t.placeholder) el = root.getByPlaceholder(t.placeholder);
-      else if (t.css) el = root.locator(t.css);
-      else throw new Error("empty target");
-      await el.waitFor({ state: "visible", timeout: 10_000 });
+      if (t.label) return root.getByLabel(t.label);
+      if (t.placeholder) return root.getByPlaceholder(t.placeholder);
+      if (t.css) return root.locator(t.css);
+      throw new Error("empty target");
+    };
+    const matches = (text: string) =>
+      (!assertion.contains || text.includes(assertion.contains)) &&
+      (!assertion.notContains || !text.includes(assertion.notContains));
+
+    if (assertion.target && !assertion.contains && !assertion.notContains) {
+      await findTarget(assertion.target).waitFor({ state: "visible", timeout: 10_000 });
       return { assertionId: id, passed: true, expected: "visible", actual: "visible" };
     }
 
-    if (assertion.contains && assertion.target) {
-      let el;
-      const t = assertion.target;
-      if (t.testId) el = root.getByTestId(t.testId);
-      else if (t.role)
-        el = t.name
-          ? root.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name, exact: true })
-          : root.getByRole(t.role as Parameters<Page["getByRole"]>[0]);
-      else if (t.label) el = root.getByLabel(t.label);
-      else if (t.placeholder) el = root.getByPlaceholder(t.placeholder);
-      else if (t.css) el = root.locator(t.css);
-      else throw new Error("empty target");
+    if (assertion.target) {
+      const el = findTarget(assertion.target);
       await el.waitFor({ state: "visible", timeout: 10_000 });
       const deadline = Date.now() + uiAssertTimeoutMs();
       let text = await el.innerText().catch(() => "");
-      while (!text.includes(assertion.contains) && Date.now() < deadline) {
+      while (!matches(text) && Date.now() < deadline) {
         await sleep(100);
         text = await el.innerText().catch(() => text);
       }
-      const passed = text.includes(assertion.contains);
+      const passed = matches(text);
       return {
         assertionId: id,
         passed,
-        expected: assertion.contains,
+        expected: assertion.contains ?? `not "${assertion.notContains}"`,
         actual: text,
         errorKind: passed ? undefined : "PRODUCT_DEFECT",
-        message: passed ? undefined : `text does not contain "${assertion.contains}"`,
+        message: passed
+          ? undefined
+          : assertion.contains
+            ? `text does not contain "${assertion.contains}"`
+            : `text still contains "${assertion.notContains}"`,
       };
     }
 
-    if (assertion.contains) {
-      if (ctx.frame) {
-        const body = root.locator("body");
-        const deadline = Date.now() + uiAssertTimeoutMs();
-        let text = await body.innerText().catch(() => "");
-        while (!text.includes(assertion.contains) && Date.now() < deadline) {
-          await sleep(100);
-          text = await body.innerText().catch(() => text);
-        }
-        const passed = text.includes(assertion.contains);
-        return {
-          assertionId: id,
-          passed,
-          expected: assertion.contains,
-          actual: text.slice(0, 500),
-          errorKind: passed ? undefined : "PRODUCT_DEFECT",
-        };
+    if (assertion.contains || assertion.notContains) {
+      const scoped = ctx.frame
+        ? ctx.page.frameLocator(ctx.frame).locator("body")
+        : ctx.page.locator("body");
+      const deadline = Date.now() + uiAssertTimeoutMs();
+      let text = await scoped.innerText().catch(() => "");
+      while (!matches(text) && Date.now() < deadline) {
+        await sleep(100);
+        text = await scoped.innerText().catch(() => text);
       }
-      await ctx.page
-        .waitForFunction("document.body && document.body.innerText.trim().length > 0", { timeout: 20_000 })
-        .catch(() => undefined);
-      const appeared = await ctx.page
-        .waitForFunction(
-          (needle: string) => {
-            const doc = (globalThis as unknown as { document?: { body?: { innerText: string } } }).document;
-            return Boolean(doc?.body?.innerText.includes(needle));
-          },
-          assertion.contains,
-          { timeout: uiAssertTimeoutMs() },
-        )
-        .then(() => true)
-        .catch(() => false);
-      const body = ctx.page.locator("body");
-      const text = await body.innerText();
-      const passed = appeared && text.includes(assertion.contains);
+      const passed = matches(text);
       return {
         assertionId: id,
         passed,
-        expected: assertion.contains,
+        expected: assertion.contains ?? `not "${assertion.notContains}"`,
         actual: text.slice(0, 500),
         errorKind: passed ? undefined : "PRODUCT_DEFECT",
+        message: passed
+          ? undefined
+          : assertion.contains && !text.includes(assertion.contains)
+            ? `text does not contain "${assertion.contains}"`
+            : `text still contains "${assertion.notContains}"`,
       };
     }
 
@@ -180,7 +159,7 @@ export async function runUiAssertion(
       assertionId: id,
       passed: false,
       errorKind: "ASSERTION_ORACLE",
-      message: "ui assertion requires contains and/or target",
+      message: "ui assertion requires contains, notContains, and/or target",
     };
   } catch (err) {
     return {

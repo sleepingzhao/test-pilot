@@ -83,6 +83,8 @@ export interface TestAssertion {
   configRef?: string;
   target?: Locator;
   contains?: string;
+  /** Text that must be absent; pair it with `contains` or `target` so a blank page cannot pass. */
+  notContains?: string;
   requestRef?: string;
   /** Match the response of a `request` step by its id; no requestRef map needed. */
   stepRef?: string;

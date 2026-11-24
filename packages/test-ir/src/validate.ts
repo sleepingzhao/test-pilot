@@ -393,6 +393,12 @@ export function isWeakAssertionText(text: string): boolean {
 export function weakAssertionIssues(ir: TestIR): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   for (const [i, a] of (ir.assertions ?? []).entries()) {
+    if (a.type === "ui" && a.notContains && !a.contains && !a.target) {
+      issues.push({
+        path: `/assertions/${i}/notContains`,
+        message: "单独的 notContains 断言过弱：请同时提供 contains 或 target，避免空页面通过",
+      });
+    }
     if (a.type !== "ui" || a.target) continue;
     const text = (a.contains ?? "").trim();
     if (!text) continue;

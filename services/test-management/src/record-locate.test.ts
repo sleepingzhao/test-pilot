@@ -108,3 +108,41 @@ test("POST locate returns 400 for empty instruction", async () => {
     }
   });
 });
+test("POST record rejects invalid multi-actor configuration before launching a browser", async () => {
+  resetRecordStateForTest();
+  const { app, root } = await makeApp();
+  try {
+    const base = {
+      url: "http://127.0.0.1:4173/",
+      testId: "rec-multi",
+      title: "multi",
+    };
+    const badId = await app.inject({
+      method: "POST",
+      url: "/api/record",
+      payload: { ...base, actors: [{ id: "primary" }, { id: "Bad Id" }] },
+    });
+    assert.equal(badId.statusCode, 400);
+    assert.match((badId.json() as { error: string }).error, /actor id/);
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/api/record",
+      payload: { ...base, actors: [{ id: "b" }, { id: "b" }] },
+    });
+    assert.equal(duplicate.statusCode, 400);
+    assert.match((duplicate.json() as { error: string }).error, /重复/);
+
+    const tooMany = await app.inject({
+      method: "POST",
+      url: "/api/record",
+      payload: { ...base, actors: Array.from({ length: 9 }, (_, i) => ({ id: `a${i}` })) },
+    });
+    assert.equal(tooMany.statusCode, 400);
+    assert.match((tooMany.json() as { error: string }).error, /最多 8 个/);
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+    resetRecordStateForTest();
+  }
+});

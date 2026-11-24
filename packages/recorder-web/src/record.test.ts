@@ -26,3 +26,60 @@ test("sensitive fills map to env refs and never embed values", () => {
   assert.equal(ir.steps[2]?.valueRef, "fixture.secret");
   assert.ok(ir.steps.every((step) => step.value === undefined));
 });
+
+import { combineActorRecordings, splitLoginEvents } from "./record.js";
+import type { RecordedEvent } from "./inject.js";
+
+const PASSWORD = "TOP-SECRET-RECORDING";
+
+function actorEvents(extra: RecordedEvent[]): RecordedEvent[] {
+  return [
+    { kind: "navigate", path: "/login" },
+    { kind: "fill", target: { label: "企业编码" }, value: "ACME", fieldKey: "tenantCode" },
+    { kind: "fill", target: { label: "账号" }, value: "user01", fieldKey: "userCode" },
+    { kind: "fill", target: { label: "密码" }, value: PASSWORD, sensitive: true, fieldKey: "password" },
+    { kind: "click", target: { name: "登录" } },
+    { kind: "navigate", path: "/dashboard" },
+    ...extra,
+  ];
+}
+
+test("combineActorRecordings keeps login steps per actor and tags main steps", () => {
+  const { ir, warnings } = combineActorRecordings("multi-rec", "http://127.0.0.1:9", [
+    { actor: { id: "primary" }, events: actorEvents([{ kind: "click", target: { name: "新建" } }]) },
+    {
+      actor: { id: "b", account: "alt" },
+      events: actorEvents([{ kind: "click", target: { name: "消息" } }]),
+    },
+  ]);
+
+  assert.equal(ir.actors?.length, 2);
+  const primary = ir.actors?.find((actor) => actor.id === "primary");
+  const second = ir.actors?.find((actor) => actor.id === "b");
+  assert.ok(primary?.loginSteps?.length);
+  assert.ok(second?.loginSteps?.length);
+  assert.equal(second?.account, "alt");
+  assert.equal(primary?.loginSteps?.some((step) => step.valueRef === "env.adminPassword"), true);
+
+  const primaryMain = ir.steps.find((step) => step.id === "open-page");
+  assert.equal(primaryMain?.path, "/dashboard");
+  assert.equal(primaryMain?.actor, undefined);
+  const secondMain = ir.steps.find((step) => step.id.startsWith("b-"));
+  assert.equal(secondMain?.actor, "b");
+
+  const ids = ir.steps.map((step) => step.id);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.equal(JSON.stringify(ir).includes(PASSWORD), false);
+  assert.deepEqual(warnings, []);
+});
+
+test("splitLoginEvents removes login events and can return an empty login list", () => {
+  const { login, main } = splitLoginEvents(actorEvents([]));
+  assert.ok(login.length >= 5);
+  assert.equal(main[0]?.kind, "navigate");
+  assert.equal(main[0]?.kind === "navigate" ? main[0].path : "", "/dashboard");
+
+  const plain = splitLoginEvents([{ kind: "navigate", path: "/app" }, { kind: "click", target: { name: "保存" } }]);
+  assert.deepEqual(plain.login, []);
+  assert.equal(plain.main.length, 2);
+});

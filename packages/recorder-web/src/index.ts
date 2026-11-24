@@ -1,6 +1,9 @@
 export {
   recordSession,
   eventsToIR,
+  combineActorRecordings,
+  splitLoginEvents,
+  type RecordedActor,
   assertPlaywrightReady,
   recorderLimitationWarnings,
   assertRecordedIrHasNoPlaintextSecrets,

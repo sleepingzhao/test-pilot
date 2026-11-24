@@ -74,6 +74,8 @@ export type StoredBatch = {
 export type RecordJob = {
   id: string;
   status: "running" | "completed" | "failed";
+  /** Human-readable recording stage, e.g. which actor window is open. */
+  stage?: string;
   testId?: string;
   error?: string;
   startedAt: string;

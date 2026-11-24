@@ -266,3 +266,105 @@ export async function recordSession(options: RecordSessionOptions): Promise<Reco
 
   return { ir, events, warnings };
 }
+
+export type RecordedActor = { id: string; account?: "primary" | "alt" };
+
+function looksLikeLoginEvent(event: RecordedEvent): boolean {
+  if (event.kind === "navigate") return /login|signin|sso/i.test(event.path);
+  if (event.kind === "fill") {
+    if (event.sensitive) return true;
+    const hint = [event.fieldKey, event.target.label, event.target.name, event.target.placeholder]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return /password|passwd|密码|tenant|租户|企业|user.?code|账号/.test(hint);
+  }
+  if (event.kind === "click") {
+    const text = [event.target.name, event.target.label].join(" ").toLowerCase();
+    return /登录|login|sign\s?in/.test(text);
+  }
+  return false;
+}
+
+/** Steps recorded before the first post-login navigation are that actor's login steps. */
+export function splitLoginEvents(events: RecordedEvent[]): { login: RecordedEvent[]; main: RecordedEvent[] } {
+  const login: RecordedEvent[] = [];
+  const main: RecordedEvent[] = [];
+  let sawLoginNav = false;
+  let switched = false;
+  for (const event of events) {
+    if (!switched && event.kind === "navigate") {
+      const isLogin = looksLikeLoginEvent(event);
+      if (isLogin) {
+        sawLoginNav = true;
+      } else if (sawLoginNav) {
+        switched = true;
+      }
+    }
+    if (switched) main.push(event);
+    else login.push(event);
+  }
+  if (!login.some(looksLikeLoginEvent)) {
+    return { login: [], main: events };
+  }
+  return { login, main };
+}
+
+/**
+ * Combine per-actor recordings into one multi-actor IR. Login steps stay in each
+ * actor's `loginSteps`; main steps carry the actor id (primary stays implicit).
+ */
+export function combineActorRecordings(
+  testId: string,
+  baseUrl: string,
+  recordings: Array<{ actor: RecordedActor; events: RecordedEvent[] }>,
+): { ir: TestIR; warnings: string[] } {
+  const origin = new URL(baseUrl).origin;
+  const warnings: string[] = [];
+  const actors: NonNullable<TestIR["actors"]> = [];
+  const steps: TestStep[] = [];
+
+  for (const { actor, events } of recordings) {
+    const { login, main } = splitLoginEvents(events);
+    if (!login.length) warnings.push(`${actor.id}: 未录到登录步骤，请确认该账号需要登录`);
+    const loginSteps = login.length
+      ? eventsToIR(`${testId}--login-${actor.id}`, origin, login).steps.map((step) => ({
+          ...step,
+          id: `${actor.id}-login-${step.id}`.slice(0, 64),
+        }))
+      : [];
+    const mainIr = eventsToIR(`${testId}--${actor.id}`, origin, main);
+    const actorSteps = mainIr.steps.map((step) => ({
+      ...step,
+      id: actor.id === "primary" ? step.id : `${actor.id}-${step.id}`.slice(0, 64),
+      ...(actor.id === "primary" ? {} : { actor: actor.id }),
+    }));
+    steps.push(...actorSteps);
+    actors.push({
+      id: actor.id,
+      ...(actor.id === "primary" && (!actor.account || actor.account === "primary")
+        ? {}
+        : { account: actor.account ?? "primary" }),
+      ...(loginSteps.length ? { loginSteps } : {}),
+    });
+  }
+
+  const ir: TestIR = {
+    id: testId,
+    version: 1,
+    platform: "web",
+    baseUrl: origin,
+    actors,
+    steps,
+    assertions: [
+      {
+        id: "review-after-record",
+        type: "ui",
+        contains: "REPLACE_WITH_EXPECTED_TEXT",
+        oracle: "human-approved",
+      },
+    ],
+    policy: { screenshots: "on-failure", dataIsolation: "per-run" },
+  };
+  return { ir, warnings };
+}

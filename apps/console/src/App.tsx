@@ -150,6 +150,10 @@ export function App() {
     if (view !== "create" && createPrefill) setCreatePrefill(null);
   }, [view, createPrefill]);
   const [recordJob, setRecordJob] = useState<string | null>(null);
+  const [recordStage, setRecordStage] = useState<string | null>(null);
+  const [recordMulti, setRecordMulti] = useState(false);
+  const [recordActorId, setRecordActorId] = useState("b");
+  const [recordActorAccount, setRecordActorAccount] = useState<"primary" | "alt">("alt");
   const [locateInstruction, setLocateInstruction] = useState("");
   const [locateBusy, setLocateBusy] = useState(false);
   const [locateResult, setLocateResult] = useState<RecordLocateResponse | null>(null);
@@ -571,10 +575,16 @@ export function App() {
   useEffect(() => {
     if (!recordJob) return;
     const timer = setInterval(async () => {
-      const job = await api<{ status: string; error?: string; testId?: string }>(`/api/record/${recordJob}`);
-      if (job.status === "running") return;
+      const job = await api<{ status: string; error?: string; testId?: string; stage?: string }>(
+        `/api/record/${recordJob}`,
+      );
+      if (job.status === "running") {
+        setRecordStage(job.stage ?? null);
+        return;
+      }
       clearInterval(timer);
       setRecordJob(null);
+      setRecordStage(null);
       setLocateInstruction("");
       setLocateResult(null);
       setLocateError(null);
@@ -1166,6 +1176,12 @@ export function App() {
           testId,
           title: createTitle.trim() || "录制用例",
           intentSummary,
+          actors: recordMulti
+            ? [
+                { id: "primary", account: "primary" },
+                { id: recordActorId.trim().toLowerCase() || "b", account: recordActorAccount },
+              ]
+            : undefined,
         }),
       });
       setRecordJob(res.jobId);
@@ -1750,9 +1766,43 @@ export function App() {
                     placeholder="例如：提交工单时不要带附件"
                   />
                 </div>
+                <div className="field">
+                  <label className="checkbox-inline">
+                    <input
+                      type="checkbox"
+                      checked={recordMulti}
+                      disabled={!!recordJob}
+                      onChange={(e) => setRecordMulti(e.target.checked)}
+                    />
+                    多账号录制
+                  </label>
+                  <p className="stat-note">
+                    依次打开两个浏览器窗口：每个账号登录并操作后关闭窗口，登录步骤写入 actors；仍需审阅批准。
+                  </p>
+                  {recordMulti ? (
+                    <div className="record-actor-row">
+                      <label htmlFor="record-actor-id">第二账号 actor</label>
+                      <input
+                        id="record-actor-id"
+                        value={recordActorId}
+                        onChange={(e) => setRecordActorId(e.target.value)}
+                        placeholder="b"
+                      />
+                      <select
+                        aria-label="第二账号凭据"
+                        value={recordActorAccount}
+                        onChange={(e) => setRecordActorAccount(e.target.value as "primary" | "alt")}
+                      >
+                        <option value="alt">ALT 凭据</option>
+                        <option value="primary">主凭据</option>
+                      </select>
+                    </div>
+                  ) : null}
+                </div>
                 <button type="button" className="btn btn-primary" disabled={!!recordJob} onClick={startRecord}>
                   {recordJob ? "录制中…" : "开始录制"}
                 </button>
+                {recordJob && recordStage ? <p className="stat-note">{recordStage}</p> : null}
                 {recordJob ? (
                   <div className="record-locate-panel">
                     <h3 className="record-locate-title">AI 定位（可选）</h3>

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { assertPlaywrightReady, recordSession } from "@testpilot/recorder-web";
+import { assertPlaywrightReady, combineActorRecordings, recordSession, type RecordedActor } from "@testpilot/recorder-web";
 import { runTestIR, type RunResult } from "@testpilot/runner-web";
 import { snapshotPageContext } from "@testpilot/context-web";
 import { draftToPartialIR, planDraft, planFromIntake, suggestAssertionsForTest, filterForbiddenSuggestionTokens } from "@testpilot/planner";
@@ -1508,11 +1508,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       report = await enrichRiskReportWithLlm(report, record.profile, record.target, {
         model: config.model,
         complete: async ({ system, user }) => {
-          const { parsed, tokensUsed } = await chatCompletionsJson(config, {
-            system,
-            user,
-            maxOutputTokens: 3_500,
-          });
+          // DeepSeek allows far larger outputs than the planner default; the client
+          // learns the provider's real cap from a 400 error and retries.
+          const { parsed, tokensUsed } = await chatCompletionsJson(
+            { ...config, maxTokens: 32_000 },
+            { system, user, maxOutputTokens: 32_000 },
+          );
           return { parsed, tokensUsed };
         },
       });
@@ -2338,7 +2339,13 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (recordLock) {
       return reply.code(409).send({ error: "已有录制进行中，请先关闭录制浏览器窗口后再试" });
     }
-    const body = req.body as { url?: string; testId?: string; title?: string; intentSummary?: string };
+    const body = req.body as {
+      url?: string;
+      testId?: string;
+      title?: string;
+      intentSummary?: string;
+      actors?: Array<{ id?: string; account?: string }>;
+    };
     if (!body?.url?.trim()) {
       return reply.code(400).send({ error: "请提供录制起始 URL" });
     }
@@ -2359,6 +2366,25 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       return reply.code(400).send({ error: "testId 只能包含小写字母、数字和连字符（最长 128）" });
     }
 
+    let actors: RecordedActor[] | undefined;
+    if (body.actors?.length) {
+      if (body.actors.length > 8) return reply.code(400).send({ error: "最多 8 个 actor" });
+      const seen = new Set<string>();
+      actors = [];
+      for (const entry of body.actors) {
+        const id = entry.id?.trim().toLowerCase() ?? "";
+        if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(id)) {
+          return reply.code(400).send({ error: "actor id 只能包含小写字母、数字和连字符（最长 32）" });
+        }
+        if (seen.has(id)) return reply.code(400).send({ error: `actor id 重复: ${id}` });
+        seen.add(id);
+        const account = entry.account === "alt" ? "alt" : "primary";
+        actors.push({ id, account });
+      }
+      if (!seen.has("primary")) actors = [{ id: "primary", account: "primary" }, ...actors];
+      if (actors.length < 2) actors = undefined;
+    }
+
     const jobId = `rec_${Date.now()}`;
     const job: RecordJob = { id: jobId, status: "running", startedAt: new Date().toISOString() };
     recordJobs.set(jobId, job);
@@ -2367,13 +2393,38 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     void (async () => {
       try {
         await assertPlaywrightReady();
-        const { ir: recordedIr, warnings } = await recordSession({
-          url: parsedUrl.toString(),
-          testId,
-          onPage: async (page) => {
-            registerRecordLivePage(jobId, page);
-          },
-        });
+        let recordedIr;
+        let warnings: string[];
+        if (actors) {
+          const recordings: Array<{ actor: RecordedActor; events: Awaited<ReturnType<typeof recordSession>>["events"] }> = [];
+          const collected: string[] = [];
+          for (const actor of actors) {
+            job.stage = `正在录制 ${actor.id}（关闭窗口后继续下一个账号）`;
+            const session = await recordSession({
+              url: parsedUrl.toString(),
+              testId,
+              onPage: async (page) => {
+                registerRecordLivePage(jobId, page);
+              },
+            });
+            recordings.push({ actor, events: session.events });
+            collected.push(...session.warnings.map((warning) => `${actor.id}: ${warning}`));
+          }
+          const combined = combineActorRecordings(testId, parsedUrl.origin, recordings);
+          recordedIr = combined.ir;
+          warnings = [...combined.warnings, ...collected];
+        } else {
+          const session = await recordSession({
+            url: parsedUrl.toString(),
+            testId,
+            onPage: async (page) => {
+              registerRecordLivePage(jobId, page);
+            },
+          });
+          recordedIr = session.ir;
+          warnings = session.warnings;
+        }
+        job.stage = undefined;
         const ir = applyBaseUrlTarget(recordedIr, parsedUrl.toString());
         const validated = validateTestIR(ir);
         if (!validated.ok) {

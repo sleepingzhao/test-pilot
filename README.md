@@ -34,7 +34,7 @@ pnpm start     # 生产式单端口：http://127.0.0.1:8787（API 托管控制�
 - **可信回归**：Test IR 是唯一契约；批准绑定 IR hash 与断言配置 hash；已批准回归不调用模型。
 - **质量门禁**：弱断言、占位断言、Provider 校验不通过不能批准；自动审批可开，但不放宽这些门禁。
 - **证据**：步骤截图、network、WebSocket、SSE、Trace；运行详情可下载。
-- **多账号**：IR `actors` 多上下文执行，真实环境按 `primary` / `alt` 分别登录。
+- **多账号**：IR `actors` 多上下文执行，真实环境按 `primary` / `alt` 分别登录；录制时可选多账号，登录步骤写入 IR。
 - **测试数据清理**：`policy.cleanup` + `teardownSteps`，失败也按策略清理。
 - **系统画像**：规则 + LLM 识别能力与未知项；真实环境只做只读画像。
 - **风险与缺口**：规则报告 + 可选 LLM 增强（分层取材、严格 JSON、去重、失败回退），存 `data/risk-reports/`。

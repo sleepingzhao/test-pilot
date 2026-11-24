@@ -2528,3 +2528,21 @@ button.status-chip {
   font-size: 13px;
   color: var(--muted-strong);
 }
+
+.record-actor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.record-actor-row input {
+  width: 120px;
+}
+
+.checkbox-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

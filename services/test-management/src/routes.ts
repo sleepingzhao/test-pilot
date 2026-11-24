@@ -44,6 +44,7 @@ import {
 import { readNegativeProbeReport } from "./negative-probes.js";
 import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-identity.js";
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
+import { buildRiskReport, readLatestRiskReport, saveRiskReport } from "./risk-report.js";
 import { buildFlakeMetricsReport, computeFlakeStats, normalizeRepeatCount } from "./flake-metrics.js";
 import {
   assertionConfigCatalog,
@@ -1487,6 +1488,29 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         : "demo";
     const record = await latestDetection(dataRoot, target, query.url);
     return { record: record ?? null };
+  });
+
+  app.post("/api/detect/:detectionId/risk-report", async (req, reply) => {
+    const { detectionId } = req.params as { detectionId: string };
+    if (!isSafeRunId(detectionId)) return reply.notFound("detection not found");
+    const record = await readDetection(dataRoot, detectionId);
+    if (!record) return reply.notFound("detection not found");
+    const report = buildRiskReport({
+      detectionId,
+      profile: record.profile,
+      tests: await store.listTests(),
+      targetMode: record.target,
+    });
+    await saveRiskReport(dataRoot, report);
+    return report;
+  });
+
+  app.get("/api/detect/:detectionId/risk-report", async (req, reply) => {
+    const { detectionId } = req.params as { detectionId: string };
+    if (!isSafeRunId(detectionId)) return reply.notFound("detection not found");
+    const report = await readLatestRiskReport(dataRoot, detectionId);
+    if (!report) return reply.code(404).send({ error: "尚无风险报告，请先生成" });
+    return report;
   });
 
   app.get("/api/detect", async () => ({

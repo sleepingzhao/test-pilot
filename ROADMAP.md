@@ -16,6 +16,7 @@
 - 自动审批：`TESTPILOT_AUTO_APPROVE=1` 时，草稿试跑通过且强断言门禁通过后自动批准（`approvedBy: auto:testpilot` + 审计），弱断言/占位断言仍留草稿
 - 双账号真实登录：`actors[].account`（`primary`/`alt`），每个 actor 用对应 `TESTPILOT_ENV_REAL_*` / `_ALT_*` 登录；登录失败标注 actor
 - 真实只读回归：8 条 `real-*` 用例（通讯录列表/部门筛选/详情、任务、文档、提醒事项列表/已完成筛选、会议首页），两轮批次 8/8 通过
+- 风险报告：规则基线 + 持久化 + API（V7-10a），LLM 可选增强留待 V7-10b
 
 **基线：** 26 条已批准用例（17 demo + 1 pilot + 8 真实只读；9 条自动批准）、5 个断言 Provider、`pnpm verify` 全绿。
 
@@ -44,8 +45,9 @@
    登录 → 列表 → 搜索 → 筛选 → 详情，5–8 条已批准用例；批量跑通；生产只跑只读。
    _证据：8 条 `real-*` 用例全部 `baseUrlRef: "real-env"`，运行均为 `readOnly` + `realTarget`；两轮独立批次 8/8 通过（`batch_mwusbfk1_81b95be0`、`batch_mwusdydu_008f6407`），自动审批审计 `auto:testpilot`；证据无截图/Trace，network/WS/SSE 无正文与 query。支撑改动：IR/断言 `frame` iframe 支持、`runOptionsFor` 解析 IR `baseUrlRef`（此前误用 demo 回退）、批次显式 `testIds`、企业账号登录切换重试。搜索断言需负向断言能力，未纳入本轮。_
 
-5. [ ] **V7-10a 风险报告规则基线（P1）**
+5. [x] **V7-10a 风险报告规则基线（P1）**
    RiskReport + 8 条规则 + `data/risk-reports/`；无 LLM 也能用；正反测试。
+   _证据：`risk-report.ts` 8 条规则（数据残留、上传缺口、实时送达、权限、覆盖、未知约束、仅 UI 证据、试点/真实写草稿阻断）；`POST/GET /api/detect/:id/risk-report`；`risk-report.test.ts` 覆盖正反与持久化；demo 画像实测生成 3 条风险（file-media、realtime、未知约束），LLM 未参与；报告落 `data/risk-reports/`（已 gitignore）。_
 
 6. [ ] **V7-10b 风险分析 LLM 增强（P1）**
    按目标分层取材；严格 JSON schema；去重合并；失败回退规则报告。

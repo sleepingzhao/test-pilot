@@ -1,6 +1,6 @@
 # ADR-012: 风险分析（生成期建议，不参与门禁）
 
-**Status:** Proposed（2026-11-18，先定边界再实现）
+**Status:** Accepted（2026-11-18 定边界；2026-11-24 V7-10a 规则基线已实现）
 **Related:** [ROADMAP](../../ROADMAP.md) · [ADR-003](ADR-003-planner-context.md)（历史决策，Planner 只接收裁剪片段） · ADR-004（AI 只建议不自动改） · ADR-009（回归零 LLM） · [ADR-011](ADR-011-midscene-visual-assist.md) · `packages/detect` · `services/test-management` · `apps/console`
 
 ## Context

@@ -24,6 +24,7 @@ test("looksLikeLoginPageContext detects admin login URL", () => {
     looksLikeLoginPageContext({
       url: "https://pilot.example/admin/login",
       elements: [{ role: "button", name: "登录" }],
+      texts: [],
     }),
     true,
   );
@@ -34,6 +35,7 @@ test("looksLikeLoginPageContext accepts customer home", () => {
     looksLikeLoginPageContext({
       url: "https://pilot.example/customer",
       elements: [{ role: "button", name: "选择服务项目" }],
+      texts: [],
     }),
     false,
   );
@@ -43,6 +45,7 @@ test("looksLikeLoginPageContext detects login form without app shell", () => {
   assert.equal(
     looksLikeLoginPageContext({
       url: "https://pilot.example/admin/login",
+      texts: [],
       elements: [
         { role: "textbox", name: "手机号" },
         { role: "textbox", name: "请输入密码" },
@@ -57,6 +60,7 @@ test("looksLikeLoginPageContext detects English login pages", () => {
   assert.equal(
     looksLikeLoginPageContext({
       url: "https://pilot.example/auth",
+      texts: [],
       elements: [
         { role: "textbox", name: "Email" },
         { role: "textbox", name: "Password" },

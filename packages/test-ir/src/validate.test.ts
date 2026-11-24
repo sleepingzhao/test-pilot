@@ -499,6 +499,60 @@ test("accepts a URL assertion without text or target", () => {
   }
 });
 
+test("minCount requires target and minCount 1 is weak", () => {
+  const noTarget = validateTestIR({
+    id: "min-no-target",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    assertions: [{ id: "rows", type: "ui", minCount: 2, oracle: "human-approved" }],
+  });
+  assert.equal(noTarget.ok, true);
+  if (noTarget.ok) {
+    assert.ok(validateSemantics(noTarget.value).some((issue) => /minCount assertion requires target/.test(issue.message)));
+  }
+
+  const weakMin = validateTestIR({
+    id: "min-weak",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    assertions: [{ id: "rows", type: "ui", target: { role: "row" }, minCount: 1, oracle: "human-approved" }],
+  });
+  assert.equal(weakMin.ok, true);
+  if (weakMin.ok) {
+    assert.equal(weakAssertionIssues(weakMin.value).length, 1);
+    assert.match(weakAssertionIssues(weakMin.value)[0]!.message, /minCount 必须 >= 2/);
+  }
+
+  const strongMin = validateTestIR({
+    id: "min-strong",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+    assertions: [{ id: "rows", type: "ui", target: { role: "row" }, minCount: 2, oracle: "human-approved" }],
+  });
+  assert.equal(strongMin.ok, true);
+  if (strongMin.ok) {
+    assert.deepEqual(weakAssertionIssues(strongMin.value), []);
+    assert.deepEqual(validateSemantics(strongMin.value), []);
+  }
+});
+
+test("notContains with urlIncludes is not treated as weak alone", () => {
+  const filtered = validateTestIR({
+    id: "url-not",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "open", action: "navigate", path: "/list" }],
+    assertions: [
+      { id: "filtered", type: "ui", urlIncludes: "/list", notContains: "Alice Chen", oracle: "human-approved" },
+    ],
+  });
+  assert.equal(filtered.ok, true);
+  if (filtered.ok) assert.deepEqual(weakAssertionIssues(filtered.value), []);
+});
+
 test("notContains is accepted with a positive assertion and weak on its own", () => {
   const paired = validateTestIR({
     id: "not-contains",

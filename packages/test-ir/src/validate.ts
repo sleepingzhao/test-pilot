@@ -240,6 +240,12 @@ export function validateSemantics(ir: TestIR): ValidationIssue[] {
         message: "ui assertion requires target, contains, or urlIncludes",
       });
     }
+    if (a.type === "ui" && typeof a.minCount === "number" && !a.target) {
+      issues.push({
+        path: `/assertions/${i}/minCount`,
+        message: "minCount assertion requires target",
+      });
+    }
   }
   let base: URL | undefined;
   if (ir.baseUrl) {
@@ -393,10 +399,16 @@ export function isWeakAssertionText(text: string): boolean {
 export function weakAssertionIssues(ir: TestIR): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   for (const [i, a] of (ir.assertions ?? []).entries()) {
-    if (a.type === "ui" && a.notContains && !a.contains && !a.target) {
+    if (a.type === "ui" && a.notContains && !a.contains && !a.target && !a.urlIncludes) {
       issues.push({
         path: `/assertions/${i}/notContains`,
         message: "单独的 notContains 断言过弱：请同时提供 contains 或 target，避免空页面通过",
+      });
+    }
+    if (a.type === "ui" && typeof a.minCount === "number" && a.minCount < 2) {
+      issues.push({
+        path: `/assertions/${i}/minCount`,
+        message: "minCount 必须 >= 2，单个元素不能证明列表存在",
       });
     }
     if (a.type !== "ui" || a.target) continue;

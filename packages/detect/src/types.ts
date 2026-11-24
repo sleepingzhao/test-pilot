@@ -75,6 +75,7 @@ export type SurfaceSnapshot = {
   route: string;
   title?: string;
   elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string; placeholder?: string; ariaLabel?: string }>;
+  texts?: string[];
 };
 
 export type CapabilityAssessment = {
@@ -151,6 +152,7 @@ export type DetectionReport = {
       placeholder?: string;
       ariaLabel?: string;
     }>;
+    texts?: string[];
   }>;
   /** Transient LLM evidence; stripped before saving. */
   evidence?: DetectionEvidence;

@@ -23,6 +23,8 @@ export type FormHint = {
 export type PageContext = {
   url: string;
   elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string; placeholder?: string; ariaLabel?: string }>;
+  /** Repeated block texts from div/card lists without semantic roles. */
+  texts: string[];
   /** Captured after opening the form; lets planning see fields that only exist in a dialog. */
   form?: FormHint;
 };

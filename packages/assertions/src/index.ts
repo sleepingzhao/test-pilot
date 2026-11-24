@@ -123,6 +123,35 @@ export async function runUiAssertion(
       (!assertion.contains || text.includes(assertion.contains)) &&
       (!assertion.notContains || !text.includes(assertion.notContains));
 
+    if (assertion.target && typeof assertion.minCount === "number") {
+      const locator = findTarget(assertion.target);
+      const minCount = assertion.minCount;
+      const deadline = Date.now() + uiAssertTimeoutMs();
+      let count = await locator.count();
+      while (count < minCount && Date.now() < deadline) {
+        await sleep(100);
+        count = await locator.count();
+      }
+      if (count < minCount) {
+        return {
+          assertionId: id,
+          passed: false,
+          errorKind: "PRODUCT_DEFECT",
+          message: `expected at least ${minCount} elements for target, found ${count}`,
+          expected: `>= ${minCount}`,
+          actual: String(count),
+        };
+      }
+      if (!assertion.contains && !assertion.notContains) {
+        return {
+          assertionId: id,
+          passed: true,
+          expected: `>= ${minCount}`,
+          actual: String(count),
+        };
+      }
+    }
+
     if (assertion.target && !assertion.contains && !assertion.notContains) {
       await findTarget(assertion.target).first().waitFor({ state: "visible", timeout: 10_000 });
       return { assertionId: id, passed: true, expected: "visible", actual: "visible" };

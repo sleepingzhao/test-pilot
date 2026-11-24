@@ -413,6 +413,7 @@ async function readSurface(page: Page): Promise<SurfaceSnapshot> {
     route: pathOf(page.url()),
     title: title || undefined,
     elements: snapshot.elements,
+    ...(snapshot.texts.length ? { texts: snapshot.texts } : {}),
   };
 }
 

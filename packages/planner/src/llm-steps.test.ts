@@ -5,6 +5,7 @@ import type { PageContext } from "./types.js";
 
 const context: PageContext = {
   url: "http://127.0.0.1:4173/",
+  texts: [],
   elements: [
     { role: "button", name: "提交工单", testId: "open-ticket" },
     { role: "textbox", name: "联系电话", testId: "phone" },
@@ -49,6 +50,7 @@ test("rejects protocol-relative navigate path (negative)", () => {
 test("rejects ambiguous selector without testId (negative)", () => {
   const ambiguous: PageContext = {
     url: "http://127.0.0.1:4173/",
+    texts: [],
     elements: [
       { role: "button", name: "保存" },
       { role: "button", name: "保存" },
@@ -64,6 +66,7 @@ test("rejects ambiguous selector without testId (negative)", () => {
 test("rejects literal password but accepts env ref (negative/positive)", () => {
   const form: PageContext = {
     url: "http://127.0.0.1:4173/",
+    texts: [],
     elements: [{ role: "textbox", name: "密码", testId: "password" }],
   };
   const literal = validateLlmStepsAgainstContext(

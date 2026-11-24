@@ -204,6 +204,7 @@
         "configRef": { "type": "string", "minLength": 1 },
         "target": { "$ref": "#/$defs/locator" },
         "contains": { "type": "string" },
+        "minCount": { "type": "integer", "minimum": 1 },
         "notContains": { "type": "string", "minLength": 1 },
         "urlIncludes": { "type": "string", "minLength": 1 },
         "requestRef": { "type": "string", "minLength": 1 },

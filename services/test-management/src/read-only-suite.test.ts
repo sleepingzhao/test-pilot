@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DetectionReport } from "@testpilot/detect";
-import { planReadOnlyCases } from "./read-only-suite.js";
+import { itemTexts, planReadOnlyCases } from "./read-only-suite.js";
 import type { StoredTest } from "./store.js";
 
 function profile(): DetectionReport {
@@ -118,4 +118,258 @@ test("does not generate for non-real targets and respects the limit", () => {
     limit: 1,
   });
   assert.equal(limited.length, 1);
+});
+
+function listSurfaceProfile(): DetectionReport {
+  return {
+    version: 1,
+    target: { url: "https://real.example.com", mode: "passive" },
+    signals: [],
+    questions: [],
+    capabilities: [],
+    surfaces: [
+      {
+        route: "/members/",
+        elements: [
+          { role: "row", name: "Alice Chen" },
+          { role: "row", name: "Bob Wang" },
+          { role: "row", name: "Carol Liu" },
+          { role: "columnheader", name: "成员姓名" },
+          { role: "input", name: "搜索成员", inputType: "text", placeholder: "搜索成员" },
+        ],
+      },
+    ],
+  };
+}
+
+test("semantic list surface generates minCount load and paired search cases", () => {
+  const profile = listSurfaceProfile();
+  const firstItem = itemTexts(profile.surfaces[0]!, new Set())[0]!;
+  const cases = planReadOnlyCases({
+    detectionId: "detect_list",
+    profile,
+    tests: [],
+    targetMode: "real",
+  });
+  const load = cases.find((item) => item.kind === "load" && item.route === "/members")!;
+  assert.ok(load);
+  assert.ok(
+    load.ir.assertions.some(
+      (assertion) => assertion.target?.role === "row" && assertion.minCount === 2,
+    ),
+  );
+  const match = cases.find((item) => item.testId.endsWith("-search-match"))!;
+  assert.equal(match.ir.assertions.find((a) => a.id === "match")?.contains, firstItem);
+  assert.ok(match.ir.steps.some((step) => step.action === "press" && step.key === "Enter"));
+  const none = cases.find((item) => item.testId.endsWith("-search-none"))!;
+  const filtered = none.ir.assertions.find((a) => a.id === "filtered")!;
+  assert.equal(filtered.urlIncludes, "/members/");
+  assert.equal(filtered.notContains, firstItem);
+});
+
+test("search smoke remains when only global chrome and search box exist", () => {
+  const cases = planReadOnlyCases({
+    detectionId: "d",
+    profile: {
+      version: 1,
+      target: { url: "https://real.example.com", mode: "passive" },
+      signals: [],
+      questions: [],
+      capabilities: [],
+      surfaces: [
+        {
+          route: "/shell/",
+          elements: [
+            { role: "button", name: "赵哲", testId: "user-menu-trigger" },
+            { role: "input", name: "搜索", placeholder: "搜索" },
+          ],
+        },
+        {
+          route: "/shell/",
+          elements: [{ role: "button", name: "赵哲", testId: "user-menu-trigger" }],
+        },
+      ],
+    },
+    tests: [],
+    targetMode: "real",
+  });
+  assert.equal(cases.some((item) => item.testId.endsWith("-search-match")), false);
+  assert.equal(cases.some((item) => item.testId.endsWith("-search-none")), false);
+  assert.ok(cases.some((item) => item.testId.endsWith("-search")));
+});
+
+test("detail case asserts item visible and list header gone", () => {
+  const cases = planReadOnlyCases({
+    detectionId: "d",
+    profile: {
+      version: 1,
+      target: { url: "https://real.example.com", mode: "passive" },
+      signals: [],
+      questions: [],
+      capabilities: [],
+      surfaces: [
+        {
+          route: "/items/",
+          elements: [
+            { role: "columnheader", name: "项目名称" },
+            { role: "row", name: "Project Atlas" },
+            { role: "row", name: "Project Beacon" },
+            { role: "link", name: "Project Atlas" },
+          ],
+        },
+      ],
+    },
+    tests: [],
+    targetMode: "real",
+  });
+  const detail = cases.find((item) => item.kind === "detail")!;
+  assert.ok(detail);
+  const assertion = detail.ir.assertions[0]!;
+  assert.equal(assertion.contains, "Project Atlas");
+  assert.equal(assertion.notContains, "项目名称");
+});
+
+test("approved navigate plus click suppresses detail generation", () => {
+  const cases = planReadOnlyCases({
+    detectionId: "d",
+    profile: {
+      version: 1,
+      target: { url: "https://real.example.com", mode: "passive" },
+      signals: [],
+      questions: [],
+      capabilities: [],
+      surfaces: [
+        {
+          route: "/items/",
+          elements: [
+            { role: "columnheader", name: "项目名称" },
+            { role: "row", name: "Project Atlas" },
+            { role: "row", name: "Project Beacon" },
+            { role: "link", name: "Project Atlas" },
+          ],
+        },
+      ],
+    },
+    tests: [
+      {
+        id: "covered-detail",
+        projectId: "default",
+        title: "covered",
+        approvalStatus: "approved",
+        updatedAt: new Date().toISOString(),
+        ir: {
+          id: "covered-detail",
+          version: 1,
+          platform: "web",
+          baseUrlRef: "real-env",
+          steps: [
+            { id: "open", action: "navigate", path: "/items/" },
+            { id: "go", action: "click", target: { role: "link", name: "Project Atlas" } },
+          ],
+          assertions: [{ id: "ok", type: "ui", contains: "Project Atlas", oracle: "human-approved" }],
+        },
+      },
+    ],
+    targetMode: "real",
+  });
+  assert.equal(cases.some((item) => item.kind === "detail"), false);
+});
+
+test("contentTexts fallback drives search cases without minCount when elements lack item names", () => {
+  const cases = planReadOnlyCases({
+    detectionId: "d",
+    profile: {
+      version: 1,
+      target: { url: "https://real.example.com", mode: "passive" },
+      signals: [],
+      questions: [],
+      capabilities: [],
+      surfaces: [
+        {
+          route: "/cards/",
+          elements: [
+            { role: "heading", name: "项目列表" },
+            { role: "input", name: "搜索", inputType: "text", placeholder: "搜索" },
+            { role: "div", name: "保存" },
+          ],
+        },
+      ],
+    },
+    tests: [],
+    targetMode: "real",
+    contentTexts: {
+      "/cards/": ["Alpha Centauri", "Beta Hydrae", "Gamma Orion"],
+    },
+  });
+  const match = cases.find((item) => item.testId.endsWith("-search-match"));
+  const none = cases.find((item) => item.testId.endsWith("-search-none"));
+  assert.ok(match);
+  assert.ok(none);
+  assert.equal(match!.ir.assertions.some((a) => "contains" in a && a.contains === "Alpha Centauri"), true);
+  assert.equal(none!.ir.assertions.some((a) => "notContains" in a && a.notContains === "Alpha Centauri"), true);
+  const load = cases.find((item) => item.kind === "load");
+  assert.ok(load);
+  assert.equal(load!.ir.assertions.some((a) => "minCount" in a), false);
+});
+
+test("fallback texts skip labels that are page chrome", () => {  const cases = planReadOnlyCases({
+    detectionId: "d",
+    profile: {
+      version: 1,
+      target: { url: "https://real.example.com", mode: "passive" },
+      signals: [],
+      questions: [],
+      capabilities: [],
+      surfaces: [
+        {
+          route: "/tasks/",
+          elements: [
+            { role: "button", name: "全部任务" },
+            { role: "input", name: "搜索", inputType: "text", placeholder: "搜索" },
+          ],
+        },
+      ],
+    },
+    tests: [],
+    targetMode: "real",
+    contentTexts: {
+      "/tasks/": ["全部任务", "Prepare quarterly report", "Review budget"],
+    },
+  });
+  const match = cases.find((item) => item.testId.endsWith("-search-match"));
+  assert.ok(match);
+  assert.equal(
+    match!.ir.assertions.some((a) => a.contains === "Prepare quarterly report"),
+    true,
+  );
+  assert.equal(match!.ir.assertions.some((a) => a.contains === "全部任务"), false);
+});
+
+test("list-item tabs are not used as search item text", () => {
+  const cases = planReadOnlyCases({
+    detectionId: "d",
+    profile: {
+      version: 1,
+      target: { url: "https://real.example.com", mode: "passive" },
+      signals: [],
+      questions: [],
+      capabilities: [],
+      surfaces: [
+        {
+          route: "/tasks/",
+          elements: [
+            { role: "listitem", name: "全部任务 0" },
+            { role: "listitem", name: "Prepare quarterly report" },
+            { role: "listitem", name: "Review budget" },
+            { role: "input", name: "搜索", inputType: "text", placeholder: "搜索" },
+          ],
+        },
+      ],
+    },
+    tests: [],
+    targetMode: "real",
+  });
+  assert.equal(cases.some((item) => JSON.stringify(item.ir).includes("全部任务")), false);
+  const match = cases.find((item) => item.testId.endsWith("-search-match"));
+  assert.ok(match);
 });

@@ -173,11 +173,24 @@ async function exploreContentRoutes(
   routes: string[],
   origin: string,
   baselinePath: string,
-): Promise<{ elements: Record<string, SnapshotElement[]>; paths: Record<string, string> }> {
+): Promise<{ elements: Record<string, SnapshotElement[]>; paths: Record<string, string>; texts: Record<string, string[]> }> {
   const out: Record<string, SnapshotElement[]> = {};
   const paths: Record<string, string> = {};
+  const texts: Record<string, string[]> = {};
+  const isSearchInput = (element: SnapshotElement) => {
+    if (
+      element.role !== "input" &&
+      element.role !== "textbox" &&
+      element.role !== "textarea" &&
+      element.role !== "searchbox"
+    ) {
+      return false;
+    }
+    const hint = element.placeholder ?? element.ariaLabel ?? element.name ?? "";
+    return element.inputType === "search" || /搜索|search|筛选|filter/i.test(hint);
+  };
   const handle = await openRealPage(origin).catch(() => undefined);
-  if (!handle) return { elements: out, paths };
+  if (!handle) return { elements: out, paths, texts };
   try {
     const base = new URL(origin).origin;
     const baseline = new Set<string>();
@@ -194,41 +207,49 @@ async function exploreContentRoutes(
     for (const route of routes) {
       const candidates = route.endsWith("/") ? [route] : [`${route}/`, route];
       let elements: SnapshotElement[] = [];
+      let keptTexts: string[] = [];
+      let routeScore = -1;
       for (const path of candidates) {
         try {
           await handle.page.goto(`${base}${path}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+          let best: SnapshotElement[] = [];
+          let bestTexts: string[] = [];
+          let bestScore = -1;
           for (let attempt = 0; attempt < 3; attempt += 1) {
             await handle.page.waitForTimeout(2_000);
             const snapshot = await snapshotPageContext(handle.page);
             const filtered = snapshot.elements.filter((element) => {
-              const hint = element.placeholder ?? element.ariaLabel ?? element.name ?? "";
-              const searchLike = element.role === "input" && /搜索|search|筛选|filter/i.test(hint);
-              if (searchLike) return true;
+              if (isSearchInput(element)) return true;
               const key = element.testId ? `id:${element.testId}` : element.name ? `name:${element.name}` : "";
               return key ? !baseline.has(key) : false;
             });
-            if (filtered.some((element) => element.role === "input")) {
-              elements = filtered;
-              paths[route] = path;
-              break;
+            const contentScore = filtered.filter((element) => !isSearchInput(element)).length;
+            if (contentScore > bestScore) {
+              best = filtered;
+              bestTexts = snapshot.texts;
+              bestScore = contentScore;
             }
-            if (filtered.length && !elements.length) elements = filtered;
           }
-          if (elements.length) {
+          if (best.length && bestScore > routeScore) {
+            elements = best;
+            keptTexts = bestTexts;
             paths[route] = path;
-            break;
+            routeScore = bestScore;
+            const hasInput = best.some(isSearchInput);
+            if (hasInput && bestScore >= 3) break;
           }
         } catch {
           /* try the other trailing-slash form */
         }
       }
       out[route] = elements;
+      texts[route] = keptTexts;
       if (!paths[route]) paths[route] = candidates[0]!;
     }
   } finally {
     await handle.browser.close().catch(() => undefined);
   }
-  return { elements: out, paths };
+  return { elements: out, paths, texts };
 }
 
 function stampTestMeta(test: StoredTest, opts?: { approving?: boolean; assertionConfigHash?: string }): StoredTest {
@@ -1618,14 +1639,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
     const body = (req.body ?? {}) as { limit?: number };
     const tests = await store.listTests();
-    let candidates = planReadOnlyCases({
-      detectionId,
-      profile: record.profile,
-      tests,
-      targetMode: record.target,
-      limit: body.limit,
-    });
-    const contentRoutes = [...new Set(candidates.filter((item) => item.testId.includes("-content-")).map((item) => item.route))].slice(0, 8);
+    const contentRoutes = [
+      ...new Set((record.profile.frameSurfaces ?? []).map((frame) => frame.route)),
+    ]
+      .filter((route) => route !== "/")
+      .slice(0, 12);
+    let candidates;
     if (contentRoutes.length) {
       const explored = await exploreContentRoutes(
         contentRoutes,
@@ -1640,6 +1659,15 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         limit: body.limit,
         contentElements: explored.elements,
         contentPaths: explored.paths,
+        contentTexts: explored.texts,
+      });
+    } else {
+      candidates = planReadOnlyCases({
+        detectionId,
+        profile: record.profile,
+        tests,
+        targetMode: record.target,
+        limit: body.limit,
       });
     }
     const jobId = `rosuite_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
@@ -1708,7 +1736,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
               artifactsRoot,
               dataRoot,
             );
-            if (run.status !== "passed" && candidate.testId.includes("-content-")) {
+            // Only legacy visibility-only content cases may fall back to routing; a semantic case
+            // (minCount / contains / notContains) that fails stays a draft so the gap stays visible.
+            const semantic = validated.value.assertions.some(
+              (assertion) => assertion.minCount || assertion.contains || assertion.notContains,
+            );
+            if (run.status !== "passed" && candidate.testId.includes("-content-") && !semantic) {
               // Content-element assertions are best-effort; keep a routing smoke instead of a stuck draft.
               const openStep = validated.value.steps.find((step) => step.action === "navigate");
               const urlAssertions = validated.value.assertions.filter((assertion) => assertion.urlIncludes);
@@ -1738,7 +1771,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
             }
             status = run.status === "passed" ? "passed" : "failed";
             if (run.status !== "passed") {
-              message = run.artifacts.notes ?? run.metrics.failureKind;
+              const failedAssertion = run.assertions.find((assertion) => !assertion.passed);
+              message = run.artifacts.notes ?? failedAssertion?.message ?? run.metrics.failureKind;
             }
             if (run.status === "passed") {
               const saved = await saveDraftWithAutoApproval(activeDraft, { trialPassed: true });

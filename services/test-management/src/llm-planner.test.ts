@@ -51,7 +51,7 @@ test("retries with the provider's max_tokens limit instead of failing the call",
   try {
     const out = await enhanceDraftWithLlm(config, {
       goal: "提交后提示已保存",
-      context: { url: "http://127.0.0.1:4173/", elements: [] },
+      context: { url: "http://127.0.0.1:4173/", elements: [], texts: [] },
       ruleDraft: { steps: [], assertions: [], uncertainties: [], sources: ["intent"] },
     });
     assert.deepEqual(seen, [1_000_000, 1_000, 1_000]);
@@ -151,7 +151,7 @@ test("retries once when the provider returns malformed JSON", async () => {
   try {
     const out = await enhanceDraftWithLlm(config, {
       goal: "提交后提示提交成功",
-      context: { url: "http://127.0.0.1:4173/", elements: [] },
+      context: { url: "http://127.0.0.1:4173/", elements: [], texts: [] },
       ruleDraft: { steps: [], assertions: [], uncertainties: [], sources: ["intent"] },
     });
     assert.ok(calls >= 2);

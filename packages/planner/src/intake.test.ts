@@ -7,6 +7,7 @@ import type { PageContext } from "./types.js";
 /** Snapshot shape after opening the ticket form on demo-webapp (design §5 testId-first). */
 const demoTicketFormContext: PageContext = {
   url: "http://127.0.0.1:4173/",
+  texts: [],
   elements: [
     { role: "button", name: "提交工单", testId: "open-ticket" },
     { role: "input", name: "标题", testId: "ticket-title", inputType: "text" },
@@ -20,6 +21,7 @@ const demoTicketFormContext: PageContext = {
 
 const demoCustomerContext: PageContext = {
   url: "http://127.0.0.1:4173/customer",
+  texts: [],
   elements: [
     { role: "heading", name: "客户中心" },
     { role: "button", name: "选择服务项目" },
@@ -72,6 +74,7 @@ test("ticket intake clicks form submit by testId, not 提交工单", () => {
 test("explored dialog form becomes replayable fill and select steps", () => {
   const context: PageContext = {
     url: "http://pilot.example/customer",
+    texts: [],
     elements: [
       { role: "button", name: "提交工单" },
       { role: "div", name: "提交服务工单" },
@@ -114,6 +117,7 @@ test("explored dialog form becomes replayable fill and select steps", () => {
 test("unmatched requirement asserts a visible page anchor, not the goal sentence", () => {
   const context: PageContext = {
     url: "http://127.0.0.1:4173/",
+    texts: [],
     elements: [
       { role: "link", name: "用户管理" },
       { role: "button", name: "添加用户", testId: "add-user-btn" },

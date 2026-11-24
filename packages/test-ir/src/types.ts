@@ -83,6 +83,8 @@ export interface TestAssertion {
   configRef?: string;
   target?: Locator;
   contains?: string;
+  /** Require at least N elements matching `target` (structure assertion). */
+  minCount?: number;
   /** Text that must be absent; pair it with `contains` or `target` so a blank page cannot pass. */
   notContains?: string;
   /** Require the page URL to contain this fragment (proves routing even for iframe-shell pages). */

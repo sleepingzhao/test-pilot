@@ -19,6 +19,7 @@
 - 双账号消息：真实环境两个账号同时在线互发一条带 `runId` 的消息并双端断言（`allowMutation` 显式开启，每轮发送一条；前置：两账号已有会话）
 - 通用性：探测、内容页基线、生成器均不含业务路由或字段硬编码；真实登录通过可配置适配器接入
 - 一键只读套件：真实画像（SPA 路由 + iframe 内容页）→ 生成未覆盖路由的只读用例（确认路径的 URL 断言 + 内容区元素）→ 自动试跑/批准 → 控制台一键批量。实测生成 17 条全部批准（含 6 条内容页），批次 8/8、3/3、6/6 通过
+- 语义级只读生成：列表行数（`minCount`）、搜索命中/过滤（`contains`/`notContains` 配对）、详情跳转；失败只留草稿，不降级为 URL 路由；真实目标实测 9 条自动批准
 - 风险报告：规则基线 + 持久化 + API（V7-10a），LLM 增强与回退（V7-10b），控制台面板与创建草稿入口（V7-10c）
 - 录制多账号：录制表单配置 actor，登录步骤写入 IR（V7-2c）
 - 跨 actor 事件等待：`waitForEvent` 等待另一 actor 的 WS/SSE 事件（V7-2d）
@@ -77,6 +78,11 @@
 
 11. [ ] **llm-judge（暂缓）**
     仅探索模式，不进入回归门禁；边界未定前不开工。
+
+12. [x] **V7-14 语义级只读生成（P0）**
+    生成的只读用例断言列表结构、搜索命中/过滤与详情，而不是只断言路由；语义用例失败只留草稿，不降级、不自动批准。
+    _证据：IR/断言新增 `minCount`（runner 轮询 `locator.count()`，不足归 `PRODUCT_DEFECT`；弱断言门禁拒绝 `minCount < 2` 或无 `target`，正反测试 `ui-count.test.ts`、`validate.test.ts`）；采集器纳入 `tr/td/th/li/table/h1–h4`，并提取重复卡片首行文本（跳过导航/交互行）；生成器产出 load（`minCount`）、search-match（真实条目的 `contains` + Enter）、search-none（`urlIncludes` + `notContains` 配对）、detail（`contains` + 列表表头 `notContains`），搜索/详情覆盖按 match/none 分开计算；语义用例失败不再降级为 URL 路由（`routes.ts` guard），也不再被自动批准。真实目标实测：9 条语义用例自动批准（task/sop 搜索命中、sop 详情、chat/reminder 过滤）；chat 搜索命中因产品未返回该消息、sop 搜索触发写请求被只读门禁拦截，均保留为草稿。限制：只有 ARIA/表格结构或稳定重复卡片才能提取条目；search-match 不证明过滤，需与 search-none 配对；`minCount` 尚未在真实多行表格上实测（该目标表格仅 1 行）。_
+
 
 ## 3. 明确后置
 

@@ -484,6 +484,30 @@ test("accepts valid two-actor IR", () => {
   if (result.ok) assert.deepEqual(validateSemantics(result.value), []);
 });
 
+test("accepts waitForEvent against another actor and rejects missing config", () => {
+  const ok = validateTestIR({
+    id: "wait-event",
+    version: 1,
+    platform: "web",
+    actors: [{ id: "primary" }, { id: "b", account: "alt" }],
+    steps: [
+      { id: "wait", action: "waitForEvent", actor: "b", waitForEvent: { direction: "received", contains: "hi", timeoutMs: 5000 } },
+    ],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(ok.ok, true);
+  if (ok.ok) assert.deepEqual(validateSemantics(ok.value), []);
+
+  const missing = validateTestIR({
+    id: "wait-event-bad",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "wait", action: "waitForEvent" }],
+    assertions: [{ type: "ui", oracle: "human-approved", contains: "done ok" }],
+  });
+  assert.equal(missing.ok, false);
+});
+
 test("rejects unknown actor account", () => {
   const result = validateTestIR({
     id: "bad-account",

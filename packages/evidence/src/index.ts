@@ -300,6 +300,18 @@ export function createEvidenceCollector(options: EvidenceOptions) {
       return [...sseEvents];
     },
 
+    async waitForSseEvent(
+      predicate: (event: SseEvent) => boolean,
+      timeoutMs = 10_000,
+    ): Promise<boolean> {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        if (sseEvents.some(predicate)) return true;
+        if (Date.now() >= deadline) return false;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    },
+
     async waitForWebSocketFrame(
       predicate: (frame: WsFrame) => boolean,
       timeoutMs = 10_000,

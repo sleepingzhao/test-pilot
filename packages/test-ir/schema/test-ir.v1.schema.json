@@ -80,13 +80,23 @@
         },
         "action": {
           "type": "string",
-          "enum": ["navigate", "click", "fill", "press", "wait", "select", "selectCascader", "request", "upload"]
+          "enum": ["navigate", "click", "fill", "press", "wait", "waitForEvent", "select", "selectCascader", "request", "upload"]
         },
         "path": { "type": "string" },
         "target": { "$ref": "#/$defs/locator" },
         "value": { "type": "string" },
         "valueRef": { "type": "string", "minLength": 1 },
         "key": { "type": "string", "minLength": 1 },
+        "waitForEvent": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "direction": { "type": "string", "enum": ["sent", "received"] },
+            "contains": { "type": "string", "minLength": 1 },
+            "urlIncludes": { "type": "string", "minLength": 1 },
+            "timeoutMs": { "type": "number", "minimum": 1000, "maximum": 60000 }
+          }
+        },
         "cascaderPath": {
           "type": "array",
           "minItems": 1,
@@ -137,6 +147,10 @@
         {
           "if": { "properties": { "action": { "const": "navigate" } } },
           "then": { "required": ["path"] }
+        },
+        {
+          "if": { "properties": { "action": { "const": "waitForEvent" } } },
+          "then": { "required": ["waitForEvent"] }
         },
         {
           "if": { "properties": { "action": { "const": "click" } } },

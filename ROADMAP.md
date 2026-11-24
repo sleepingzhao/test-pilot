@@ -18,6 +18,7 @@
 - 真实只读回归：8 条 `real-*` 用例（通讯录列表/部门筛选/详情、任务、文档、提醒事项列表/已完成筛选、会议首页），两轮批次 8/8 通过
 - 风险报告：规则基线 + 持久化 + API（V7-10a），LLM 增强与回退（V7-10b），控制台面板与创建草稿入口（V7-10c）
 - 录制多账号：录制表单配置 actor，登录步骤写入 IR（V7-2c）
+- 跨 actor 事件等待：`waitForEvent` 等待另一 actor 的 WS/SSE 事件（V7-2d）
 
 **基线：** 26 条已批准用例（17 demo + 1 pilot + 8 真实只读；9 条自动批准）、5 个断言 Provider、`pnpm verify` 全绿。
 
@@ -62,8 +63,9 @@
    录制时可选择与配置 actor；登录步骤写入 IR；仍走审阅批准。
    _证据：录制表单新增「多账号录制」（第二 actor id + primary/alt 凭据），`POST /api/record` 校验 id/重复/上限并按 actor 依次打开录制窗口（`job.stage` 提示当前账号）；`combineActorRecordings` 将登录前事件写入 `actors[].loginSteps`、主步骤标注 actor（primary 省略）、步骤 id 去重；录制器单测覆盖拆分与组合、服务测试覆盖非法 actor 配置；控制台多账号开关已浏览器验证。交互式双窗口录制本身需人工操作，未自动化实测；录制结果仍是草稿，需审阅批准。_
 
-9. [ ] **V7-2d 跨 actor waitForEvent（P2）**
+9. [x] **V7-2d 跨 actor waitForEvent（P2）**
    步骤可等待另一 actor 的 WS/事件；超时归 `ENVIRONMENT`；有负向测试。
+   _证据：IR 新增 `action: "waitForEvent"` + `waitForEvent {direction, contains, urlIncludes, timeoutMs}`，`step.actor` 指定被观察的 actor；runner 同时轮询该 actor 的 WS 帧与 SSE 事件，匹配即通过，超时 1–60s 可配；超时消息含 `timeout` 归 `ENVIRONMENT`。测试 `wait-event.test.ts` 覆盖 WS 帧、SSE 事件、超时负向；控制台步骤编辑器提供模板（JSON 里指定 actor）。_
 
 10. [ ] **V7-13 主动探索（P2）**
     建议未访问页面/链接与补充场景；只作为建议，不自动生成或批准。

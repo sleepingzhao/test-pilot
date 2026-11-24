@@ -2,7 +2,17 @@ export type OracleSource = "human-approved" | "requirement" | "api-contract";
 
 export type Platform = "web";
 
-export type StepAction = "navigate" | "click" | "fill" | "press" | "wait" | "select" | "selectCascader" | "request" | "upload";
+export type StepAction =
+  | "navigate"
+  | "click"
+  | "fill"
+  | "press"
+  | "wait"
+  | "waitForEvent"
+  | "select"
+  | "selectCascader"
+  | "request"
+  | "upload";
 
 export type RequestMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
 
@@ -39,6 +49,13 @@ export interface TestStep {
   key?: string;
   /** Ordered labels for each cascader level (province → street). */
   cascaderPath?: string[];
+  /** Await a WS/SSE event on `actor` (default primary) instead of driving the page. */
+  waitForEvent?: {
+    direction?: "sent" | "received";
+    contains?: string;
+    urlIncludes?: string;
+    timeoutMs?: number;
+  };
   /** HTTP method for `action: "request"`. Same-origin with baseUrl only. */
   method?: RequestMethod;
   /** Request headers. Values may contain `{{var}}` templates (resolved at run time). */

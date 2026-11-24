@@ -11,7 +11,7 @@ type Props = {
   idPrefix?: string;
 };
 
-type AddKind = "navigate" | "click" | "fill" | "select" | "wait" | "request";
+type AddKind = "navigate" | "click" | "fill" | "select" | "wait" | "waitForEvent" | "request";
 
 function nextStepId(steps: TestStep[], prefix: string): string {
   const pattern = new RegExp(`^${prefix}-(\\d+)$`);
@@ -32,6 +32,8 @@ function templateFor(kind: AddKind, id: string): TestStep {
       return { id, action: "select", target: { label: "下拉框" }, value: "" };
     case "wait":
       return { id, action: "wait", target: { name: "可见文案" } };
+    case "waitForEvent":
+      return { id, action: "waitForEvent", waitForEvent: { direction: "received", timeoutMs: 10_000 } };
     case "request":
       return { id, action: "request", method: "GET", path: "/api/…" };
     default:
@@ -108,6 +110,7 @@ export function StepEditorPanel({
           <option value="fill">fill · 填写</option>
           <option value="select">select · 下拉选择</option>
           <option value="wait">wait · 等待元素</option>
+          <option value="waitForEvent">waitForEvent · 等待其他 actor 事件（编辑 JSON 指定 actor）</option>
           <option value="request">request · 调用接口</option>
         </select>
         <button

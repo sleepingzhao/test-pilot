@@ -606,6 +606,58 @@ async function runMainStep(
       ...(actorId !== "primary" ? { actor: actorId } : {}),
     };
   }
+  if (step.action === "waitForEvent") {
+    const spec = step.waitForEvent;
+    const actorField = actorId !== "primary" ? { actor: actorId } : {};
+    if (!spec) {
+      return {
+        stepId: step.id,
+        status: "failed",
+        durationMs: 0,
+        message: "waitForEvent 缺少匹配条件",
+        ...actorField,
+      };
+    }
+    const timeoutMs = Math.min(Math.max(spec.timeoutMs ?? 10_000, 1_000), 60_000);
+    const started = Date.now();
+    const deadline = started + timeoutMs;
+    let matched: "ws" | "sse" | undefined;
+    while (!matched && Date.now() < deadline) {
+      const frame = session.evidence.getWebSocketFrames().find(
+        (item) =>
+          (!spec.direction || item.direction === spec.direction) &&
+          (!spec.contains || item.payload.includes(spec.contains)) &&
+          (!spec.urlIncludes || item.url.includes(spec.urlIncludes)),
+      );
+      if (frame) {
+        matched = "ws";
+        break;
+      }
+      const sse = session.evidence
+        .getSseEvents()
+        .find(
+          (event) =>
+            (!spec.direction || spec.direction !== "sent") &&
+            (!spec.contains || event.data.includes(spec.contains)) &&
+            (!spec.urlIncludes || event.url.includes(spec.urlIncludes)),
+        );
+      if (sse) {
+        matched = "sse";
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (matched) {
+      return { stepId: step.id, status: "passed", durationMs: Date.now() - started, ...actorField };
+    }
+    return {
+      stepId: step.id,
+      status: "failed",
+      durationMs: Date.now() - started,
+      message: `waitForEvent timeout：未在 ${timeoutMs}ms 内观察到事件`,
+      ...actorField,
+    };
+  }
   if (readOnlyNetwork) {
     const blocked = readOnlyBlockedMessage(step);
     if (blocked) {

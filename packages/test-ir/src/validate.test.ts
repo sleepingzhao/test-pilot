@@ -490,7 +490,7 @@ test("accepts a URL assertion without text or target", () => {
     version: 1,
     platform: "web",
     steps: [{ id: "open", action: "navigate", path: "/" }],
-    assertions: [{ id: "routed", type: "ui", urlIncludes: "/micro/chat", oracle: "human-approved" }],
+    assertions: [{ id: "routed", type: "ui", urlIncludes: "/app/chat", oracle: "human-approved" }],
   });
   assert.equal(result.ok, true);
   if (result.ok) {

@@ -17,6 +17,7 @@
 - 双账号真实登录：`actors[].account`（`primary`/`alt`），每个 actor 用对应 `TESTPILOT_ENV_REAL_*` / `_ALT_*` 登录；登录失败标注 actor
 - 真实只读回归：9 条 `real-*` 用例（通讯录列表/部门筛选/详情/搜索过滤、任务、文档、提醒事项列表/已完成筛选、会议首页），批次 9/9 通过
 - 双账号消息：真实环境两个账号同时在线互发一条带 `runId` 的消息并双端断言（`allowMutation` 显式开启，每轮发送一条；前置：两账号已有会话）
+- 通用性：探测、内容页基线、生成器均不含业务路由或字段硬编码；真实登录通过可配置适配器接入
 - 一键只读套件：真实画像（SPA 路由 + iframe 内容页）→ 生成未覆盖路由的只读用例（确认路径的 URL 断言 + 内容区元素）→ 自动试跑/批准 → 控制台一键批量。实测生成 17 条全部批准（含 6 条内容页），批次 8/8、3/3、6/6 通过
 - 风险报告：规则基线 + 持久化 + API（V7-10a），LLM 增强与回退（V7-10b），控制台面板与创建草稿入口（V7-10c）
 - 录制多账号：录制表单配置 actor，登录步骤写入 IR（V7-2c）
@@ -109,6 +110,7 @@ Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
 | API 访问 | `TESTPILOT_API_TOKEN`、`TESTPILOT_ALLOWED_ORIGINS` |
 | 命名 API 环境 | `TESTPILOT_API_ENVS_FILE` / 本地 `api-envs.json` |
 | 自动审批（默认关） | `TESTPILOT_AUTO_APPROVE=1` |
+| 真实登录适配器（可选） | `TESTPILOT_REAL_LOGIN_PROFILE_JSON`（按站点配置字段选择器；不配置则用通用账号/密码启发式） |
 
 ## 7. 常用命令
 

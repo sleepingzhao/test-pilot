@@ -36,7 +36,7 @@ pnpm start     # 生产式单端口：http://127.0.0.1:8787（API 托管控制�
 - **证据**：步骤截图、network、WebSocket、SSE、Trace；运行详情可下载（真实环境自动脱敏，见下）。
 - **多账号**：IR `actors` 多上下文执行，真实环境按 `primary` / `alt` 分别登录；录制时可选多账号，登录步骤写入 IR；`waitForEvent` 可等待另一 actor 的 WS/SSE 事件；真实双账号互发消息已验证。
 - **测试数据清理**：`policy.cleanup` + `teardownSteps`，失败也按策略清理。
-- **系统画像**：规则 + LLM 识别能力与未知项，包含壳内 SPA 路由；真实环境只做只读画像。
+- **系统画像**：规则 + LLM 识别能力与未知项，通用遍历 SPA 路由与 iframe 内容页；真实环境只做只读画像。
 - **风险与缺口**：规则报告 + 可选 LLM 增强（分层取材、严格 JSON、去重、失败回退），存 `data/risk-reports/`。
 - **主动探索**：建议未访问页面、覆盖缺口与未知项；只作为建议，不自动生成或批准。
 
@@ -55,6 +55,7 @@ pnpm start     # 生产式单端口：http://127.0.0.1:8787（API 托管控制�
 敏感配置只放仓库根目录 `.env`（已 gitignore），模板见 `.env.example`。
 
 - 真实环境：`TESTPILOT_REAL_BASE_URL`、`TESTPILOT_ENV_REAL_*`、第二账号 `TESTPILOT_ENV_REAL_ALT_*`。
+- 真实登录适配器：`TESTPILOT_REAL_LOGIN_PROFILE_JSON` 按站点配置登录字段选择器；不配置时使用通用账号/密码启发式，代码里不含业务站点选择器。
 - 自动审批：`TESTPILOT_AUTO_APPROVE=1`；草稿试跑通过且强断言门禁通过后自动批准（审计 `auto:testpilot`）。
 - 目标白名单：`TESTPILOT_ALLOWED_TARGETS`；控制台域名白名单：`TESTPILOT_ALLOWED_ORIGINS`。
 - API 只监听 `127.0.0.1`，写请求校验 Origin；设非回环 `HOST` 时必须配 `TESTPILOT_API_TOKEN`。

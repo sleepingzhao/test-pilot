@@ -116,7 +116,7 @@ test("real target strips page text from the stored profile", async () => {
     ...profile,
     surfaces: [
       {
-        route: "/welcome",
+        route: "/home",
         title: "真实系统标题",
         elements: [{ role: "button", name: "人名" }],
       },
@@ -125,7 +125,7 @@ test("real target strips page text from the stored profile", async () => {
       {
         id: "dom.table",
         strength: 1,
-        evidence: [{ id: "ev-real", kind: "dom", summary: "可见表格「真实项目」", route: "/welcome" }],
+        evidence: [{ id: "ev-real", kind: "dom", summary: "可见表格「真实项目」", route: "/home" }],
       },
     ],
   };

@@ -762,7 +762,7 @@ async function collectFrames(
 }
 
 async function readPageText(page: Page | Frame, limit = 4_000): Promise<string> {
-  // locator() is empty inside wujie-managed iframes; evaluate still reads the frame document.
+  // locator() is empty inside some micro-frontend iframes; evaluate still reads the frame document.
   const text = await page
     .evaluate(`(document.body && document.body.innerText) || ""`)
     .then((value) => String(value))

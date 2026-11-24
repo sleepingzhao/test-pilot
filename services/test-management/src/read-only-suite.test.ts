@@ -13,20 +13,20 @@ function profile(): DetectionReport {
     capabilities: [],
     frameSurfaces: [
       {
-        route: "/album/",
+        route: "/gallery/",
         elements: [
           { role: "heading", name: "团队相册" },
           { role: "input", name: "搜索相册", inputType: "text", placeholder: "搜索相册" },
         ],
       },
       {
-        route: "/chat/",
+        route: "/inbox/",
         elements: [{ role: "heading", name: "聊天记录" }],
       },
     ],
     surfaces: [
       {
-        route: "/contacts/",
+        route: "/people/",
         elements: [
           { role: "button", name: "赵哲", testId: "user-menu-trigger" },
           { role: "tab", name: "全部" },
@@ -68,15 +68,15 @@ test("plans load and search cases only for uncovered real routes", () => {
   const cases = planReadOnlyCases({
     detectionId: "detect_x",
     profile: profile(),
-    tests: [approvedReal("/covered/"), approvedReal("/chat/")],
+    tests: [approvedReal("/covered/"), approvedReal("/inbox/")],
     targetMode: "real",
   });
   assert.deepEqual(cases.map((item) => `${item.route}:${item.kind}`).sort(), [
-    "/album:load",
-    "/album:search",
     "/bare:load",
-    "/contacts:load",
-    "/contacts:search",
+    "/gallery:load",
+    "/gallery:search",
+    "/people:load",
+    "/people:search",
   ]);
   for (const item of cases) {
     assert.equal(item.ir.baseUrlRef, "real-env");
@@ -89,23 +89,23 @@ test("plans load and search cases only for uncovered real routes", () => {
     );
     assert.match(item.testId, /^[a-z0-9][a-z0-9-]*$/);
   }
-  const search = cases.find((item) => item.route === "/contacts" && item.kind === "search")!;
+  const search = cases.find((item) => item.route === "/people" && item.kind === "search")!;
   assert.deepEqual(search.ir.steps[2]?.target, { placeholder: "搜索" });
-  const content = cases.find((item) => item.route === "/album" && item.kind === "load")!;
+  const content = cases.find((item) => item.route === "/gallery" && item.kind === "load")!;
   assert.match(content.testId, /-content-/);
   assert.match(content.title, /内容页/);
-  assert.equal(cases.some((item) => item.route === "/chat"), false);
+  assert.equal(cases.some((item) => item.route === "/inbox"), false);
 });
 
 test("a load-only approved case still lets the search scenario generate", () => {
   const cases = planReadOnlyCases({
     detectionId: "detect_x",
     profile: profile(),
-    tests: [approvedReal("/contacts/")],
+    tests: [approvedReal("/people/")],
     targetMode: "real",
   });
-  assert.equal(cases.some((item) => item.route === "/contacts" && item.kind === "load"), false);
-  assert.equal(cases.some((item) => item.route === "/contacts" && item.kind === "search"), true);
+  assert.equal(cases.some((item) => item.route === "/people" && item.kind === "load"), false);
+  assert.equal(cases.some((item) => item.route === "/people" && item.kind === "search"), true);
 });
 
 test("does not generate for non-real targets and respects the limit", () => {

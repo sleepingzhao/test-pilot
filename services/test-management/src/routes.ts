@@ -172,6 +172,7 @@ const readOnlySuiteJobs = new Map<string, ReadOnlySuiteJob>();
 async function exploreContentRoutes(
   routes: string[],
   origin: string,
+  baselinePath: string,
 ): Promise<{ elements: Record<string, SnapshotElement[]>; paths: Record<string, string> }> {
   const out: Record<string, SnapshotElement[]> = {};
   const paths: Record<string, string> = {};
@@ -181,7 +182,7 @@ async function exploreContentRoutes(
     const base = new URL(origin).origin;
     const baseline = new Set<string>();
     try {
-      await handle.page.goto(`${base}/welcome`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await handle.page.goto(`${base}${baselinePath}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
       await handle.page.waitForTimeout(1_500);
       for (const element of (await snapshotPageContext(handle.page)).elements) {
         const key = element.testId ? `id:${element.testId}` : element.name ? `name:${element.name}` : "";
@@ -1626,7 +1627,11 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     });
     const contentRoutes = [...new Set(candidates.filter((item) => item.testId.includes("-content-")).map((item) => item.route))].slice(0, 8);
     if (contentRoutes.length) {
-      const explored = await exploreContentRoutes(contentRoutes, record.profile.target.url);
+      const explored = await exploreContentRoutes(
+        contentRoutes,
+        record.profile.target.url,
+        record.profile.surfaces[0]?.route ?? "/",
+      );
       candidates = planReadOnlyCases({
         detectionId,
         profile: record.profile,

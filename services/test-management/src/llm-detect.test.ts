@@ -46,7 +46,7 @@ test("buildDetectionDigest replaces the account name with a placeholder", () => 
     evidence: {
       pages: [
         {
-          route: "/welcome",
+          route: "/home",
           text: "赵哲 消息 小智",
           elements: [{ role: "div", name: "赵哲", testId: "user-menu-trigger" }],
         },

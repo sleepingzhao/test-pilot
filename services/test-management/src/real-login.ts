@@ -1,5 +1,6 @@
 import { chromium, type Browser, type Page } from "playwright";
 import { realBaseUrl } from "./run-env.js";
+import { realLoginProfileFromEnv, type RealLoginProfile } from "./real-login-profile.js";
 
 export type RealPageHandle = { browser: Browser; page: Page };
 
@@ -83,28 +84,115 @@ export async function loginRealPage(
   }
   const { enterpriseId, userId, password } = config;
 
+  const profile = realLoginProfileFromEnv();
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 45_000 });
   await page.waitForTimeout(2_500);
 
-  if (/\/login/i.test(new URL(page.url()).pathname)) {
-    const tenant = await waitForEnterpriseLoginForm(page);
-    await tenant.fill(enterpriseId);
-    await page.locator('input[name="userCode"]').fill(userId);
-    await page.locator('input[name="password"]').fill(password);
+  const state = await waitForLoginOrApp(page, profile);
+  if (state === "timeout") {
+    throw new Error("真实环境登录页未出现（可能需要配置 TESTPILOT_REAL_LOGIN_PROFILE_JSON）");
+  }
+  if (state === "login") {
+    const fields = await waitForLoginForm(page, profile);
+    if (profile.tenantField) {
+      const tenant = await firstVisible(page, [profile.tenantField]);
+      if (tenant) await tenant.fill(enterpriseId);
+    }
+    const user = profile.userField
+      ? await firstVisible(page, [profile.userField])
+      : await genericUserField(page);
+    if (!user) throw new Error("真实环境登录页未找到账号输入框");
+    await user.fill(userId);
+    await fields.password.fill(password);
     await page.waitForTimeout(800);
-    await checkConsent(page);
+    if (profile.consentSelector) {
+      await firstVisible(page, [profile.consentSelector]).then((locator) => locator?.click().catch(() => undefined));
+    } else {
+      await checkConsent(page);
+    }
 
-    if (!(await clickLogin(page))) {
+    if (!(await clickLogin(page, profile))) {
       throw new Error("真实环境登录按钮不可用");
     }
     try {
-      await page.waitForURL((url) => !/\/login/i.test(url.pathname), { timeout: 30_000 });
+      await waitForLoginSuccess(page);
     } catch {
       const body = await page.locator("body").innerText().catch(() => "");
       throw new Error(`真实环境登录未完成：${formatLoginPageExcerpt(body)}`);
     }
     await page.waitForTimeout(1_500);
   }
+}
+
+async function firstVisible(page: Page, selectors: string[]) {
+  for (const selector of selectors) {
+    const locator = page.locator(selector);
+    const count = Math.min(await locator.count().catch(() => 0), 5);
+    for (let index = 0; index < count; index += 1) {
+      const candidate = locator.nth(index);
+      if (await candidate.isVisible().catch(() => false)) return candidate;
+    }
+  }
+  return undefined;
+}
+
+/** OAuth redirects can take seconds; wait for either the login form or the app itself. */
+async function waitForLoginOrApp(page: Page, profile: RealLoginProfile): Promise<"login" | "app" | "timeout"> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const path = (() => {
+      try {
+        return new URL(page.url()).pathname;
+      } catch {
+        return "";
+      }
+    })();
+    if (profile.enterpriseTabText && /login/i.test(path)) {
+      await switchToLoginTab(page, profile.enterpriseTabText);
+    }
+    if (await firstVisible(page, [profile.passwordField ?? 'input[type="password"]'])) return "login";
+    if (path && !/\/login|\/oauth|\/auth\//i.test(path)) return "app";
+    await page.waitForTimeout(1_000);
+  }
+  return "timeout";
+}
+
+async function genericUserField(page: Page) {
+  return firstVisible(page, [
+    'input[type="text"]',
+    'input[type="tel"]',
+    'input[type="email"]',
+    'input:not([type="password"])',
+  ]);
+}
+
+/** Click an optional login-mode tab, then wait for the password field. */
+async function waitForLoginForm(page: Page, profile: RealLoginProfile) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const visible = await firstVisible(page, [profile.passwordField ?? 'input[type="password"]']);
+    if (visible) return { password: visible };
+    if (profile.enterpriseTabText) await switchToLoginTab(page, profile.enterpriseTabText);
+    await page.waitForTimeout(900);
+  }
+  const password = await firstVisible(page, [profile.passwordField ?? 'input[type="password"]']);
+  if (!password) throw new Error("真实环境登录页未找到密码输入框");
+  return { password };
+}
+
+async function waitForLoginSuccess(page: Page): Promise<void> {
+  await page
+    .waitForFunction(
+      `(() => {
+        const pw = document.querySelector('input[type="password"]');
+        if (!pw) return true;
+        const rect = pw.getBoundingClientRect();
+        return rect.width === 0 || rect.height === 0;
+      })()`,
+      undefined,
+      { timeout: 30_000 },
+    )
+    .catch(() => {
+      throw new Error("still on login form");
+    });
 }
 
 /**
@@ -122,35 +210,13 @@ export async function openRealPage(baseUrl: string): Promise<RealPageHandle> {
   }
 }
 
-/**
- * The enterprise tab can still be rendering when the login page first paints;
- * retry the switch until the tenant input is actually visible.
- */
-async function waitForEnterpriseLoginForm(page: Page): Promise<ReturnType<Page["locator"]>> {
-  const tenant = page.locator('input[name="tenantCode"]');
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (await tenant.isVisible().catch(() => false)) return tenant;
-    if (attempt === 0) {
-      await page
-        .locator("body")
-        .filter({ hasText: "企业账号登录" })
-        .waitFor({ state: "visible", timeout: 15_000 })
-        .catch(() => undefined);
-    }
-    await switchToEnterpriseLogin(page);
-    await page.waitForTimeout(900);
-  }
-  if (await tenant.isVisible().catch(() => false)) return tenant;
-  throw new Error("真实环境登录页未切换到企业账号登录");
-}
-
-async function switchToEnterpriseLogin(page: Page): Promise<void> {
-  await page.evaluate(() => {
+async function switchToLoginTab(page: Page, text: string): Promise<void> {
+  await page.evaluate((tabText) => {
     const doc = (globalThis as any).document;
     const candidates = [...doc.querySelectorAll("button,[role=tab],a,li,div,span")].filter(
       (item: any) => {
-        const text = (item.textContent || "").trim();
-        if (!text.includes("企业账号登录")) return false;
+        const content = (item.textContent || "").trim();
+        if (!content.includes(tabText)) return false;
         const rect = item.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0;
       },
@@ -159,7 +225,7 @@ async function switchToEnterpriseLogin(page: Page): Promise<void> {
     if (!target) return;
     const clickable = target.closest("button,[role=tab],a,[role=button]") || target;
     clickable.click();
-  });
+  }, text);
   await page.waitForTimeout(800);
 }
 
@@ -173,27 +239,26 @@ async function checkConsent(page: Page): Promise<void> {
   }
 }
 
-async function clickLogin(page: Page): Promise<boolean> {
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function clickLogin(page: Page, profile: RealLoginProfile): Promise<boolean> {
+  const name = profile.submitText ? new RegExp(`^${escapeRegExp(profile.submitText)}$`) : /登录|login|sign\s?in/i;
+  const button = page.getByRole("button", { name }).filter({ visible: true }).first();
+  if (await button.isVisible().catch(() => false)) {
+    await button.click({ timeout: 2_000 }).catch(() => undefined);
+    return true;
+  }
   return page.evaluate(() => {
     const doc = (globalThis as any).document;
-    const buttons = [...doc.querySelectorAll("button")].filter(
-      (item: any) => item.type === "submit" && (item.textContent || "").trim() === "登录",
+    const controls = [...doc.querySelectorAll("button,input[type=submit]")].filter(
+      (item: any) => item.getBoundingClientRect().width > 0 && item.getBoundingClientRect().height > 0 && !item.disabled,
     );
-    const visible = buttons.find((item: any) => {
-      const rect = item.getBoundingClientRect();
-      const style = (globalThis as any).getComputedStyle(item);
-      return (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        style.display !== "none" &&
-        style.visibility !== "hidden" &&
-        !item.disabled
-      );
-    });
-    if (visible) {
-      visible.click();
-      return true;
-    }
-    return false;
+    const fallback = controls.find((item: any) => /登录|login|sign\s?in/i.test(item.textContent || item.value || ""));
+    const target = fallback ?? controls[0];
+    if (!target) return false;
+    target.click();
+    return true;
   });
 }

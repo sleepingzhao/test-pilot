@@ -46,6 +46,7 @@ import { readNegativeProbeReport } from "./negative-probes.js";
 import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-identity.js";
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
 import { buildRiskReport, enrichRiskReportWithLlm, readLatestRiskReport, saveRiskReport } from "./risk-report.js";
+import { buildExplorationSuggestions } from "./explore-suggestions.js";
 import { buildFlakeMetricsReport, computeFlakeStats, normalizeRepeatCount } from "./flake-metrics.js";
 import {
   assertionConfigCatalog,
@@ -1520,6 +1521,17 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
     await saveRiskReport(dataRoot, report);
     return report;
+  });
+
+  app.get("/api/detect/:detectionId/explore-suggestions", async (req, reply) => {
+    const { detectionId } = req.params as { detectionId: string };
+    if (!isSafeRunId(detectionId)) return reply.notFound("detection not found");
+    const record = await readDetection(dataRoot, detectionId);
+    if (!record) return reply.notFound("detection not found");
+    return {
+      detectionId,
+      suggestions: buildExplorationSuggestions(record.profile, await store.listTests()),
+    };
   });
 
   app.get("/api/detect/:detectionId/risk-report", async (req, reply) => {

@@ -96,6 +96,7 @@ export async function collectSystemProfile(
   };
   const entryUrl = page.url();
   const surfaces: SurfaceSnapshot[] = [];
+  const unvisited: Array<{ route: string }> = [];
   const found: Signal[] = [];
   const evidence: DetectionEvidence = { pages: [], frames: [], endpoints: [] };
   const onDialog = (dialog: { dismiss: () => Promise<void> }) => {
@@ -139,9 +140,18 @@ export async function collectSystemProfile(
         seen.add(pathOf(page.url()));
         for (const href of sampled.routes) {
           const path = pathOf(href);
-          if (seen.has(path) || seen.size >= maxRoutes) continue;
+          if (seen.has(path)) continue;
           seen.add(path);
           queue.push(href);
+        }
+        if (surfaces.length >= maxRoutes) {
+          for (const href of queue) {
+            const path = pathOf(href);
+            if (surfaces.some((surface) => surface.route === path)) continue;
+            if (unvisited.some((item) => item.route === path)) continue;
+            unvisited.push({ route: path });
+            if (unvisited.length >= 20) break;
+          }
         }
         for (const item of sampled.spa) {
           if (spaClicks >= maxRoutes) break;
@@ -177,6 +187,7 @@ export async function collectSystemProfile(
     signals,
     capabilities: evaluated.capabilities,
     questions: evaluated.questions,
+    ...(unvisited.length ? { unvisited } : {}),
     evidence,
   };
 }

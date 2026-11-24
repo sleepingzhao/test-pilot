@@ -100,3 +100,29 @@ test("does not click a default submit cancel button inside a dialog", async () =
     await browser.close();
   }
 });
+
+import { createServer } from "node:http";
+
+test("records discovered links that the route budget did not visit", async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(`<!doctype html><body>
+      <h1>探索夹具</h1>
+      <nav><a href="/alpha">Alpha</a><a href="/beta">Beta</a></nav>
+    </body>`);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const port = (server.address() as { port: number }).port;
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+    const profile = await collectSystemProfile(page, { maxRoutes: 1, settleMs: 30 });
+    const routes = (profile.unvisited ?? []).map((item) => item.route);
+    assert.ok(routes.includes("/alpha") || routes.includes("/beta"), routes.join(","));
+    assert.equal(profile.surfaces.some((surface) => surface.route === "/alpha"), false);
+  } finally {
+    await browser.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

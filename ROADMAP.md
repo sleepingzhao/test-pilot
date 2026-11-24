@@ -19,6 +19,7 @@
 - 风险报告：规则基线 + 持久化 + API（V7-10a），LLM 增强与回退（V7-10b），控制台面板与创建草稿入口（V7-10c）
 - 录制多账号：录制表单配置 actor，登录步骤写入 IR（V7-2c）
 - 跨 actor 事件等待：`waitForEvent` 等待另一 actor 的 WS/SSE 事件（V7-2d）
+- 主动探索：未访问页面、覆盖缺口与未知项建议（V7-13），只建议不自动执行
 
 **基线：** 26 条已批准用例（17 demo + 1 pilot + 8 真实只读；9 条自动批准）、5 个断言 Provider、`pnpm verify` 全绿。
 
@@ -67,8 +68,9 @@
    步骤可等待另一 actor 的 WS/事件；超时归 `ENVIRONMENT`；有负向测试。
    _证据：IR 新增 `action: "waitForEvent"` + `waitForEvent {direction, contains, urlIncludes, timeoutMs}`，`step.actor` 指定被观察的 actor；runner 同时轮询该 actor 的 WS 帧与 SSE 事件，匹配即通过，超时 1–60s 可配；超时消息含 `timeout` 归 `ENVIRONMENT`。测试 `wait-event.test.ts` 覆盖 WS 帧、SSE 事件、超时负向；控制台步骤编辑器提供模板（JSON 里指定 actor）。_
 
-10. [ ] **V7-13 主动探索（P2）**
+10. [x] **V7-13 主动探索（P2）**
     建议未访问页面/链接与补充场景；只作为建议，不自动生成或批准。
+    _证据：采集器在路由预算用尽时记录 `unvisited`（≤20，`collector.test.ts` 覆盖）；`buildExplorationSuggestions` 汇总未访问页面、未覆盖能力（复用风险覆盖判定）与画像未知项（≤20 条），只读建议；`GET /api/detect/:id/explore-suggestions`；控制台画像页「主动探索（建议）」面板，浏览器实测生成 file-media / realtime 覆盖缺口与测试思路，无自动生成/批准入口。_
 
 11. [ ] **llm-judge（暂缓）**
     仅探索模式，不进入回归门禁；边界未定前不开工。

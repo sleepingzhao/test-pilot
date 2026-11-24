@@ -519,3 +519,11 @@ export async function enrichRiskReportWithLlm(
     };
   }
 }
+
+/** Reused by exploration suggestions: does any approved test evidence this capability? */
+export function approvedTestsCoverCapability(capabilityId: string, tests: StoredTest[]): boolean {
+  return tests
+    .filter((test) => test.approvalStatus === "approved")
+    .map((test) => testFacts(test))
+    .some((facts) => covers(capabilityId, facts));
+}

@@ -138,6 +138,8 @@ export type DetectionReport = {
   signals: Signal[];
   capabilities: CapabilityAssessment[];
   questions: DetectionQuestion[];
+  /** Same-origin links discovered but not visited because the route budget ran out. */
+  unvisited?: Array<{ route: string }>;
   /** Transient LLM evidence; stripped before saving. */
   evidence?: DetectionEvidence;
   /** Capabilities the LLM discovered beyond the fixed taxonomy. */

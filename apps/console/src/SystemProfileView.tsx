@@ -4,6 +4,7 @@ import {
   type DetectionJob,
   type DetectionRecord,
   type DetectionTarget,
+  type ExplorationSuggestion,
   type FileMediaScenarioKind,
   type MechanismPlanResponse,
   type RealtimeScenarioKind,
@@ -235,10 +236,15 @@ export function SystemProfileView({
   const [risk, setRisk] = useState<RiskReport | null>(null);
   const [riskLoading, setRiskLoading] = useState(false);
   const [riskError, setRiskError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<ExplorationSuggestion[] | null>(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
 
   useEffect(() => {
     setRisk(null);
     setRiskError(null);
+    setSuggestions(null);
+    setSuggestError(null);
     const detectionId = record?.id;
     if (!detectionId) return;
     let cancelled = false;
@@ -251,6 +257,22 @@ export function SystemProfileView({
       cancelled = true;
     };
   }, [record?.id]);
+
+  const generateSuggestions = async () => {
+    if (!record) return;
+    setSuggestLoading(true);
+    setSuggestError(null);
+    try {
+      const res = await api<{ suggestions: ExplorationSuggestion[] }>(
+        `/api/detect/${record.id}/explore-suggestions`,
+      );
+      setSuggestions(res.suggestions);
+    } catch (err) {
+      setSuggestError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSuggestLoading(false);
+    }
+  };
 
   const generateRiskReport = async () => {
     if (!record) return;
@@ -1036,6 +1058,57 @@ export function SystemProfileView({
               </>
             ) : (
               <p className="stat-note">尚无风险报告，点击「生成分析」。</p>
+            )}
+          </div>
+
+          <div className="card-panel explore-panel">
+            <header className="mechanism-card-header">
+              <h3>主动探索（建议）</h3>
+              <button
+                type="button"
+                className="btn-small"
+                disabled={suggestLoading}
+                onClick={() => void generateSuggestions()}
+              >
+                {suggestLoading ? "分析中…" : suggestions ? "刷新建议" : "生成建议"}
+              </button>
+            </header>
+            <p className="stat-note">只作为探索建议：不会自动生成、提交或批准用例。</p>
+            {suggestError ? <p className="diagnose-msg">{suggestError}</p> : null}
+            {suggestions ? (
+              suggestions.length ? (
+                <ul className="explore-list">
+                  {suggestions.map((item) => (
+                    <li key={item.id}>
+                      <div className="explore-item-head">
+                        <span className="badge subtle">
+                          {item.kind === "unvisited-page"
+                            ? "未访问页面"
+                            : item.kind === "missing-scenario"
+                              ? "补充场景"
+                              : "未知项"}
+                        </span>
+                        <strong>{item.title}</strong>
+                      </div>
+                      <p className="stat-note">
+                        {item.why}
+                        {item.route ? ` · ${item.route}` : ""}
+                      </p>
+                      {item.testIdeas.length > 0 ? (
+                        <ul className="risk-ideas">
+                          {item.testIdeas.map((idea) => (
+                            <li key={idea}>{idea}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="stat-note">暂无探索建议。</p>
+              )
+            ) : (
+              <p className="stat-note">点击「生成建议」查看未访问页面与覆盖缺口。</p>
             )}
           </div>
 

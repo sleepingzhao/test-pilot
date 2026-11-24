@@ -59,6 +59,16 @@ export type RiskReport = {
   llm?: { used: boolean; error?: string };
 };
 
+export type ExplorationSuggestion = {
+  id: string;
+  kind: "unvisited-page" | "missing-scenario" | "unknown";
+  title: string;
+  route?: string;
+  capabilityId?: string;
+  why: string;
+  testIdeas: string[];
+};
+
 export type FileMediaScenarioKind = "happy" | "invalid-type" | "oversize";
 
 export type RealtimeScenarioKind = "text" | "dedupe" | "oversize" | "order" | "image" | "reconnect";

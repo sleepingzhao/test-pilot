@@ -233,11 +233,7 @@ export function planFromIntake(input: IntakeInput): PlannerDraft {
       contains: "工单已提交",
       oracle: "human-approved",
     });
-    uncertainties.push(
-      textMentionsNoAttachment(goal, input.constraints)
-        ? "断言示例为「工单已提交」；若试点文案不同，试跑会用页面上实际出现的成功提示替换。"
-        : "成功提示按常见文案「工单已提交」生成；试跑会用页面上实际出现的成功提示校验或替换。",
-    );
+    uncertainties.push("请核对「工单已提交」是否符合需求。试跑观察到的其他页面提示可供审阅。");
   } else if (textMentionsPageSmoke(goal) || textMentionsPageSmoke(input.title)) {
     const anchor = input.context.elements.find(
       (el) => el.name && /客户|工作台|首页|控制台|欢迎/.test(el.name) && el.name.length <= 32,

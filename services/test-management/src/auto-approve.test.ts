@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { createServer, type RequestListener } from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,8 @@ import { registerRoutes } from "./routes.js";
 import { FileStore } from "./store.js";
 
 const ENV_KEYS = [
+  "TESTPILOT_LLM_API_KEY",
+  "TESTPILOT_UI_ASSERT_TIMEOUT_MS",
   "TESTPILOT_AUTO_APPROVE",
   "TESTPILOT_ALLOWED_TARGETS",
   "TESTPILOT_REAL_BASE_URL",
@@ -20,10 +22,11 @@ const ENV_KEYS = [
 async function withFixture(
   fn: (ctx: { baseUrl: string; store: FileStore; dataRoot: string; app: Fastify.FastifyInstance }) => Promise<void>,
   env: Record<string, string | undefined>,
+  handler?: RequestListener,
 ): Promise<void> {
   const previous = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
   for (const key of ENV_KEYS) delete process.env[key];
-  const server = createServer((req, res) => {
+  const server = createServer(handler ?? ((req, res) => {
     if ((req.url ?? "/") === "/") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end("<!doctype html><html><body><h1>操作成功</h1></body></html>");
@@ -31,7 +34,7 @@ async function withFixture(
     }
     res.writeHead(404);
     res.end();
-  });
+  }));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
   const port = (server.address() as { port: number }).port;
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -152,3 +155,36 @@ test("auto-approve: disabled flag keeps a passing draft unapproved", async () =>
     { TESTPILOT_AUTO_APPROVE: undefined },
   );
 });
+
+for (const createsTicket of [false, true]) {
+  test(`requirement trial keeps its original assertion when ticket creation ${createsTicket ? "succeeds" : "fails despite a toast"}`, async () => {
+    await withFixture(async ({ baseUrl, store, app }) => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/requirement-flow",
+        payload: { target: "custom", customUrl: baseUrl, text: "提交工单" },
+      });
+      assert.equal(res.statusCode, 200, res.body);
+      const { test: result, trial, generation } = res.json();
+      const stored = await store.getTest(result.id);
+      assert.ok(stored);
+      const original = [{ id: "ticket-submitted", type: "ui", contains: "工单已提交", oracle: "human-approved" }];
+      assert.deepEqual(stored.ir.assertions, original);
+      assert.deepEqual(result.ir.assertions, original);
+      assert.equal(trial.run.status, createsTicket ? "passed" : "failed");
+      assert.equal(trial.run.assertions[0].assertionId, "ticket-submitted");
+      assert.equal(trial.run.assertions[0].passed, createsTicket);
+      assert.equal(stored.approvalStatus, createsTicket ? "approved" : "draft");
+      assert.deepEqual((await store.listRuns()).map(run => run.runId), [trial.run.runId]);
+      assert.deepEqual(stored.plannerNotes, generation.uncertainties);
+      assert.equal(stored.plannerNotes?.some(note => note.includes("已受理请求")), !createsTicket);
+    }, { TESTPILOT_AUTO_APPROVE: "1", TESTPILOT_UI_ASSERT_TIMEOUT_MS: "500" }, (_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(`<!doctype html><button>保存</button><p role="alert"></p><ul></ul>
+        <script>document.querySelector('button').onclick = () => {
+          document.querySelector('p').textContent = '已受理请求';
+          document.querySelector('ul').innerHTML = ${JSON.stringify(createsTicket ? '<li>工单已提交</li>' : '')};
+        };</script>`);
+    });
+  });
+}

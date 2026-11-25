@@ -1374,8 +1374,6 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     });
     onStage("保存草稿");
     await store.saveTest(stored);
-    let storedTest = stored;
-    const observedNotes: string[] = [];
 
     const autoTrial = body.autoTrial !== false;
     let trialRun: StoredRun | undefined;
@@ -1397,61 +1395,20 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       }
     }
 
-    // Steps worked but the guessed assertion missed: use the success text the page
-    // actually showed, then re-trial once. A human still approves it.
-    if (trialRun && trialRun.status !== "passed") {
-      const signal = pickObservedSuccessSignal(trialRun);
-      if (signal) {
-        onStage("按页面真实成功文案重试");
-        const passedIds = new Set(
-          trialRun.assertions.filter((a) => a.passed).map((a) => a.assertionId),
-        );
-        const kept = validated.value.assertions.filter((a) => a.id && passedIds.has(a.id));
-        const next = validateTestIR({
-          ...validated.value,
-          assertions: [
-            ...kept,
-            {
-              id: "observed-success",
-              type: "ui",
-              contains: signal,
-              oracle: "human-approved",
-            },
-          ],
-        });
-        if (next.ok) {
-          observedNotes.push(`试跑观察到成功提示「${signal}」，已用它作为断言并复跑确认。`);
-          storedTest = stampTestMeta({
-            ...stored,
-            ir: next.value,
-            plannerNotes: [...(stored.plannerNotes ?? []), observedNotes[observedNotes.length - 1]!],
-          });
-          await store.saveTest(storedTest);
-          try {
-            trialRun = await executeSingleIrRun(
-              store,
-              storedTest,
-              next.value,
-              url,
-              project.id,
-              artifactsRoot,
-              dataRoot,
-            );
-          } catch (err) {
-            trialError = err instanceof Error ? err.message : String(err);
-          }
-        }
-      }
-    }
-
+    const signal = trialRun && pickObservedSuccessSignal(trialRun);
+    const plannerNotes = signal
+      ? [...draft.uncertainties, `审阅建议：试跑观察到页面提示「${signal}」，请对照需求核实业务结果。`]
+      : draft.uncertainties;
     onStage("完成");
-    // Approve only after the trial may have refined the assertion, so the approved IR is final.
-    storedTest = await saveDraftWithAutoApproval(storedTest, { trialPassed: trialRun?.status === "passed" });
+    const storedTest = await saveDraftWithAutoApproval(
+      { ...stored, plannerNotes },
+      { trialPassed: trialRun?.status === "passed" },
+    );
     out.payload = {
       environment: { target, label: resolved.label, url },
       test: withWeakAssertions(storedTest),
       generation: {
-        uncertainties: [...draft.uncertainties, ...observedNotes],
+        uncertainties: plannerNotes,
         sources: draft.sources,
         llmUsed,
         llmTokensUsed,

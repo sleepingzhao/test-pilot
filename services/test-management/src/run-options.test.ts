@@ -29,24 +29,41 @@ const minimalIr = (
   actors: undefined,
 });
 
-test("shouldReadOnlyNetwork: real origin without allowMutation is read-only", () => {
-  withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com" }, () => {
-    assert.equal(shouldReadOnlyNetwork("https://real.example.com/workspace", minimalIr().policy), true);
-    assert.equal(shouldReadOnlyNetwork("https://real.example.com", minimalIr({}).policy), true);
+test("shouldReadOnlyNetwork: off by default even on a real origin", () => {
+  withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com", TESTPILOT_READONLY: undefined }, () => {
+    assert.equal(shouldReadOnlyNetwork("https://real.example.com/workspace", undefined), false);
+    assert.equal(shouldReadOnlyNetwork("https://real.example.com", minimalIr({}).policy), false);
   });
 });
 
-test("shouldReadOnlyNetwork: allowMutation true disables guard on real origin", () => {
-  withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com" }, () => {
-    assert.equal(shouldReadOnlyNetwork("https://real.example.com", minimalIr({ allowMutation: true }).policy), false);
-  });
+test("shouldReadOnlyNetwork: TESTPILOT_READONLY=1 enables the guard on real origins", () => {
+  withEnv(
+    { TESTPILOT_REAL_BASE_URL: "https://real.example.com", TESTPILOT_READONLY: "1" },
+    () => {
+      assert.equal(shouldReadOnlyNetwork("https://real.example.com/workspace"), true);
+      assert.equal(shouldReadOnlyNetwork("https://real.example.com", minimalIr({}).policy), true);
+    },
+  );
 });
 
-test("shouldReadOnlyNetwork: demo, pilot, and custom origins are not read-only", () => {
+test("shouldReadOnlyNetwork: allowMutation true disables the guard even when enabled", () => {
+  withEnv(
+    { TESTPILOT_REAL_BASE_URL: "https://real.example.com", TESTPILOT_READONLY: "1" },
+    () => {
+      assert.equal(
+        shouldReadOnlyNetwork("https://real.example.com", minimalIr({ allowMutation: true }).policy),
+        false,
+      );
+    },
+  );
+});
+
+test("shouldReadOnlyNetwork: demo, pilot, and custom origins are never read-only", () => {
   withEnv(
     {
       TESTPILOT_REAL_BASE_URL: "https://real.example.com",
       TESTPILOT_PILOT_BASE_URL: "https://pilot.example.com",
+      TESTPILOT_READONLY: "1",
     },
     () => {
       assert.equal(shouldReadOnlyNetwork(DEMO_BASE_URL, minimalIr().policy), false);
@@ -56,44 +73,56 @@ test("shouldReadOnlyNetwork: demo, pilot, and custom origins are not read-only",
   );
 });
 
-test("runOptionsFor sets readOnlyNetwork and login for real targets", () => {
-  withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com" }, () => {
+test("runOptionsFor: real targets run normally by default and log in", () => {
+  withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com", TESTPILOT_READONLY: undefined }, () => {
     const opts = runOptionsFor("https://real.example.com", "run_x", "/tmp/art", minimalIr());
-    assert.equal(opts.readOnlyNetwork, true);
+    assert.equal(opts.readOnlyNetwork, undefined);
+    assert.equal(opts.realTarget, true);
     assert.equal(typeof opts.login, "function");
   });
 });
 
+test("runOptionsFor: TESTPILOT_READONLY=1 enables the guard on real targets", () => {
+  withEnv(
+    { TESTPILOT_REAL_BASE_URL: "https://real.example.com", TESTPILOT_READONLY: "1" },
+    () => {
+      const opts = runOptionsFor("https://real.example.com", "run_x", "/tmp/art", minimalIr());
+      assert.equal(opts.readOnlyNetwork, true);
+    },
+  );
+});
+
 test("runOptionsFor omits readOnlyNetwork when allowMutation is true", () => {
-  withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com" }, () => {
-    const opts = runOptionsFor(
-      "https://real.example.com",
-      "run_x",
-      "/tmp/art",
-      minimalIr({ allowMutation: true }),
-    );
-    assert.equal(opts.readOnlyNetwork, undefined);
-  });
+  withEnv(
+    { TESTPILOT_REAL_BASE_URL: "https://real.example.com", TESTPILOT_READONLY: "1" },
+    () => {
+      const opts = runOptionsFor(
+        "https://real.example.com",
+        "run_x",
+        "/tmp/art",
+        minimalIr({ allowMutation: true }),
+      );
+      assert.equal(opts.readOnlyNetwork, undefined);
+    },
+  );
 });
 test("runOptionsFor resolves the IR's baseUrlRef, not the demo fallback", () => {
-  withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com" }, () => {
+  withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com", TESTPILOT_READONLY: undefined }, () => {
     const opts = runOptionsFor(DEMO_BASE_URL, "run_x", "/tmp/art", {
       ...minimalIr(),
       baseUrlRef: "real-env",
     });
     assert.equal(opts.realTarget, true);
-    assert.equal(opts.readOnlyNetwork, true);
     assert.equal(typeof opts.login, "function");
   });
 });
 
 test("runOptionsFor honors a primary actor's own baseUrl", () => {
-  withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com" }, () => {
+  withEnv({ TESTPILOT_REAL_BASE_URL: "https://real.example.com", TESTPILOT_READONLY: undefined }, () => {
     const opts = runOptionsFor(DEMO_BASE_URL, "run_x", "/tmp/art", {
       ...minimalIr(),
       actors: [{ id: "primary", baseUrl: "https://real.example.com" }],
     });
-    assert.equal(opts.readOnlyNetwork, true);
     assert.equal(opts.realTarget, true);
   });
 });

@@ -373,3 +373,53 @@ test("list-item tabs are not used as search item text", () => {
   const match = cases.find((item) => item.testId.endsWith("-search-match"));
   assert.ok(match);
 });
+
+test("nav links and empty-state rows do not produce semantic search or detail cases", () => {
+  const cases = planReadOnlyCases({
+    detectionId: "d",
+    profile: {
+      version: 1,
+      target: { url: "https://real.example.com", mode: "passive" },
+      signals: [],
+      questions: [],
+      capabilities: [],
+      surfaces: [
+        {
+          route: "/sop/",
+          elements: [
+            { role: "link", name: "执行记录", inNav: true },
+            { role: "link", name: "回收站", inNav: true },
+            { role: "row", name: "图标\t流程名\t创建人" },
+            { role: "row", name: "暂无数据" },
+            { role: "cell", name: "暂无数据" },
+            { role: "cell", name: "加载中…" },
+            { role: "columnheader", name: "流程名" },
+            { role: "input", name: "搜索", inputType: "text", placeholder: "搜索" },
+          ],
+        },
+      ],
+    },
+    tests: [],
+    targetMode: "real",
+  });
+  assert.equal(cases.some((item) => item.testId.endsWith("-search-match")), false);
+  assert.equal(cases.some((item) => item.testId.endsWith("-search-none")), false);
+  assert.equal(cases.some((item) => item.kind === "detail"), false);
+  const load = cases.find((item) => item.kind === "load");
+  assert.ok(load);
+  assert.equal(load!.ir.assertions.some((a) => typeof a.minCount === "number"), false);
+});
+
+test("the filtering case is trialled before the hit case", () => {
+  const cases = planReadOnlyCases({
+    detectionId: "detect_list",
+    profile: listSurfaceProfile(),
+    tests: [],
+    targetMode: "real",
+  });
+  const ids = cases.map((item) => item.testId);
+  const none = ids.findIndex((id) => id.endsWith("-search-none"));
+  const match = ids.findIndex((id) => id.endsWith("-search-match"));
+  assert.ok(none >= 0 && match >= 0);
+  assert.ok(none < match);
+});

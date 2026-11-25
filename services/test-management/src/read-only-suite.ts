@@ -16,6 +16,14 @@ const GENERIC_NAMES =
 
 const ITEM_ROLES = new Set(["row", "listitem", "cell", "link", "option"]);
 
+/** Empty, loading and joined rows ("a\tb\tc") are not item values. */
+const EMPTY_STATE_NAME =
+  /^(暂无|无数据|没有数据|加载中|正在加载|请稍后|请稍候|no data|no results|nothing here|loading)/i;
+
+function isUsableItemName(name: string): boolean {
+  return !name.includes("\t") && !EMPTY_STATE_NAME.test(name);
+}
+
 /** Tabs and filter bars often render as `li`, so list-item roles alone do not prove content. */
 const FILTER_LABEL_PREFIX =
   /^(全部|所有|今天|未来|已完成|未完成|进行中|待办事项?|我负责|我创建|我分配|快速访问|概览)/;
@@ -104,6 +112,8 @@ type SnapshotElement = {
   inputType?: string;
   placeholder?: string;
   ariaLabel?: string;
+  /** Inside nav/header/aside: chrome, not list content. */
+  inNav?: boolean;
 };
 
 function surfaceElements(
@@ -145,6 +155,7 @@ function filterFallbackItemTexts(
   const out: string[] = [];
   for (const raw of texts) {
     const name = raw.trim();
+    if (!isUsableItemName(name)) continue;
     if (name.length < 4 || name.length > 40) continue;
     if (letterCount(name) < 2) continue;
     if (GENERIC_NAMES.test(name)) continue;
@@ -170,7 +181,9 @@ function itemTextsFromElements(surface: DetectionReport["surfaces"][number], glo
   const ranked: Array<{ text: string; priority: number; length: number }> = [];
   for (const element of surfaceElements(surface, global)) {
     if (!element.role || !ITEM_ROLES.has(element.role) || !element.name) continue;
+    if (element.inNav) continue;
     const name = element.name.trim();
+    if (!isUsableItemName(name)) continue;
     if (name.length < 4 || name.length > 40) continue;
     if (letterCount(name) < 2) continue;
     if (GENERIC_NAMES.test(name)) continue;
@@ -208,7 +221,13 @@ export function structuralTarget(
     { role: "cell", minNamed: 3, minCount: 2 },
   ];
   for (const spec of roles) {
-    const named = usable.filter((element) => element.role === spec.role && element.name?.trim());
+    const named = usable.filter(
+      (element) =>
+        element.role === spec.role &&
+        !element.inNav &&
+        element.name?.trim() &&
+        isUsableItemName(element.name.trim()),
+    );
     if (named.length < spec.minNamed) continue;
     const names = named.map((element) => element.name!.trim());
     if (new Set(names).size === 1) continue;
@@ -242,6 +261,7 @@ export function itemLink(
   if (!texts.length) return undefined;
   const textSet = new Set(texts.map((text) => text.trim()));
   for (const element of surfaceElements(surface, global)) {
+    if (element.inNav) continue;
     if (element.role !== "link" || !element.name) continue;
     const name = element.name.trim();
     if (textSet.has(name)) return { role: "link", name };
@@ -541,5 +561,16 @@ export function planReadOnlyCases(input: {
 
     if (candidates.length >= limit) break;
   }
-  return candidates.slice(0, limit);
+  // Trial the filtering half first: a hit case is only meaningful once filtering is proven.
+  const ordered: ReadOnlyCandidate[] = [];
+  for (const candidate of candidates) {
+    if (candidate.testId.endsWith("-search-match")) {
+      const pair = candidates.find(
+        (item) => item.testId === candidate.testId.replace(/-search-match$/, "-search-none"),
+      );
+      if (pair && !ordered.includes(pair)) ordered.push(pair);
+    }
+    if (!ordered.includes(candidate)) ordered.push(candidate);
+  }
+  return ordered.slice(0, limit);
 }

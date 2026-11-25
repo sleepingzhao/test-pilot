@@ -4,7 +4,7 @@
 
 ## 0.1 方向与进度
 
-**方向：** Web 业务系统优先。把「接入 → 生成/审阅 → 可信回归 → 证据 → 清理」做通；生产先只读，写流程放 staging。
+**方向：** Web 业务系统优先。把「接入 → 生成/审阅 → 可信回归 → 证据 → 清理」做通；试点租户按正常请求运行（查询常用 POST），需要时用 `TESTPILOT_READONLY=1` 开启只读门禁。
 
 **当前核心价值：** 让测试人员不用重复手工回归已有功能，同时保证结果可信、可审阅、可清理。
 
@@ -19,7 +19,7 @@
 - 双账号消息：真实环境两个账号同时在线互发一条带 `runId` 的消息并双端断言（`allowMutation` 显式开启，每轮发送一条；前置：两账号已有会话）
 - 通用性：探测、内容页基线、生成器均不含业务路由或字段硬编码；真实登录通过可配置适配器接入
 - 一键只读套件：真实画像（SPA 路由 + iframe 内容页）→ 生成未覆盖路由的只读用例（确认路径的 URL 断言 + 内容区元素）→ 自动试跑/批准 → 控制台一键批量。实测生成 17 条全部批准（含 6 条内容页），批次 8/8、3/3、6/6 通过
-- 语义级只读生成：列表行数（`minCount`）、搜索命中/过滤（`contains`/`notContains` 配对）、详情跳转；失败只留草稿，不降级为 URL 路由；真实目标实测 10 条自动批准
+- 语义级只读生成：列表行数（`minCount`）、搜索命中/过滤（`contains`/`notContains` 配对）、详情跳转；命中用例须配对过滤用例通过才自动批准；试点租户数据稀疏，实测语义用例保留为草稿而非制造假阳性
 - 风险报告：规则基线 + 持久化 + API（V7-10a），LLM 增强与回退（V7-10b），控制台面板与创建草稿入口（V7-10c）
 - 录制多账号：录制表单配置 actor，登录步骤写入 IR（V7-2c）
 - 跨 actor 事件等待：`waitForEvent` 等待另一 actor 的 WS/SSE 事件（V7-2d）
@@ -31,7 +31,7 @@
 
 - 自动批准只在 `TESTPILOT_AUTO_APPROVE=1` 显式开启、用例试跑通过、且通过强断言门禁时生效；不放宽弱断言门禁；不为让测试通过而改断言。
 - 回归零 LLM；AI 只用于生成与探索，不参与通过/失败。
-- 真实环境默认只读；密钥只放 `.env`，不进入 IR、日志、证据或 LLM prompt。
+- 真实环境默认按正常请求运行；只读网络门禁由 `TESTPILOT_READONLY=1` 显式开启；密钥只放 `.env`，不进入 IR、日志、证据或 LLM prompt。
 - 不改安全默认值：`127.0.0.1` 绑定、CORS 白名单、目标白名单、远程 token。
 
 ## 2. 唯一执行顺序
@@ -42,14 +42,14 @@
 
 2. [x] **V7-12b 生产只读门禁（P0）**
    真实环境默认拒绝写请求、上传和有副作用的 UI 步骤；只有显式 `allowMutation` 才放行；审批与审计可见。
-   _证据：`pnpm --filter @testpilot/test-ir test`、`pnpm --filter @testpilot/runner-web test`（含 `read-only.test.ts`）、`pnpm --filter @testpilot/test-management test`（`run-options.test.ts`）、`pnpm verify`。IR `policy.allowMutation`；`runOptionsFor` → `readOnlyNetwork`；teardown 写请求同样拦截；UI 触发写请求被拦截时失败归 `ENVIRONMENT` 并记录拦截数；控制台审阅/运行详情徽章；`RunResult.readOnly`/`readOnlyBlockedRequests`。仅本地 HTTP/WS 夹具验证，未对生产站点试跑。仍建议生产账号本身只读——路由/WS 门禁不能替代服务端权限。_
+   _证据：`pnpm --filter @testpilot/test-ir test`、`pnpm --filter @testpilot/runner-web test`（含 `read-only.test.ts`）、`pnpm --filter @testpilot/test-management test`（`run-options.test.ts`）、`pnpm verify`。IR `policy.allowMutation`；`runOptionsFor` → `readOnlyNetwork`；teardown 写请求同样拦截；UI 触发写请求被拦截时失败归 `ENVIRONMENT` 并记录拦截数；控制台审阅/运行详情徽章；`RunResult.readOnly`/`readOnlyBlockedRequests`。仅本地 HTTP/WS 夹具验证，未对生产站点试跑。仍建议生产账号本身只读——路由/WS 门禁不能替代服务端权限。**2026-11-25 调整**：HTTP 方法不能代表是否写数据（企业系统查询也常用 POST），门禁改为显式 opt-in（`TESTPILOT_READONLY=1`）；试点租户默认按正常请求运行，权限边界交给使用方提供的账号。_
 
 3. [x] **V7-12c 生产证据策略（P0）**
    真实环境默认不落截图/Trace/响应正文，或明确保留期与 PII 提示；证据仍可下载。
    _证据：`runOptionsFor` 对真实源设 `realTarget`；证据采集器强制无截图、无 Trace，`network.json` 去 query/请求体/响应体/头，`ws.json` 去 payload 与 query，`sse.json` 去 data；断言仍在内存使用原始数据。测试：`pnpm --filter @testpilot/evidence test`（`real target ...`）、`pnpm --filter @testpilot/runner-web test`（`realTarget evidence policy ...`）；控制台运行详情「证据已脱敏」徽章已浏览器验证。未对生产站点实测。_
 
 4. [x] **V7-12d 只读回归模板（P0）**
-   登录 → 列表 → 搜索 → 筛选 → 详情，5–8 条已批准用例；批量跑通；生产只跑只读。
+   登录 → 列表 → 搜索 → 筛选 → 详情，5–8 条已批准用例；批量跑通；试点租户按正常请求运行，必要时开启 `TESTPILOT_READONLY=1`。
    _证据（本地 `data/`，不随仓库分发）：9 条 `real-*` 用例（含搜索过滤）全部 `baseUrlRef: "real-env"`，运行均为 `readOnly` + `realTarget`；批次 8/8、8/8、9/9、10/10 连续通过（`batch_mwusbfk1_81b95be0`、`batch_mwusdydu_008f6407`、`batch_mwutcmqw_ff9ff717`、`batch_mwuuiggz_fb192b62`，最后一批含双账号消息用例），自动审批审计 `auto:testpilot`；证据无截图/Trace，network/WS/SSE 无正文与 query。支撑改动：IR/断言 `frame` iframe 支持、UI 断言 `notContains`（搜索后证明成员被过滤，单独使用会被弱断言门禁拒绝）、`runOptionsFor` 解析 IR `baseUrlRef`（此前误用 demo 回退）、批次显式 `testIds`、企业账号登录切换重试。_
 
 5. [x] **V7-10a 风险报告规则基线（P1）**
@@ -81,7 +81,7 @@
 
 12. [x] **V7-14 语义级只读生成（P0）**
     生成的只读用例断言列表结构、搜索命中/过滤与详情，而不是只断言路由；语义用例失败只留草稿，不降级、不自动批准。
-    _证据：IR/断言新增 `minCount`（runner 轮询 `locator.count()`，不足归 `PRODUCT_DEFECT`；弱断言门禁拒绝 `minCount < 2` 或无 `target`，正反测试 `ui-count.test.ts`、`validate.test.ts`）；采集器纳入 `tr/td/th/li/table/h1–h4`，并从重复卡片提取单行文本（跳过导航/交互行，不再拼接整块，避免「发送人\\n消息」这类跨行字符串）；生成器产出 load（`minCount`）、search-match（真实条目的 `contains` + Enter）、search-none（`urlIncludes` + `notContains` 配对）、detail（`contains` + 列表表头 `notContains`），搜索/详情覆盖按 match/none 分开计算；语义用例失败不再降级为 URL 路由（`routes.ts` guard），也不再被自动批准；试跑被只读门禁拦截的用例标注 `suite:skip:read-only-blocked` 保留草稿、后续套件跳过重试。真实目标实测：10 条语义用例自动批准（task/sop 搜索命中、sop 详情、chat/reminder 过滤、chat 搜索命中）；sop 搜索以 POST 提交查询、被只读门禁拦截（页面显示网络异常），标注后不再重试。限制：只有 ARIA/表格结构或稳定重复卡片才能提取条目；search-match 不证明过滤，需与 search-none 配对；以 POST 提交查询的页面无法在只读下验证搜索；`minCount` 尚未在真实多行表格上实测（该目标表格仅 1 行）。_
+    _证据：IR/断言新增 `minCount`（runner 轮询 `locator.count()`，不足归 `PRODUCT_DEFECT`；弱断言门禁拒绝 `minCount < 2` 或无 `target`，正反测试 `ui-count.test.ts`、`validate.test.ts`）；采集器纳入 `tr/td/th/li/table/h1–h4`，元素标注 `inNav`（nav/header/aside/role=navigation|menu|tablist|toolbar），并从重复卡片提取单行文本（跳过导航/交互行，不拼接整块）；生成器排除导航元素、空状态（`暂无…`/`加载中`）与多单元格拼接行，产出 load（`minCount`）、search-match（真实条目的 `contains` + Enter）、search-none（`urlIncludes` + `notContains` 配对）、detail（`contains` + 列表表头 `notContains`）；过滤用例先试跑，命中用例仅在其通过后才自动批准（`routes.ts`）；语义用例失败不降级为 URL 路由，也不再被自动批准。真实目标实测：`/sop` 为空表（`暂无数据`）+ 侧边导航，不再生成伪搜索/详情用例；`/chat` 搜索不过滤消息内容——过滤用例失败，命中用例保留草稿并标注「搜索过滤用例未通过」；`/task`、`/reminder` 无可提取条目，仅有空格输入冒烟。限制：只有 ARIA/表格结构或稳定重复卡片才能提取条目；试点租户数据稀疏时语义用例多为草稿；`minCount` 尚未在真实多行表格上实测（该目标表格仅 1 行）。_
 
 
 ## 3. 明确后置

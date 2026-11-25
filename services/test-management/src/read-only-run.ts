@@ -4,14 +4,25 @@ import type { RunOptions } from "@testpilot/runner-web";
 import { buildRunEnvironment } from "./run-env.js";
 import { isRealTarget, loginRealPage } from "./real-login.js";
 
+/**
+ * Opt-in only: the HTTP method does not tell us whether a request mutates data — enterprise
+ * backends commonly POST pure queries. The provided account's own permissions are the real
+ * boundary, so the guard ships off unless the operator asks for it.
+ */
+export function readOnlyGuardEnabled(): boolean {
+  const raw = process.env.TESTPILOT_READONLY;
+  return raw === "1" || raw === "true";
+}
+
 export function shouldReadOnlyNetwork(baseUrl: string, policy?: TestPolicy): boolean {
+  if (!readOnlyGuardEnabled()) return false;
   return isRealTarget(baseUrl) && policy?.allowMutation !== true;
 }
 
 /**
  * The IR's primary target, not the project default: a test with `baseUrlRef: "real-env"`
- * must run with real login, the read-only guard, and the real evidence policy even when
- * the caller passes the demo URL as a fallback.
+ * must run with real login and the real evidence policy even when the caller passes the
+ * demo URL as a fallback.
  */
 export function primaryTargetBaseUrl(
   ir: Pick<TestIR, "baseUrl" | "baseUrlRef" | "actors">,

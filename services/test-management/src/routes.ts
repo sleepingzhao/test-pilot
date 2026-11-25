@@ -1793,9 +1793,28 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
               message = run.artifacts.notes ?? failedAssertion?.message ?? run.metrics.failureKind;
             }
             if (run.status === "passed") {
-              const saved = await saveDraftWithAutoApproval(activeDraft, { trialPassed: true });
-              approved = saved.approvalStatus === "approved";
-              if (approved) job.approvedIds.push(candidate.testId);
+              // A search hit alone proves nothing if the page never filters; require the paired
+              // filter case (trialled first) to be approved before auto-approving the hit.
+              let pairDraftReason: string | undefined;
+              if (candidate.testId.endsWith("-search-match")) {
+                const pairId = candidate.testId.replace(/-search-match$/, "-search-none");
+                const pair = await store.getTest(pairId);
+                if (pair && pair.approvalStatus !== "approved") {
+                  pairDraftReason = "搜索过滤用例未通过，命中用例保留草稿";
+                }
+              }
+              if (pairDraftReason) {
+                activeDraft = stampTestMeta({
+                  ...activeDraft,
+                  plannerNotes: [...(activeDraft.plannerNotes ?? []), pairDraftReason],
+                });
+                await store.saveTest(activeDraft);
+                message = pairDraftReason;
+              } else {
+                const saved = await saveDraftWithAutoApproval(activeDraft, { trialPassed: true });
+                approved = saved.approvalStatus === "approved";
+                if (approved) job.approvedIds.push(candidate.testId);
+              }
             }
           } catch (err) {
             status = "error";

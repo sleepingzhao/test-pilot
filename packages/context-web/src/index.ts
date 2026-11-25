@@ -135,6 +135,7 @@ export async function snapshotPageContext(page: Page, scope?: string): Promise<P
       inputType?: string;
       placeholder?: string;
       ariaLabel?: string;
+      inNav?: boolean;
     }> = [];
     nodes.forEach((el: Element) => {
       if (out.length >= 240) return;
@@ -165,6 +166,11 @@ export async function snapshotPageContext(page: Page, scope?: string): Promise<P
       const inputType = tag === "input" ? el.getAttribute("type") ?? "text" : undefined;
       const ariaLabel = el.getAttribute("aria-label") ?? undefined;
       const placeholder = el.getAttribute("placeholder") ?? undefined;
+      const inNav = Boolean(
+        el.closest(
+          'nav, header, aside, [role="navigation"], [role="menu"], [role="tablist"], [role="toolbar"]',
+        ),
+      );
       const name =
         ariaLabel ??
         (el as HTMLInputElement).labels?.[0]?.textContent?.trim() ??
@@ -178,6 +184,7 @@ export async function snapshotPageContext(page: Page, scope?: string): Promise<P
         inputType,
         ...(placeholder ? { placeholder } : {}),
         ...(ariaLabel ? { ariaLabel } : {}),
+        ...(inNav ? { inNav } : {}),
       });
     });
     const texts = extractRepeatedBlockTexts(root);

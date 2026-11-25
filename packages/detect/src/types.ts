@@ -74,7 +74,7 @@ export type Signal = {
 export type SurfaceSnapshot = {
   route: string;
   title?: string;
-  elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string; placeholder?: string; ariaLabel?: string }>;
+  elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string; placeholder?: string; ariaLabel?: string; inNav?: boolean }>;
   texts?: string[];
 };
 
@@ -151,6 +151,7 @@ export type DetectionReport = {
       inputType?: string;
       placeholder?: string;
       ariaLabel?: string;
+      inNav?: boolean;
     }>;
     texts?: string[];
   }>;

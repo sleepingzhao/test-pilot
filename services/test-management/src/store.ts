@@ -51,6 +51,8 @@ export type StoredRun = RunResult & {
   testTitle: string;
   /** Draft trial runs are evidence, not regression runs; excluded from metrics. */
   trial?: boolean;
+  /** Hash of the exact IR submitted for this trial, including unsaved edits. */
+  trialIrHash?: string;
   batchId?: string;
   batchStartedAt?: string;
 };

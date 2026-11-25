@@ -7,6 +7,8 @@ import test from "node:test";
 import sensible from "@fastify/sensible";
 import Fastify from "fastify";
 import type { TestIR } from "@testpilot/test-ir";
+import { saveDetection } from "./detection.js";
+import { sessionIdForDetect } from "./session-layout.js";
 import { registerRoutes } from "./routes.js";
 import { FileStore } from "./store.js";
 
@@ -16,6 +18,9 @@ const ENV_KEYS = [
   "TESTPILOT_AUTO_APPROVE",
   "TESTPILOT_ALLOWED_TARGETS",
   "TESTPILOT_REAL_BASE_URL",
+  "TESTPILOT_ENV_REAL_ENTERPRISE_ID",
+  "TESTPILOT_ENV_REAL_USER_ID",
+  "TESTPILOT_ENV_REAL_PASSWORD",
   "TESTPILOT_PILOT_BASE_URL",
 ] as const;
 
@@ -184,6 +189,82 @@ for (const createsTicket of [false, true]) {
         <script>document.querySelector('button').onclick = () => {
           document.querySelector('p').textContent = '已受理请求';
           document.querySelector('ul').innerHTML = ${JSON.stringify(createsTicket ? '<li>工单已提交</li>' : '')};
+        };</script>`);
+    });
+  });
+}
+
+for (const scenario of ["missing", "failed", "passed"] as const) {
+  test(`suite and single trial enforce the same search pair when filtering is ${scenario}`, async () => {
+    const route = scenario === "missing" ? "/alpha/" : "/members/";
+    let filteringWorks = scenario === "passed";
+    await withFixture(async ({ baseUrl, app, store, dataRoot }) => {
+      process.env.TESTPILOT_REAL_BASE_URL = baseUrl;
+      const id = `detect_${scenario}`;
+      await saveDetection(dataRoot, {
+        id, sessionId: sessionIdForDetect(id), target: "real", url: baseUrl, createdAt: new Date().toISOString(),
+        profile: {
+          version: 1, target: { url: baseUrl, mode: "passive" }, capabilities: [], questions: [], signals: [],
+          surfaces: [{ route, elements: [
+            { role: "heading", name: "成员目录", testId: "directory" },
+            { role: "input", placeholder: "搜索成员" },
+            { role: "listitem", name: "Alpha" },
+          ] }],
+        },
+      });
+      const start = await app.inject({ method: "POST", url: `/api/detect/${id}/read-only-suite`, payload: {} });
+      assert.equal(start.statusCode, 202, start.body);
+      const jobUrl = `/api/read-only-suite/jobs/${start.json().jobId}`;
+      let job = (await app.inject({ url: jobUrl })).json();
+      const deadline = Date.now() + 60_000;
+      while (job.status === "running" && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        job = (await app.inject({ url: jobUrl })).json();
+      }
+      assert.equal(job.status, "completed", JSON.stringify(job));
+      type Result = { testId: string; status: string; approved: boolean; message?: string };
+      const hit = (job.results as Result[]).find(result => result.testId.endsWith("-search-match"));
+      const filter = (job.results as Result[]).find(result => result.testId.endsWith("-search-none"));
+      assert.equal(filter?.status, scenario === "missing" ? undefined : scenario, JSON.stringify(job));
+      assert.ok(hit);
+      assert.equal(hit.status, "passed", hit.message);
+      assert.equal(hit.approved, scenario === "passed", hit.message);
+      const saved = await store.getTest(hit.testId);
+      assert.ok(saved);
+
+      const retry = async (ir: TestIR) => {
+        const res = await app.inject({ method: "POST", url: `/api/tests/${ir.id}/trial-run`, payload: { ir } });
+        assert.equal(res.statusCode, 200, res.body);
+        return res.json();
+      };
+      // Re-open the hit as a draft so both entry points make their own approval decision.
+      const reopen = () => app.inject({ method: "PUT", url: `/api/tests/${saved.id}`, payload: { ir: saved.ir } });
+      assert.equal((await reopen()).statusCode, 200);
+      const single = await retry(saved.ir);
+      assert.equal(single.run.status, "passed");
+      assert.equal(single.approvalNote, hit.message);
+      assert.equal((await store.getTest(saved.id))?.approvalStatus, hit.approved ? "approved" : "draft");
+
+      if (scenario === "passed") {
+        filteringWorks = false;
+        const pair = await store.getTest(filter!.testId);
+        assert.ok(pair);
+        assert.equal((await retry(pair.ir)).run.status, "failed");
+        assert.equal((await reopen()).statusCode, 200);
+        assert.match((await retry(saved.ir)).approvalNote, /重新试跑/);
+        assert.equal((await store.getTest(saved.id))?.approvalStatus, "draft");
+      }
+    }, {
+      TESTPILOT_AUTO_APPROVE: "1",
+      TESTPILOT_UI_ASSERT_TIMEOUT_MS: "500",
+      TESTPILOT_ENV_REAL_ENTERPRISE_ID: "fixture",
+      TESTPILOT_ENV_REAL_USER_ID: "fixture",
+      TESTPILOT_ENV_REAL_PASSWORD: "fixture",
+    }, (_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(`<h1 data-testid="directory">成员目录</h1><input placeholder="搜索成员"><ul><li>Alpha</li></ul>
+        <script>document.querySelector('input').onkeydown = e => {
+          if (${filteringWorks} && e.key === 'Enter' && e.target.value === 'zzqqxx') document.querySelector('li').remove();
         };</script>`);
     });
   });

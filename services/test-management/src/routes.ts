@@ -645,6 +645,7 @@ async function executeSingleIrRun(
       projectId,
       testTitle: test.title,
       trial: true,
+      trialIrHash: computeIRHash(v.value),
     },
     test.approvalStatus === "approved",
   );
@@ -659,6 +660,30 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
 
   function autoApproveEnabled(): boolean {
     return process.env.TESTPILOT_AUTO_APPROVE === "1";
+  }
+
+  const pairNotes = {
+    missing: "缺少配对的搜索过滤用例，命中用例保留草稿",
+    draft: "搜索过滤用例未通过，命中用例保留草稿",
+    mismatch: "配对用例的页面或过滤条目与命中用例不一致，请审阅两条用例",
+    retry: "请重新试跑当前版本的搜索过滤用例，通过后再试跑命中用例",
+  };
+
+  async function searchPairBlockReason(test: StoredTest): Promise<string | undefined> {
+    if (test.sourceChannel !== "suite" || !test.id.endsWith("-search-match")) return;
+    const pair = await store.getTest(test.id.replace(/-search-match$/, "-search-none"));
+    if (!pair) return pairNotes.missing;
+    if (pair.approvalStatus !== "approved") return pairNotes.draft;
+
+    const item = test.ir.assertions.find(a => a.id === "match")?.contains;
+    const route = test.ir.steps.find(s => s.action === "navigate")?.path;
+    const samePage = route && pair.ir.steps.find(s => s.action === "navigate")?.path === route &&
+      pair.ir.baseUrl === test.ir.baseUrl && pair.ir.baseUrlRef === test.ir.baseUrlRef;
+    if (!samePage || !item || !pair.ir.assertions.some(a => a.type === "ui" && a.notContains === item)) {
+      return pairNotes.mismatch;
+    }
+    const latest = (await store.listRuns(Infinity)).find(run => run.trial && run.testId === pair.id);
+    if (latest?.status !== "passed" || latest.trialIrHash !== computeIRHash(pair.ir)) return pairNotes.retry;
   }
 
   /**
@@ -687,6 +712,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       approvedIr: test.ir,
       autoApproved: true,
     };
+    if (test.sourceChannel === "suite" && test.plannerNotes) {
+      approved.plannerNotes = test.plannerNotes.filter(note => !Object.values(pairNotes).includes(note));
+    }
     await store.saveTest(approved);
     try {
       await appendAuditEvent(dataRoot, {
@@ -834,6 +862,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       );
       if (run.status === "passed" && test.approvalStatus === "draft" && autoApproveEnabled()) {
         const trialed = stampTestMeta({ ...test, ir: body.ir });
+        const approvalNote = await searchPairBlockReason(trialed);
+        if (approvalNote) return { run, trial: true, approvalNote };
         if (await autoApproveEligible(trialed)) {
           const approved = await approveAutomatically(trialed);
           return { run, trial: true, test: withWeakAssertions(approved) };
@@ -1750,16 +1780,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
               message = run.artifacts.notes ?? failedAssertion?.message ?? run.metrics.failureKind;
             }
             if (run.status === "passed") {
-              // A search hit alone proves nothing if the page never filters; require the paired
-              // filter case (trialled first) to be approved before auto-approving the hit.
-              let pairDraftReason: string | undefined;
-              if (candidate.testId.endsWith("-search-match")) {
-                const pairId = candidate.testId.replace(/-search-match$/, "-search-none");
-                const pair = await store.getTest(pairId);
-                if (pair && pair.approvalStatus !== "approved") {
-                  pairDraftReason = "搜索过滤用例未通过，命中用例保留草稿";
-                }
-              }
+              const pairDraftReason = await searchPairBlockReason(activeDraft);
               if (pairDraftReason) {
                 activeDraft = stampTestMeta({
                   ...activeDraft,

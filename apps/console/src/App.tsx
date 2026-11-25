@@ -502,7 +502,7 @@ export function App() {
     if (token !== undefined && token !== reviewToken.current) return;
     const contains = (res.assertions[0] as { contains?: string })?.contains ?? "";
     // Suggestions must never overwrite a reviewed assertion; only fill an empty field.
-    setAssertionText((prev) => (prev.trim() ? prev : contains));
+    if (t.sourceChannel !== "suite") setAssertionText((prev) => (prev.trim() ? prev : contains));
     setAssertionHelp(res.help ?? "");
     setAssertionSuggestions(res.suggestions ?? []);
   };
@@ -531,7 +531,9 @@ export function App() {
     setTrialResult(null);
     setReviewIntent(t.intentSummary ?? "");
     setProviderFeedback({});
-    const a = t.ir.assertions?.find((x) => (x as IrAssertion).type === "ui") as { contains?: string } | undefined;
+    const a = ((t.ir.assertions ?? []) as IrAssertion[]).find(
+      assertion => assertion.type === "ui" && (t.sourceChannel !== "suite" || assertion.contains),
+    );
     const raw = a?.contains ?? "";
     setAssertionText(raw.includes("REPLACE") ? "" : raw);
     const apiA = t.ir.assertions?.find((x) => (x as IrAssertion).type === "api") as IrAssertion | undefined;
@@ -798,7 +800,8 @@ export function App() {
     if (!editTest) return null;
     const base = [...((editTest.ir.assertions ?? []) as IrAssertion[])];
     if (editTest.sourceChannel !== "api") {
-      const uiIdx = base.findIndex((a) => a.type === "ui");
+      const suite = editTest.sourceChannel === "suite";
+      const uiIdx = base.findIndex(a => a.type === "ui" && (!suite || a.contains));
       if (assertionText.trim()) {
         const uiPatch: IrAssertion = {
           ...(uiIdx >= 0 ? base[uiIdx]! : { id: "review-assertion", type: "ui", oracle: "human-approved" }),
@@ -808,6 +811,8 @@ export function App() {
         };
         if (uiIdx >= 0) base[uiIdx] = uiPatch;
         else base.unshift(uiPatch);
+      } else if (suite) {
+        if (uiIdx >= 0) base.splice(uiIdx, 1);
       } else {
         for (let i = base.length - 1; i >= 0; i -= 1) {
           if (base[i]!.type === "ui") base.splice(i, 1);
@@ -849,7 +854,7 @@ export function App() {
     }
 
     const policy: Record<string, unknown> = { ...(editTest.ir.policy ?? {}) };
-    if (cleanupPolicy === "none") delete policy.cleanup;
+    if (cleanupPolicy === "none" && editTest.ir.policy?.cleanup !== "none") delete policy.cleanup;
     else policy.cleanup = cleanupPolicy;
     const ir: StoredTest["ir"] = { ...editTest.ir, assertions: base, steps: reviewSteps };
     if (Object.keys(policy).length > 0) ir.policy = policy;
@@ -915,15 +920,19 @@ export function App() {
     setTrialRunning(true);
     setTrialResult(null);
     try {
-      const res = await api<{ run: StoredRun; trial?: boolean }>(`/api/tests/${editTest.id}/trial-run`, {
+      const res = await api<{ run: StoredRun; test?: StoredTest; approvalNote?: string }>(`/api/tests/${editTest.id}/trial-run`, {
         method: "POST",
         body: JSON.stringify({ ir }),
       });
       const run = res.run;
+      const approved = res.test;
+      if (approved?.approvalStatus === "approved") {
+        setEditTest(current => current?.id === approved.id ? approved : current);
+      }
       setTrialResult(run);
       await refresh();
       if (run.status === "passed") {
-        notify("试跑通过（未写入批准状态）", "success");
+        notify(res.approvalNote ?? (res.test?.approvalStatus === "approved" ? "试跑通过，已自动批准" : "试跑通过"), "success");
         return;
       }
       notify("试跑未通过，可查看下方证据或诊断", "error");

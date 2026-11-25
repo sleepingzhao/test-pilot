@@ -19,7 +19,7 @@
 - 双账号消息：真实环境两个账号同时在线互发一条带 `runId` 的消息并双端断言（`allowMutation` 显式开启，每轮发送一条；前置：两账号已有会话）
 - 通用性：探测、内容页基线、生成器均不含业务路由或字段硬编码；真实登录通过可配置适配器接入
 - 一键只读套件：真实画像（SPA 路由 + iframe 内容页）→ 生成未覆盖路由的只读用例（确认路径的 URL 断言 + 内容区元素）→ 自动试跑/批准 → 控制台一键批量。实测生成 17 条全部批准（含 6 条内容页），批次 8/8、3/3、6/6 通过
-- 语义级只读生成：列表行数（`minCount`）、搜索命中/过滤（`contains`/`notContains` 配对）、详情跳转；命中用例须配对过滤用例通过才自动批准；试点租户数据稀疏，实测语义用例保留为草稿而非制造假阳性
+- 语义级只读生成：列表行数（`minCount`）、搜索命中/过滤（`contains`/`notContains` 配对）、详情跳转；命中用例须配对过滤用例通过才自动批准；`/task` 实测命中+过滤均批准，`/chat` 搜索不过滤故保留草稿，不制造假阳性
 - 风险报告：规则基线 + 持久化 + API（V7-10a），LLM 增强与回退（V7-10b），控制台面板与创建草稿入口（V7-10c）
 - 录制多账号：录制表单配置 actor，登录步骤写入 IR（V7-2c）
 - 跨 actor 事件等待：`waitForEvent` 等待另一 actor 的 WS/SSE 事件（V7-2d）
@@ -81,7 +81,7 @@
 
 12. [x] **V7-14 语义级只读生成（P0）**
     生成的只读用例断言列表结构、搜索命中/过滤与详情，而不是只断言路由；语义用例失败只留草稿，不降级、不自动批准。
-    _证据：IR/断言新增 `minCount`（runner 轮询 `locator.count()`，不足归 `PRODUCT_DEFECT`；弱断言门禁拒绝 `minCount < 2` 或无 `target`，正反测试 `ui-count.test.ts`、`validate.test.ts`）；采集器纳入 `tr/td/th/li/table/h1–h4`，元素标注 `inNav`（nav/header/aside/role=navigation|menu|tablist|toolbar），并从重复卡片提取单行文本（跳过导航/交互行，不拼接整块）；生成器排除导航元素、空状态（`暂无…`/`加载中`）与多单元格拼接行，产出 load（`minCount`）、search-match（真实条目的 `contains` + Enter）、search-none（`urlIncludes` + `notContains` 配对）、detail（`contains` + 列表表头 `notContains`）；过滤用例先试跑，命中用例仅在其通过后才自动批准（`routes.ts`）；语义用例失败不降级为 URL 路由，也不再被自动批准。真实目标实测：`/sop` 为空表（`暂无数据`）+ 侧边导航，不再生成伪搜索/详情用例；`/chat` 搜索不过滤消息内容——过滤用例失败，命中用例保留草稿并标注「搜索过滤用例未通过」；`/task`、`/reminder` 无可提取条目，仅有空格输入冒烟。限制：只有 ARIA/表格结构或稳定重复卡片才能提取条目；试点租户数据稀疏时语义用例多为草稿；`minCount` 尚未在真实多行表格上实测（该目标表格仅 1 行）。_
+    _证据：IR/断言新增 `minCount`（runner 轮询 `locator.count()`，不足归 `PRODUCT_DEFECT`；弱断言门禁拒绝 `minCount < 2` 或无 `target`，正反测试 `ui-count.test.ts`、`validate.test.ts`）；采集器纳入 `tr/td/th/li/table/h1–h4`，元素标注 `inNav`（nav/header/aside/role=navigation|menu|tablist|toolbar），并从重复卡片提取单行文本（跳过导航/交互行，不拼接整块）；生成器排除导航元素、空状态（`暂无…`/`加载中`）与多单元格拼接行，产出 load（`minCount`）、search-match（真实条目的 `contains` + Enter）、search-none（`urlIncludes` + `notContains` 配对）、detail（`contains` + 列表表头 `notContains`）；过滤用例先试跑，命中用例仅在其通过后才自动批准（`routes.ts`）；语义用例失败不降级为 URL 路由，也不再被自动批准。真实目标实测（在建了 3 条 `TP回归验证*` 任务后）：`/task` 搜索命中（contains 真实标题）与过滤（`notContains` 同一标题，配对用例先跑）均通过并自动批准；`/chat` 搜索不过滤消息内容——过滤用例失败，命中用例保留草稿并标注「搜索过滤用例未通过」；`/sop` 为空表（`暂无数据`）+ 侧边导航，不生成伪搜索/详情用例。限制：只有 ARIA/表格结构或稳定重复卡片才能提取条目；`/task` 的列表/看板视图都是 div 卡片，`minCount` 无法在该应用实测（仅单测）；页面数据稀疏时语义用例多为草稿。_
 
 
 ## 3. 明确后置

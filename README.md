@@ -33,22 +33,13 @@ pnpm start     # 生产式单端口：http://127.0.0.1:8787（API 托管控制�
 - **iframe 微前端**：步骤与 UI 断言可用 `frame` 指定 iframe，在帧内定位与断言。
 - **可信回归**：Test IR 是唯一契约；批准绑定 IR hash 与断言配置 hash；已批准回归不调用模型。
 - **质量门禁**：弱断言、占位断言、Provider 校验不通过不能批准；UI 断言支持 `notContains`（需搭配 `contains`/`target`）；自动审批可开，但不放宽门禁。
-- **证据**：步骤截图、network、WebSocket、SSE、Trace；运行详情可下载（真实环境自动脱敏，见下）。
-- **多账号**：IR `actors` 多上下文执行，真实环境按 `primary` / `alt` 分别登录；录制时可选多账号，登录步骤写入 IR；`waitForEvent` 可等待另一 actor 的 WS/SSE 事件；真实双账号互发消息已验证。
+- **证据**：步骤截图、network、WebSocket、SSE、Trace；运行详情可下载（真实环境自动脱敏）。
+- **多账号**：IR `actors` 多上下文执行，真实环境按 `primary` / `alt` 分别登录；录制时可选多账号，登录步骤写入 IR；`waitForEvent` 可等待另一 actor 的 WS/SSE 事件；双账号互发消息已验证。
 - **测试数据清理**：`policy.cleanup` + `teardownSteps`，失败也按策略清理。
-- **系统画像**：规则 + LLM 识别能力与未知项，通用遍历 SPA 路由与 iframe 内容页；真实环境只做只读画像。
+- **系统画像**：规则 + LLM 识别能力与未知项，通用遍历 SPA 路由与 iframe 内容页；画像阶段只浏览、不写数据。
+- **一键套件**：从画像生成未覆盖页面的用例，独立打开内容页并用确认路径做 URL 断言；能定位列表/卡片条目时附加语义断言——列表行数（`minCount`）、搜索命中与过滤（`contains` + `notContains` 配对）、详情跳转。自动试跑并在强断言门禁通过后批准，可一键批量；需开启 `TESTPILOT_AUTO_APPROVE=1` 才会自动批准。
 - **风险与缺口**：规则报告 + 可选 LLM 增强（分层取材、严格 JSON、去重、失败回退），存 `data/risk-reports/`。
 - **主动探索**：建议未访问页面、覆盖缺口与未知项；只作为建议，不自动生成或批准。
-
-## 生产环境
-
-已完成：真实环境自动登录、双账号（`actors[].account`）、可选只读网络门禁、真实环境证据脱敏。
-
-- 真实环境默认**按正常请求运行**：企业系统的查询也常用 POST，HTTP 方法不能代表是否写数据；账号权限由使用方（试点租户）控制。需要额外保护时设 `TESTPILOT_READONLY=1`，此时写请求、上传、WS 发送会被阻止，单条用例可用 IR `policy.allowMutation: true` 放行。
-- 真实运行不落截图 / Trace，network / WS / SSE 不落正文与 query，断言仍使用内存中的实时数据。
-- 只读回归模板已跑通：9 条真实用例（通讯录列表/部门筛选/详情/搜索过滤、任务、文档、提醒事项、会议），本地批次 9/9 通过（用例在本地 `data/`，不随仓库分发），证据脱敏。
-- 双账号消息已验证：两个真实账号同时在线互发一条带 `runId` 的消息，双端断言；每轮会发送一条消息（前置：两账号已有会话）。
-- 一键只读套件：从真实画像（SPA 路由 + iframe 内容页）生成未覆盖页面的用例，独立打开内容页并用确认路径做 URL 断言；能定位列表/卡片条目时附加语义断言——列表行数（`minCount`）、搜索命中与过滤（`contains` + `notContains` 配对）、详情跳转。自动试跑并在强断言门禁通过后批准，可一键批量。需开启 `TESTPILOT_AUTO_APPROVE=1` 才会自动批准。
 
 ## 配置与安全
 
@@ -58,6 +49,8 @@ pnpm start     # 生产式单端口：http://127.0.0.1:8787（API 托管控制�
 - 真实登录适配器：`TESTPILOT_REAL_LOGIN_PROFILE_JSON` 按站点配置登录字段选择器；不配置时使用通用账号/密码启发式，代码里不含业务站点选择器。
 - 自动审批：`TESTPILOT_AUTO_APPROVE=1`；草稿试跑通过且强断言门禁通过后自动批准（审计 `auto:testpilot`）。
 - 目标白名单：`TESTPILOT_ALLOWED_TARGETS`；控制台域名白名单：`TESTPILOT_ALLOWED_ORIGINS`。
+- 只读网络门禁（可选）：`TESTPILOT_READONLY=1` 时阻止写请求、上传与 WS 发送；默认不按 HTTP 方法判断写操作，单条用例可用 IR `policy.allowMutation: true` 放行。
+- 真实环境证据脱敏：不落截图 / Trace，network / WS / SSE 不落正文与 query，断言仍使用内存中的实时数据。
 - API 只监听 `127.0.0.1`，写请求校验 Origin；设非回环 `HOST` 时必须配 `TESTPILOT_API_TOKEN`。
 - 批量并行 `TESTPILOT_MAX_PARALLEL`（默认 2）；试点共享账号自动串行。
 - LLM 可选（`TESTPILOT_LLM_*`），只用于生成、诊断与画像；已批准回归零 LLM。

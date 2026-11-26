@@ -2586,3 +2586,14 @@ button.status-chip {
 .explore-item-head .badge {
   margin-left: 0;
 }
+
+.coverage-scroll { overflow-x: auto; }
+.business-coverage table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.business-coverage th, .business-coverage td {
+  padding: .65rem .7rem; border-bottom: 1px solid var(--border, #dde1e8); text-align: left; vertical-align: top;
+}
+.business-coverage thead th, .business-coverage summary { white-space: nowrap; }
+.business-coverage summary { cursor: pointer; color: var(--accent, #165baa); }
+.business-coverage ul { margin: .6rem 0 0; padding: 0; list-style: none; min-width: 10rem; }
+.business-coverage li { display: grid; gap: .2rem; margin-bottom: .5rem; overflow-wrap: anywhere; }
+.business-coverage .link-button { justify-self: start; text-align: left; }

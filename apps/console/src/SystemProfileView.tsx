@@ -18,7 +18,10 @@ import {
 } from "./api";
 import { CAPABILITY_LABELS, REQUIREMENT_LABELS, SIGNAL_LABELS } from "./capabilityLabels";
 
+import { BusinessCoveragePanel } from "./BusinessCoveragePanel";
+
 type Props = {
+  tests: StoredTest[];
   demoUrl: string;
   pilotIntakeUrl: string | null;
   demoReachable: boolean | null;
@@ -209,6 +212,7 @@ function confidenceClass(confidence: number): string {
 }
 
 export function SystemProfileView({
+  tests,
   demoUrl,
   pilotIntakeUrl,
   demoReachable,
@@ -837,13 +841,15 @@ export function SystemProfileView({
             )}
           </div>
 
+          <BusinessCoveragePanel key={record.id} detectionId={record.id} tests={tests} onOpenReview={onOpenReview} />
+
           {record.target === "real" ? (
             <div className="card-panel read-only-suite-panel">
               <header className="mechanism-card-header">
                 <h3>真实只读套件</h3>
               </header>
               <p className="stat-note">
-                基于当前画像，为尚未被已批准用例覆盖的路由生成只读用例；自动试跑，强断言门禁通过后自动批准。不会写业务数据。
+                按当前画像补充缺少的只读验证并试跑。启用自动批准后，通过审批门禁的草稿会加入回归。
               </p>
               <div className="flow-actions">
                 <button

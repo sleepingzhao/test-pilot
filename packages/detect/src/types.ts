@@ -71,9 +71,13 @@ export type Signal = {
   detail?: string;
 };
 
+export type ListItemRole = "row" | "listitem" | "cell";
+
 export type SurfaceSnapshot = {
   route: string;
   title?: string;
+  /** Structural hint retained when element text is removed from a real profile. */
+  listItemRole?: ListItemRole;
   elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string; placeholder?: string; ariaLabel?: string; inNav?: boolean }>;
   texts?: string[];
 };
@@ -180,3 +184,14 @@ export type CapabilityRule = {
   requires?: RequirementId[];
   unknowns?: string[];
 };
+
+/** Approved assertions supporting the business checks on one profiled route. */
+export type RouteEvidence = {
+  kind: "route" | "list" | "searchMatch" | "searchFilter" | "detail";
+  testId: string;
+  title: string;
+  index: number;
+  assertion: import("@testpilot/test-ir").TestAssertion;
+};
+
+export type RouteCoverageRow = { route: string; evidence: RouteEvidence[]; hasSearchSmoke: boolean };

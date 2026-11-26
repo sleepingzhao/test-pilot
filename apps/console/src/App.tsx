@@ -1928,6 +1928,7 @@ export function App() {
 
         {view === "detect" && (
           <SystemProfileView
+            tests={tests}
             demoUrl={demoUrl}
             pilotIntakeUrl={pilotIntakeUrl}
             demoReachable={demoOk}

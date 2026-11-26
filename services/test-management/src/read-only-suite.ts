@@ -1,5 +1,6 @@
-import type { DetectionReport } from "@testpilot/detect";
+import type { DetectionReport, ListItemRole } from "@testpilot/detect";
 import type { Locator, TestIR } from "@testpilot/test-ir";
+import { businessCoverage, routeKey } from "./route-coverage.js";
 import type { StoredTest } from "./store.js";
 
 export type ReadOnlyCandidate = {
@@ -28,59 +29,17 @@ function isUsableItemName(name: string): boolean {
 const FILTER_LABEL_PREFIX =
   /^(全部|所有|今天|未来|已完成|未完成|进行中|待办事项?|我负责|我创建|我分配|快速访问|概览)/;
 
-function routeKey(path: string): string {
-  const trimmed = path.split("?")[0]!.split("#")[0]!.replace(/\/+$/, "");
-  return trimmed || "/";
-}
-
 function slug(value: string): string {
   return value.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "page";
 }
 
-function isRealTest(test: StoredTest, origin: string): boolean {
-  if (test.ir.baseUrlRef === "real-env") return true;
-  if (!test.ir.baseUrl) return false;
-  try {
-    return new URL(test.ir.baseUrl).origin === origin;
-  } catch {
-    return false;
+/** Leave approved IR intact, including when an older case only verified reachability. */
+function availablePrefix(base: string, suffixes: string[], approvedIds: Set<string>): string {
+  let prefix = base;
+  for (let version = 2; suffixes.some(s => approvedIds.has(`${prefix}-${s}`)); version++) {
+    prefix = `${base}-v${version}`;
   }
-}
-
-function coveredRoutes(
-  profile: DetectionReport,
-  tests: StoredTest[],
-): { load: Set<string>; searchMatch: Set<string>; searchNone: Set<string>; searchSmoke: Set<string>; detail: Set<string> } {
-  let origin = "";
-  try {
-    origin = new URL(profile.target.url).origin;
-  } catch {
-    /* keep empty */
-  }
-  const load = new Set<string>();
-  const searchMatch = new Set<string>();
-  const searchNone = new Set<string>();
-  const searchSmoke = new Set<string>();
-  const detail = new Set<string>();
-  for (const test of tests) {
-    if (test.approvalStatus !== "approved" || !isRealTest(test, origin)) continue;
-    const fills = test.ir.steps.some((step) => step.action === "fill");
-    const clicks = test.ir.steps.some((step) => step.action === "click");
-    const hasContains = test.ir.assertions.some((assertion) => assertion.contains);
-    const hasNotContains = test.ir.assertions.some((assertion) => assertion.notContains);
-    for (const step of test.ir.steps) {
-      if (step.action !== "navigate" || !step.path) continue;
-      const route = routeKey(step.path);
-      load.add(route);
-      if (fills) {
-        if (hasContains) searchMatch.add(route);
-        if (hasNotContains) searchNone.add(route);
-        if (test.ir.assertions.length) searchSmoke.add(route);
-      }
-      if (clicks) detail.add(route);
-    }
-  }
-  return { load, searchMatch, searchNone, searchSmoke, detail };
+  return prefix;
 }
 
 function elementKey(element: { testId?: string; name?: string }): string | undefined {
@@ -103,6 +62,16 @@ function globalKeys(surfaces: DetectionReport["surfaces"]): Set<string> {
   }
   // Two appearances already means shared chrome; excluding a repeated tab is safer than asserting it.
   return new Set([...counts.entries()].filter(([, count]) => count >= 2).map(([key]) => key));
+}
+
+export function observedListRoles(surfaces: DetectionReport["surfaces"]): Map<string, ListItemRole> {
+  const keys = globalKeys(surfaces);
+  const roles = new Map<string, ListItemRole>();
+  for (const surface of surfaces) {
+    const role = structuralTarget(surface, keys)?.target.role;
+    if (role) roles.set(surface.route, role);
+  }
+  return roles;
 }
 
 type SnapshotElement = {
@@ -213,9 +182,9 @@ export function itemTexts(
 export function structuralTarget(
   surface: DetectionReport["surfaces"][number],
   global: Set<string>,
-): { target: Locator; minCount: number } | undefined {
+): { target: { role: ListItemRole }; minCount: number } | undefined {
   const usable = surfaceElements(surface, global);
-  const roles: Array<{ role: string; minNamed: number; minCount: number }> = [
+  const roles: Array<{ role: ListItemRole; minNamed: number; minCount: number }> = [
     { role: "row", minNamed: 2, minCount: 2 },
     { role: "listitem", minNamed: 2, minCount: 2 },
     { role: "cell", minNamed: 3, minCount: 2 },
@@ -345,7 +314,8 @@ export function planReadOnlyCases(input: {
 }): ReadOnlyCandidate[] {
   if (input.targetMode !== "real") return [];
   const limit = Math.min(Math.max(input.limit ?? 24, 1), 40);
-  const covered = coveredRoutes(input.profile, input.tests);
+  const coverage = new Map(businessCoverage(input.profile, input.tests, input.targetMode).map(row => [row.route, row]));
+  const approvedIds = new Set(input.tests.filter(t => t.approvalStatus === "approved").map(t => t.id));
   const frameRoutes = new Set((input.profile.frameSurfaces ?? []).map((frame) => frame.route));
   const surfaces = [
     ...input.profile.surfaces.filter((surface) => !frameRoutes.has(surface.route)),
@@ -355,6 +325,7 @@ export function planReadOnlyCases(input: {
     })),
   ];
   const global = globalKeys(surfaces);
+  const listRoles = new Map(input.profile.surfaces.map(surface => [surface.route, surface.listItemRole]));
   const seen = new Set<string>();
   const candidates: ReadOnlyCandidate[] = [];
 
@@ -372,17 +343,20 @@ export function planReadOnlyCases(input: {
       ? itemsFromElements
       : filterFallbackItemTexts(input.contentTexts?.[surface.route] ?? [], surface);
     const itemsFromElementsOnly = itemsFromElements.length > 0;
-    const struct = structuralTarget(surface, global);
+    const storedRole = contentPage ? undefined : listRoles.get(surface.route);
+    const struct = structuralTarget(surface, global) ?? (storedRole ? { target: { role: storedRole }, minCount: 2 } : undefined);
     const headers = columnHeaderTexts(surface, global);
     const link = itemLink(surface, global, itemsFromElementsOnly ? items : []);
-    const wantLoad = !covered.load.has(route);
+    const row = coverage.get(route);
+    const covered = new Set(row?.evidence.map(ref => ref.kind));
+    const wantLoad = !covered.has("route") || (!!struct && !covered.has("list"));
     const wantSearch =
       Boolean(search) &&
       (items.length > 0
-        ? !covered.searchMatch.has(route) || !covered.searchNone.has(route)
-        : !covered.searchSmoke.has(route));
+        ? !covered.has("searchMatch") || !covered.has("searchFilter")
+        : !row?.hasSearchSmoke);
     const wantDetail =
-      itemsFromElementsOnly && Boolean(link) && headers.length > 0 && items.length > 0 && !covered.detail.has(route);
+      itemsFromElementsOnly && Boolean(link) && headers.length > 0 && items.length > 0 && !covered.has("detail");
     if (!wantLoad && !wantSearch && !wantDetail) continue;
     seen.add(route);
     const baseId = `ro-${slug(input.detectionId)}-${contentPage ? "content-" : ""}${slug(route)}`.slice(0, 110);
@@ -392,9 +366,11 @@ export function planReadOnlyCases(input: {
     const policy = { screenshots: "never" as const, cleanup: "none" as const };
 
     if (wantLoad) {
+      const suffix = struct && covered.has("route") ? "list" : "load";
+      const loadId = `${availablePrefix(baseId, [suffix], approvedIds)}-${suffix}`;
       candidates.push({
-        testId: `${baseId}-load`,
-        title: `真实只读·${pageLabel}${route} 加载`,
+        testId: loadId,
+        title: `真实只读·${pageLabel}${route} ${struct ? "列表验证" : "加载"}`,
         route,
         kind: "load",
         notes: [
@@ -405,7 +381,7 @@ export function planReadOnlyCases(input: {
           ...(struct ? ["附加列表行数断言（minCount）证明列表已渲染"] : []),
         ],
         ir: {
-          id: `${baseId}-load`,
+          id: loadId,
           version: 1,
           platform: "web",
           baseUrlRef: "real-env",
@@ -432,6 +408,14 @@ export function planReadOnlyCases(input: {
 
     if (wantSearch && search) {
       if (items.length > 0) {
+        // Auto-approval checks a sibling filter with the same ID prefix and item.
+        // A filter on a different detection cannot supply that proof.
+        const needMatch = !covered.has("searchMatch");
+        const pairProven = row?.evidence.some(ref => ref.kind === "searchFilter" &&
+          ref.testId === `${baseId}-search-none` && ref.assertion.notContains === items[0]);
+        const needFilter = !covered.has("searchFilter") || (needMatch && !pairProven);
+        const suffixes = [...(needMatch ? ["search-match"] : []), ...(needFilter ? ["search-none"] : [])];
+        const pairPrefix = availablePrefix(baseId, suffixes, approvedIds);
         const afterOpen = [...baseSteps, ...waitPageSteps(stable)];
         const matchSteps: TestIR["steps"] = [
           ...afterOpen,
@@ -439,8 +423,8 @@ export function planReadOnlyCases(input: {
           { id: "search-submit", action: "press", key: "Enter" },
         ];
         const itemInRoute = route.toLowerCase().includes(items[0]!.toLowerCase());
-        if (!covered.searchMatch.has(route)) candidates.push({
-          testId: `${baseId}-search-match`,
+        if (needMatch) candidates.push({
+          testId: `${pairPrefix}-search-match`,
           title: `真实只读·${pageLabel}${route} 搜索命中`,
           route,
           kind: "search",
@@ -449,7 +433,7 @@ export function planReadOnlyCases(input: {
             "只读：仅 fill + Enter，无其它写操作",
           ],
           ir: {
-            id: `${baseId}-search-match`,
+            id: `${pairPrefix}-search-match`,
             version: 1,
             platform: "web",
             baseUrlRef: "real-env",
@@ -463,14 +447,14 @@ export function planReadOnlyCases(input: {
           },
         });
 
-        if (!itemInRoute && !covered.searchNone.has(route)) {
+        if (!itemInRoute && (needFilter || (needMatch && pairPrefix !== baseId))) {
           const noneSteps: TestIR["steps"] = [
             ...afterOpen,
             { id: "search-fill", action: "fill", target: search, value: "zzqqxx" },
             { id: "search-submit", action: "press", key: "Enter" },
           ];
           candidates.push({
-            testId: `${baseId}-search-none`,
+            testId: `${pairPrefix}-search-none`,
             title: `真实只读·${pageLabel}${route} 搜索过滤`,
             route,
             kind: "search",
@@ -479,7 +463,7 @@ export function planReadOnlyCases(input: {
               "urlIncludes + notContains 配对断言，避免空页面误判",
             ],
             ir: {
-              id: `${baseId}-search-none`,
+              id: `${pairPrefix}-search-none`,
               version: 1,
               platform: "web",
               baseUrlRef: "real-env",
@@ -494,13 +478,14 @@ export function planReadOnlyCases(input: {
           });
         }
       } else {
+        const smokeId = `${availablePrefix(baseId, ["search"], approvedIds)}-search`;
         const smokeSteps: TestIR["steps"] = [
           ...baseSteps,
           ...waitPageSteps(stable),
           { id: "search", action: "fill", target: search, value: "zzzz" },
         ];
         candidates.push({
-          testId: `${baseId}-search`,
+          testId: smokeId,
           title: `真实只读·${pageLabel}${route} 搜索冒烟`,
           route,
           kind: "search",
@@ -509,7 +494,7 @@ export function planReadOnlyCases(input: {
             "画像中无可用于语义搜索的列表项，保留冒烟用例",
           ],
           ir: {
-            id: `${baseId}-search`,
+            id: smokeId,
             version: 1,
             platform: "web",
             baseUrlRef: "real-env",
@@ -525,13 +510,14 @@ export function planReadOnlyCases(input: {
     }
 
     if (wantDetail && link && headers[0]) {
+      const detailId = `${availablePrefix(baseId, ["detail"], approvedIds)}-detail`;
       const detailSteps: TestIR["steps"] = [
         ...baseSteps,
-        ...waitPageSteps(stable),
+        { id: "wait-list-header", action: "wait", target: { role: "columnheader", name: headers[0] } },
         { id: "open-item", action: "click", target: link },
       ];
       candidates.push({
-        testId: `${baseId}-detail`,
+        testId: detailId,
         title: `真实只读·${pageLabel}${route} 详情`,
         route,
         kind: "detail",
@@ -540,7 +526,7 @@ export function planReadOnlyCases(input: {
           "只读：仅点击链接，不触发写操作",
         ],
         ir: {
-          id: `${baseId}-detail`,
+          id: detailId,
           version: 1,
           platform: "web",
           baseUrlRef: "real-env",

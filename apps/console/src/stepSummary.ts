@@ -52,6 +52,9 @@ export type AssertionSummary = {
   id?: string;
   type?: string;
   contains?: string;
+  notContains?: string;
+  urlIncludes?: string;
+  minCount?: number;
   requestRef?: string;
   stepRef?: string;
   expect?: Record<string, unknown>;
@@ -92,8 +95,13 @@ export function summarizeAssertion(a: AssertionSummary, index: number): string {
     return `${label} [Agent] ${a.provider ?? "otel-trace"} · ${a.configRef ?? "?"} · tools=${tools.join(",") || "?"}`;
   }
   if (a.type === "ui") {
-    const where = a.target ? "（区域）" : "（整页）";
-    return `${label} [UI]${where} 包含「${a.contains ?? "…"}」`;
+    const checks = [];
+    if (a.urlIncludes) checks.push(`URL 包含「${a.urlIncludes}」`);
+    if (a.target) checks.push(`定位 ${JSON.stringify(a.target)}`);
+    if (a.minCount !== undefined) checks.push(`数量 ≥ ${a.minCount}`);
+    if (a.contains) checks.push(`包含「${a.contains}」`);
+    if (a.notContains) checks.push(`不含「${a.notContains}」`);
+    return `${label} [UI] ${checks.join(" · ")}`;
   }
   return `${label} [${a.type ?? "?"}]`;
 }

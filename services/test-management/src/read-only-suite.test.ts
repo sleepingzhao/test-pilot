@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DetectionReport } from "@testpilot/detect";
+import { businessCoverage } from "./route-coverage.js";
 import { itemTexts, planReadOnlyCases } from "./read-only-suite.js";
 import type { StoredTest } from "./store.js";
 
@@ -57,7 +58,7 @@ function approvedReal(path: string): StoredTest {
       platform: "web",
       baseUrlRef: "real-env",
       steps: [{ id: "open", action: "navigate", path }],
-      assertions: [{ id: "ok", type: "ui", contains: "联系人列表", oracle: "human-approved" }],
+      assertions: [{ id: "ok", type: "ui", urlIncludes: path, oracle: "human-approved" }],
     },
     approvalStatus: "approved",
     updatedAt: new Date().toISOString(),
@@ -229,7 +230,7 @@ test("detail case asserts item visible and list header gone", () => {
   assert.equal(assertion.notContains, "项目名称");
 });
 
-test("approved navigate plus click suppresses detail generation", () => {
+test("an approved assertion of the selected item and disappearance of its list header covers detail", () => {
   const cases = planReadOnlyCases({
     detectionId: "d",
     profile: {
@@ -266,7 +267,7 @@ test("approved navigate plus click suppresses detail generation", () => {
             { id: "open", action: "navigate", path: "/items/" },
             { id: "go", action: "click", target: { role: "link", name: "Project Atlas" } },
           ],
-          assertions: [{ id: "ok", type: "ui", contains: "Project Atlas", oracle: "human-approved" }],
+          assertions: [{ id: "ok", type: "ui", contains: "Project Atlas", notContains: "项目名称", oracle: "human-approved" }],
         },
       },
     ],
@@ -422,4 +423,106 @@ test("the filtering case is trialled before the hit case", () => {
   const match = ids.findIndex((id) => id.endsWith("-search-match"));
   assert.ok(none >= 0 && match >= 0);
   assert.ok(none < match);
+});
+
+test("an approved URL smoke can gain a distinct list case in the same detection", () => {
+  const profile = listSurfaceProfile();
+  const smoke = approvedReal("/members/");
+  smoke.id = smoke.ir.id = "ro-d-members-load";
+  const input = { detectionId: "d", targetMode: "real" as const, profile, tests: [smoke] };
+  const before = businessCoverage(profile, input.tests, "real")[0]!;
+  assert.deepEqual(before.evidence.map(ref => [ref.kind, ref.testId, ref.assertion.id]), [["route", smoke.id, "ok"]]);
+  const list = planReadOnlyCases(input).find(candidate => candidate.ir.assertions.some(a => a.minCount === 2));
+  assert.ok(list);
+  assert.notEqual(list.testId, smoke.id);
+  const approvedList = { ...smoke, id: list.testId, ir: list.ir };
+  const tests = [smoke, approvedList];
+  const after = businessCoverage(profile, tests, "real")[0]!;
+  assert.deepEqual(after.evidence.filter(ref => ref.kind === "list").map(ref => [ref.testId, ref.assertion.id]),
+    [[list.testId, "items"]]);
+  assert.equal(planReadOnlyCases({ ...input, tests }).some(candidate => candidate.kind === "load"), false);
+  assert.deepEqual(smoke.ir.assertions, [{ id: "ok", type: "ui", urlIncludes: "/members/", oracle: "human-approved" }]);
+});
+
+test("filter menu clicks and item text still visible in a list leave detail available", () => {
+  const profile = listSurfaceProfile();
+  profile.surfaces[0]!.elements.push({ role: "link", name: "Alice Chen" });
+  const menu = approvedReal("/members/");
+  menu.id = menu.ir.id = "ro-d-members-detail";
+  menu.ir.steps.push({ id: "menu", action: "click", target: { role: "button", name: "筛选菜单" } });
+  menu.ir.assertions.push({ id: "name", type: "ui", contains: "Alice Chen", oracle: "human-approved" });
+  const linkOnly = { ...menu, id: "link-only", ir: { ...menu.ir, steps: [
+    menu.ir.steps[0]!, { id: "select", action: "click" as const, target: { role: "link", name: "Alice Chen" } },
+  ] } };
+  const tests = [menu, linkOnly];
+  const input = { detectionId: "d", profile, tests, targetMode: "real" as const };
+  assert.equal(businessCoverage(profile, tests, "real")[0]!.evidence.some(ref => ref.kind === "detail"), false);
+  const detail = planReadOnlyCases(input).find(candidate => candidate.kind === "detail");
+  assert.ok(detail);
+  assert.notEqual(detail.testId, menu.id);
+  tests.push({ ...menu, id: detail.testId, ir: detail.ir });
+  const refs = businessCoverage(profile, tests, "real")[0]!.evidence.filter(ref => ref.kind === "detail");
+  assert.deepEqual(refs.map(ref => ref.assertion), detail.ir.assertions);
+  assert.equal(planReadOnlyCases(input).some(candidate => candidate.kind === "detail"), false);
+});
+
+test("search reachability, a matching item, and filtering reference their own assertions", () => {
+  const profile = listSurfaceProfile();
+  const generated = planReadOnlyCases({ detectionId: "d", profile, tests: [], targetMode: "real" });
+  const tests = generated.filter(c => c.kind === "search").map(c => ({ ...approvedReal(c.route), id: c.testId, ir: c.ir }));
+  const [row] = businessCoverage(profile, tests, "real");
+  assert.equal(row!.hasSearchSmoke, true);
+  assert.deepEqual(row!.evidence.filter(ref => ref.kind.startsWith("search")).map(ref => [ref.kind, ref.assertion.id]),
+    [["searchFilter", "filtered"], ["searchMatch", "match"]]);
+  assert.equal(planReadOnlyCases({ detectionId: "d", profile, tests, targetMode: "real" }).some(c => c.kind === "search"), false);
+  for (const t of tests) t.ir.steps = t.ir.steps.filter(s => s.action !== "fill");
+  assert.equal(businessCoverage(profile, tests, "real")[0]!.evidence.some(ref => ref.kind.startsWith("search")), false);
+});
+
+test("unapproved, other-target, and earlier-page assertions cannot fill a route's gaps", () => {
+  const profile = listSurfaceProfile();
+  profile.surfaces.push({ route: "/other", elements: [] });
+  const original = approvedReal("/members");
+  original.ir.assertions.push({ type: "ui", target: { role: "row" }, minCount: 2, oracle: "human-approved" });
+  const wrongTarget = { ...original, ir: { ...original.ir, baseUrl: "https://elsewhere.invalid" } };
+  const tests: StoredTest[] = [{ ...original, approvalStatus: "draft" }, wrongTarget];
+  assert.ok(businessCoverage(profile, tests, "real").every(row => !row.evidence.length));
+  original.ir.steps.push({ id: "move", action: "navigate", path: "/other" });
+  const [members, other] = businessCoverage(profile, [original], "real");
+  assert.equal(members!.evidence.length, 0);
+  assert.deepEqual(other!.evidence.map(ref => ref.kind), ["list"]);
+});
+
+test("standalone iframe detail keeps its evidence when the stored shell has no header text", () => {
+  const profile = { ...listSurfaceProfile(), surfaces: [], frameSurfaces: [{ route: "/members/", elements: [] }] };
+  const contentElements = { "/members/": [
+    { role: "columnheader", name: "成员姓名" }, { role: "link", name: "Alice Chen" },
+  ] };
+  const input = { detectionId: "d", targetMode: "real" as const, profile, contentElements };
+  const detail = planReadOnlyCases({ ...input, tests: [] }).find(c => c.kind === "detail");
+  assert.ok(detail);
+  const tests = [{ ...approvedReal("/members/"), id: detail.testId, ir: detail.ir }];
+  assert.equal(businessCoverage(profile, tests, "real")[0]!.evidence[0]?.kind, "detail");
+  assert.equal(planReadOnlyCases({ ...input, tests }).some(c => c.kind === "detail"), false);
+});
+
+test("asserting that search hides a table header does not verify filtering", () => {
+  const profile = listSurfaceProfile();
+  const input = { detectionId: "d", profile, targetMode: "real" as const };
+  const match = planReadOnlyCases({ ...input, tests: [] }).find(c => c.testId.endsWith("-search-match"))!;
+  const contains = match.ir.assertions.find(a => a.id === "match")!.contains;
+  const ir = {
+    ...match.ir,
+    assertions: [{ type: "ui" as const, contains, notContains: "成员姓名", oracle: "human-approved" as const }],
+  };
+  const tests = [{ ...approvedReal("/members/"), id: match.testId, ir }];
+  const [row] = businessCoverage(profile, tests, "real");
+  assert.deepEqual(row!.evidence.map(ref => ref.kind), ["searchMatch"]);
+  assert.ok(planReadOnlyCases({ ...input, tests }).some(c => c.testId.endsWith("-search-none")));
+
+  const otherRecord = profile.surfaces[0]!.elements.find(el => el.role === "row" && el.name !== contains)?.name;
+  assert.ok(otherRecord);
+  ir.assertions[0]!.notContains = otherRecord;
+  assert.deepEqual(businessCoverage(profile, tests, "real")[0]!.evidence.map(ref => ref.kind),
+    ["searchMatch", "searchFilter"]);
 });

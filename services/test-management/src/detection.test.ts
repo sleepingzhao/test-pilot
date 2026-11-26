@@ -14,6 +14,7 @@ import {
   saveDetection,
   type DetectionRecord,
 } from "./detection.js";
+import { planReadOnlyCases } from "./read-only-suite.js";
 import { registerRoutes } from "./routes.js";
 import { readSessionMeta } from "./session-layout.js";
 import { FileStore } from "./store.js";
@@ -118,7 +119,7 @@ test("real target strips page text from the stored profile", async () => {
       {
         route: "/home",
         title: "真实系统标题",
-        elements: [{ role: "button", name: "人名" }],
+        elements: [{ role: "button", name: "人名" }, { role: "row", name: "目录记录一" }, { role: "row", name: "目录记录二" }],
       },
     ],
     signals: [
@@ -151,6 +152,22 @@ test("real target strips page text from the stored profile", async () => {
     assert.equal(record.profile.signals[0]?.evidence[0]?.summary, "dom.table");
     const stored = await readDetection(dataRoot, record.id);
     assert.equal(stored?.profile.surfaces[0]?.elements[0]?.name, undefined);
+    assert.ok(stored);
+    assert.equal(stored.profile.surfaces[0]?.listItemRole, "row");
+    assert.ok(stored.profile.surfaces[0]?.elements.every(element => element.name === undefined));
+    const smoke = {
+      id: "ro-old-home-load", title: "路由冒烟", projectId: "default", approvalStatus: "approved" as const,
+      updatedAt: new Date().toISOString(),
+      ir: {
+        id: "ro-old-home-load", version: 1, platform: "web" as const, baseUrl: stored.url,
+        steps: [{ id: "open", action: "navigate" as const, path: "/home" }],
+        assertions: [{ type: "ui" as const, urlIncludes: "/home", oracle: "human-approved" as const }],
+      },
+    };
+    const [list] = planReadOnlyCases({ detectionId: stored.id, profile: stored.profile, targetMode: "real", tests: [smoke] });
+    assert.ok(list);
+    assert.match(list.testId, /-list$/);
+    assert.ok(list.ir.assertions.some(assertion => assertion.minCount === 2 && assertion.target?.role === "row"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

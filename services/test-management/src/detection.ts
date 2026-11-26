@@ -10,6 +10,7 @@ import {
   mergeLlmAnalysis,
   type LlmDetectionResult,
 } from "./llm-detect.js";
+import { observedListRoles } from "./read-only-suite.js";
 import { resolveRequirementTargetUrl, type RequirementTarget } from "./requirement-target.js";
 import { pilotSecretsConfigured } from "./run-env.js";
 import { isAllowedTargetUrl, isSafeRunId } from "./security.js";
@@ -159,6 +160,7 @@ async function openPage(input: OpenPageInput): Promise<{ page: Page; close: () =
  * text and titles so stored artifacts do not contain people or project names.
  */
 function sanitizeProfile(profile: SystemProfile, stripText: boolean): SystemProfile {
+  const listRoles = stripText ? observedListRoles(profile.surfaces) : undefined;
   const llmCapabilities =
     stripText && profile.llmCapabilities
       ? profile.llmCapabilities.map((capability) => ({
@@ -182,6 +184,7 @@ function sanitizeProfile(profile: SystemProfile, stripText: boolean): SystemProf
       : profile.capabilities,
     surfaces: profile.surfaces.map((surface) => ({
       route: surface.route,
+      ...(listRoles?.has(surface.route) ? { listItemRole: listRoles.get(surface.route) } : {}),
       elements: surface.elements.map((element) => ({
         role: element.role,
         testId: element.testId,

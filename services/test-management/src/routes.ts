@@ -47,6 +47,7 @@ import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-ide
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
 import { buildRiskReport, enrichRiskReportWithLlm, readLatestRiskReport, saveRiskReport } from "./risk-report.js";
 import { buildExplorationSuggestions } from "./explore-suggestions.js";
+import { businessCoverage } from "./route-coverage.js";
 import { planReadOnlyCases, type SnapshotElement } from "./read-only-suite.js";
 import { openRealPage } from "./real-login.js";
 import { buildFlakeMetricsReport, computeFlakeStats, normalizeRepeatCount } from "./flake-metrics.js";
@@ -1617,6 +1618,14 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
     await saveRiskReport(dataRoot, report);
     return report;
+  });
+
+  app.get("/api/detect/:detectionId/business-coverage", async (req, reply) => {
+    const { detectionId } = req.params as { detectionId: string };
+    if (!isSafeRunId(detectionId)) return reply.notFound("detection not found");
+    const record = await readDetection(dataRoot, detectionId);
+    if (!record) return reply.notFound("detection not found");
+    return businessCoverage(record.profile, await store.listTests(), record.target);
   });
 
   app.post("/api/detect/:detectionId/read-only-suite", async (req, reply) => {

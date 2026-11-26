@@ -333,3 +333,33 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+export type RegressionBaselinesResponse = {
+  targets: { passRateMin: number; flakeRateMax: number };
+  reports: Array<{
+    suiteKey: string;
+    testIds: string[];
+    maxParallel?: number;
+    batchCount: number;
+    batches: Array<{
+      batchId: string;
+      startedAt: string;
+      total: number;
+      passed: number;
+      durationMs: number;
+    }>;
+    aggregate: {
+      passRate: number;
+      flakeRate: number;
+      meetsPassTarget: boolean;
+      meetsFlakeTarget: boolean;
+      durationMs: number;
+    };
+    human: {
+      manualRegressionMinutes: number | null;
+      reviewAndTriageMinutes: number | null;
+      remainingManualMinutes: number | null;
+      minutesSaved: number | null;
+    };
+  }>;
+};

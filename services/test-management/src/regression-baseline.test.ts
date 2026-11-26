@@ -1,85 +1,125 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { computeRegressionBaseline } from "./regression-baseline.js";
+import {
+  computeRegressionBaseline,
+  computeRegressionBaselines,
+  manualMeasurementForSuite,
+} from "./regression-baseline.js";
 import type { StoredBatch, StoredRun } from "./store.js";
 
-function run(id: string, status: StoredRun["status"], batchId: string, failureKind?: string): StoredRun {
-  return {
-    runId: id,
-    testId: "t",
-    testTitle: "t",
-    testVersion: 1,
-    projectId: "default",
-    startedAt: new Date().toISOString(),
-    completedAt: new Date().toISOString(),
-    status,
-    batchId,
-    steps: [],
-    assertions: [],
-    artifacts: { runId: id, dir: `artifacts/runs/${id}`, artifacts: [] },
-    metrics: { durationMs: 100, llmTokensUsed: 0, attemptCount: 1, failureKind },
-  };
-}
-
-function batch(n: number, opts: Partial<StoredBatch> = {}): StoredBatch {
-  return {
-    batchId: `b${n}`,
-    startedAt: `2026-01-0${n}T00:00:00.000Z`,
-    total: 10,
-    passed: 10,
+function round(
+  n: number,
+  batchPatch: Partial<StoredBatch> = {},
+  runPatch: (testId: string) => Partial<StoredRun> = () => ({}),
+) {
+  const date = `2026-01-0${n}`;
+  const batch: StoredBatch = {
+    batchId: `batch_${n}`,
+    startedAt: `${date}T00:00:00.000Z`,
+    completedAt: `${date}T00:00:01.200Z`,
+    total: 2,
+    passed: 2,
     status: "completed",
-    runIds: Array.from({ length: 10 }, (_, i) => `r${n}_${i}`),
-    mode: "full",
+    runIds: [`run_${n}_a`, `run_${n}_b`],
+    mode: "selected",
     repeatCount: 1,
-    ...opts,
+    maxParallel: 2,
+    ...batchPatch,
   };
+  const runs: StoredRun[] = batch.runIds.map((runId) => {
+    const testId = runId.split("_").at(-1)!;
+    return {
+      runId, testId, testTitle: testId, testVersion: 1, projectId: "default", status: "passed",
+      startedAt: batch.startedAt, completedAt: batch.completedAt!, batchId: batch.batchId,
+      steps: [], assertions: [], artifacts: { runId, dir: "", artifacts: [] },
+      metrics: { durationMs: 900, attemptCount: 1, llmTokensUsed: 0 },
+      comparisonKey: `environment-a:version-1:${testId}`,
+      ...runPatch(testId),
+    };
+  });
+  return { batch, runs };
 }
 
-test("computeRegressionBaseline needs three completed full batches", () => {
-  assert.equal(computeRegressionBaseline([batch(2), batch(1)], new Map()), null);
-  const selected = [batch(3, { mode: "selected" }), batch(2, { mode: "selected" }), batch(1, { mode: "selected" })];
-  assert.equal(computeRegressionBaseline(selected, new Map()), null);
-});
+function input(rounds: ReturnType<typeof round>[]) {
+  return [
+    rounds.map(item => item.batch),
+    new Map(rounds.flatMap(item => item.runs.map(run => [run.runId, run]))),
+  ] as const;
+}
 
-test("aggregate pass and flake targets (positive)", () => {
-  const batches = [batch(3), batch(2), batch(1)];
-  const map = new Map<string, StoredRun>();
-  for (const b of batches) {
-    for (const id of b.runIds) map.set(id, run(id, "passed", b.batchId));
-  }
-  const report = computeRegressionBaseline(batches, map);
+test("three selected rounds of the same cases form a wall-clock baseline regardless of input order", () => {
+  const third = round(3);
+  third.batch.runIds.reverse();
+  const [batches, runs] = input([round(2), third, round(1), round(4)]);
+  const report = computeRegressionBaseline(batches, runs);
   assert.ok(report);
+  assert.deepEqual(report.testIds, ["a", "b"]);
+  assert.deepEqual(report.batches.map(batch => batch.batchId), ["batch_4", "batch_3", "batch_2"]);
+  assert.deepEqual(report.batches.map(batch => batch.durationMs), [1200, 1200, 1200]);
+  assert.equal(report.aggregate.durationMs, 3600);
   assert.equal(report.aggregate.passRate, 1);
-  assert.equal(report.aggregate.flakeRate, 0);
   assert.equal(report.aggregate.meetsPassTarget, true);
   assert.equal(report.aggregate.meetsFlakeTarget, true);
 });
 
-test("missing runs count as not passed (negative)", () => {
-  const batches = [batch(3, { passed: 8 }), batch(2, { passed: 8 }), batch(1, { passed: 8 })];
-  const map = new Map<string, StoredRun>();
-  for (const b of batches) {
-    for (const id of b.runIds.slice(0, 8)) map.set(id, run(id, "passed", b.batchId));
-  }
-  const report = computeRegressionBaseline(batches, map);
-  assert.ok(report);
-  assert.equal(report.aggregate.totalRuns, 30);
-  assert.equal(report.aggregate.passedRuns, 24);
-  assert.equal(report.aggregate.passRate, 0.8);
-  assert.equal(report.aggregate.meetsPassTarget, false);
+test("actual environment, case version, project, suite membership and parallel settings separate rounds", () => {
+  const matches = [round(1), round(2), round(3)];
+  const environments = round(4, {}, id => ({ comparisonKey: `environment-b:version-1:${id}` }));
+  const version = round(5, {}, id => id === "a" ? { comparisonKey: "environment-a:version-2:a" } : {});
+  const project = round(6, {}, () => ({ projectId: "different" }));
+  const membership = round(7, { runIds: ["run_7_a", "run_7_c"] });
+  const parallel = round(8, { maxParallel: 1 });
+  const legacyParallel = round(9, { maxParallel: undefined });
+  const [batches, runs] = input([...matches, environments, version, project, membership, parallel, legacyParallel]);
+  const reports = computeRegressionBaselines(batches, runs);
+  assert.deepEqual(reports.map(report => report.batchCount), [1, 1, 1, 1, 1, 1, 3]);
+  assert.equal(new Set(reports.map(report => report.suiteKey)).size, 7);
+  assert.equal(reports[0]!.maxParallel, undefined);
+  assert.equal(reports[1]!.maxParallel, 1);
+  assert.equal(computeRegressionBaseline(batches, runs)?.suiteKey, reports.at(-1)?.suiteKey);
 });
 
-test("cross-batch pass/fail instability fails the flake target (negative)", () => {
-  const batches = [batch(3), batch(2), batch(1)];
-  const map = new Map<string, StoredRun>();
-  for (const b of batches) {
-    for (const id of b.runIds) {
-      const flaky = b.batchId === "b3" && ["_0", "_1", "_2"].some((suffix) => id.endsWith(suffix));
-      map.set(id, run(id, flaky ? "failed" : "passed", b.batchId, flaky ? "ENVIRONMENT" : undefined));
-    }
+test("partial, legacy unidentifiable, draft and trial rounds do not fill a comparable baseline", () => {
+  const incomplete = round(3);
+  incomplete.runs.pop();
+  const [batches, runs] = input([
+    round(1), round(2), incomplete,
+    round(4, {}, () => ({ comparisonKey: undefined })),
+    round(5, { mode: "include-draft" }),
+    round(6, {}, () => ({ trial: true })),
+    round(7, { repeatCount: 2 }),
+    round(8, {}, () => ({ batchId: "other-batch" })),
+    round(9, {}, () => ({ testId: "duplicate" })),
+  ]);
+  assert.deepEqual(computeRegressionBaselines(batches, runs).map(report => report.batchCount), [2]);
+  assert.equal(computeRegressionBaseline(batches, runs), null);
+});
+
+test("recorded failures remain in the denominator and product failures do not inflate flake", () => {
+  const [batches, runs] = input([
+    round(1, { mode: "full" }), round(2, { mode: "full" }),
+    round(3, { mode: "full" }, id => id === "a" ? {
+      status: "failed", metrics: { durationMs: 200, attemptCount: 1, llmTokensUsed: 0, failureKind: "PRODUCT_DEFECT" },
+    } : {}),
+  ]);
+  const report = computeRegressionBaseline(batches, runs)!;
+  assert.equal(report.aggregate.passedRuns, 5);
+  assert.equal(report.aggregate.totalRuns, 6);
+  assert.equal(report.aggregate.meetsPassTarget, false);
+  assert.equal(report.aggregate.flakeRate, 0);
+  runs.get("run_3_a")!.metrics.failureKind = "ENVIRONMENT";
+  assert.equal(computeRegressionBaseline(batches, runs)?.aggregate.meetsFlakeTarget, false);
+});
+
+test("manual savings use exact scope and require measured manual, triage and residual work", () => {
+  const record = { suiteKey: "same-scope", manualRegressionMinutes: 20, reviewAndTriageMinutes: 4, remainingManualMinutes: 0 };
+  assert.deepEqual(manualMeasurementForSuite("same-scope", [record]), {
+    manualRegressionMinutes: 20, reviewAndTriageMinutes: 4, remainingManualMinutes: 0, minutesSaved: 16,
+  });
+  assert.equal(manualMeasurementForSuite("same-scope", [{ ...record, remainingManualMinutes: 22 }]).minutesSaved, -6);
+  assert.equal(manualMeasurementForSuite("another-scope", [record]).manualRegressionMinutes, null);
+  for (const remainingManualMinutes of [undefined, NaN, -1, "3"]) {
+    assert.equal(manualMeasurementForSuite("same-scope", [{ ...record, remainingManualMinutes }]).minutesSaved, null);
   }
-  const report = computeRegressionBaseline(batches, map);
-  assert.ok(report);
-  assert.ok(report.aggregate.flakeRate > 0);
-  assert.equal(report.aggregate.meetsFlakeTarget, false);
+  assert.equal(manualMeasurementForSuite("same-scope", [record, record]).minutesSaved, null);
 });

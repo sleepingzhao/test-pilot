@@ -24,6 +24,7 @@ export type SessionMeta = {
   passed?: number;
   mode?: string;
   repeatCount?: number;
+  maxParallel?: number;
   artifactBytesTotal?: number;
   error?: string;
   /** Detection sessions only. */

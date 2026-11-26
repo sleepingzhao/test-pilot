@@ -3,6 +3,7 @@ import {
   api,
   type RecordAskResponse,
   type RecordLocateResponse,
+  type RegressionBaselinesResponse,
   type StoredBatch,
   type StoredRun,
   type StoredTest,
@@ -22,6 +23,7 @@ import { RequirementFlowView } from "./RequirementFlowView";
 import { ApiTestView } from "./ApiTestView";
 import { ApiTestEditPanel } from "./ApiTestEditPanel";
 import { SystemProfileView } from "./SystemProfileView";
+import { RegressionBaselinePanel } from "./RegressionBaselinePanel";
 import { RunDetailView } from "./RunDetailView";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { failureKindLabel, failureScreenshotPath, summarizeAssertion } from "./stepSummary";
@@ -169,9 +171,6 @@ export function App() {
     batchRunCount?: number;
     standaloneRunCount?: number;
     lastBatchDurationMs?: number | null;
-    pilotBaselineMinutes?: number | null;
-    minutesSavedVsBaseline?: number | null;
-    lastBatchMinutes?: number | null;
     approvedTestCount?: number;
     approvedPilotCount?: number;
     approvedDemoCount?: number;
@@ -200,30 +199,7 @@ export function App() {
     }>;
     failureKinds: Array<{ kind: string; count: number }>;
   } | null>(null);
-  const [baseline, setBaseline] = useState<{
-    report: {
-      batchCount: number;
-      aggregate: {
-        passRate: number;
-        flakeRate: number;
-        flakeRecoveryRate: number;
-        durationMs: number;
-        meetsPassTarget: boolean;
-        meetsFlakeTarget: boolean;
-        totalRuns: number;
-        passedRuns: number;
-      };
-      batches: Array<{
-        batchId: string;
-        startedAt: string;
-        passed: number;
-        total: number;
-        passRate: number;
-        durationMs: number;
-      }>;
-    } | null;
-    targets: { passRateMin: number; flakeRateMax: number };
-  } | null>(null);
+  const [baseline, setBaseline] = useState<RegressionBaselinesResponse | null>(null);
   const [demoOk, setDemoOk] = useState<boolean | null>(null);
   const [demoUrl, setDemoUrl] = useState("http://127.0.0.1:4173/");
   const [pilotOk, setPilotOk] = useState<boolean | null>(null);
@@ -346,9 +322,6 @@ export function App() {
         avgDurationMs: number;
         runCount: number;
         lastBatchDurationMs?: number | null;
-        pilotBaselineMinutes?: number | null;
-        minutesSavedVsBaseline?: number | null;
-        lastBatchMinutes?: number | null;
         approvedPilotCount?: number;
         approvedDemoCount?: number;
         approvedTestCount?: number;
@@ -389,30 +362,7 @@ export function App() {
       setFlakeMetrics(null);
     }
     try {
-      const bl = await api<{
-        report: {
-          batchCount: number;
-          aggregate: {
-            passRate: number;
-            flakeRate: number;
-            flakeRecoveryRate: number;
-            durationMs: number;
-            meetsPassTarget: boolean;
-            meetsFlakeTarget: boolean;
-            totalRuns: number;
-            passedRuns: number;
-          };
-          batches: Array<{
-            batchId: string;
-            startedAt: string;
-            passed: number;
-            total: number;
-            passRate: number;
-            durationMs: number;
-          }>;
-        } | null;
-        targets: { passRateMin: number; flakeRateMax: number };
-      }>("/api/metrics/baseline");
+      const bl = await api<RegressionBaselinesResponse>("/api/metrics/baseline");
       setBaseline(bl);
     } catch {
       setBaseline(null);
@@ -1508,40 +1458,7 @@ export function App() {
                 </span>
               </div>
             </div>
-            {summary?.minutesSavedVsBaseline != null && summary.minutesSavedVsBaseline > 0 ? (
-              <p className="stat-note">
-                人工基线约 {summary.pilotBaselineMinutes} 分钟 · 本批节省约 {summary.minutesSavedVsBaseline} 分钟
-              </p>
-            ) : null}
-            {baseline?.report && baseline.report.batchCount >= 3 ? (
-              <div className="batch-trend baseline-panel">
-                <h3 className="batch-trend-title">连续三批基线</h3>
-                <p className="flake-lede">
-                  通过率 {Math.round(baseline.report.aggregate.passRate * 100)}%（目标 ≥
-                  {Math.round(baseline.targets.passRateMin * 100)}%
-                  {baseline.report.aggregate.meetsPassTarget ? " ✓" : " ✗"}）· flake{" "}
-                  {Math.round(baseline.report.aggregate.flakeRate * 100)}%（目标 &lt;
-                  {Math.round(baseline.targets.flakeRateMax * 100)}%
-                  {baseline.report.aggregate.meetsFlakeTarget ? " ✓" : " ✗"}）· 总耗时{" "}
-                  {Math.round(baseline.report.aggregate.durationMs / 1000)}s
-                </p>
-                <ul className="batch-trend-list">
-                  {baseline.report.batches.map((b) => (
-                    <li key={b.batchId}>
-                      <button type="button" className="link-button" onClick={() => openBatch(b.batchId)}>
-                        {new Date(b.startedAt).toLocaleString()}
-                      </button>
-                      <span className={b.passed === b.total ? "batch-ok" : "batch-warn"}>
-                        {b.passed}/{b.total}
-                      </span>
-                      <span className="batch-dur">{Math.round(b.durationMs / 1000)}s</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : (
-              <p className="stat-note">完成 3 次显式全量批次后，此处显示 V0.4 基线报告。</p>
-            )}
+            <RegressionBaselinePanel baseline={baseline} onOpenBatch={openBatch} />
             {flakeMetrics && flakeMetrics.runCount > 0 ? (
               <div className="batch-trend flake-panel">
                 <h3 className="batch-trend-title">Flake 统计</h3>

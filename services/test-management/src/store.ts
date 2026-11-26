@@ -71,6 +71,7 @@ export type StoredBatch = {
   /** full = approved-only whole suite; selected = explicit testId; include-draft = mixed. */
   mode?: "full" | "selected" | "include-draft";
   repeatCount?: number;
+  maxParallel?: number;
   /** Sum of artifact bytes for runs in this batch (best-effort at completion). */
   artifactBytesTotal?: number;
 };
@@ -231,7 +232,9 @@ export class FileStore {
       const complete = batchRuns.length >= batch.total;
       await this.saveBatch({
         ...batch,
-        completedAt: new Date().toISOString(),
+        completedAt: complete
+          ? batchRuns.map(run => run.completedAt).sort().at(-1)
+          : new Date().toISOString(),
         status: complete ? "completed" : "failed",
         passed: batchRuns.filter((r) => r.status === "passed").length,
         runIds: batchRuns.map((r) => r.runId),

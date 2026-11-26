@@ -6,5 +6,6 @@
   "manualRegressionMinutes": 25,
   "manualCaseCount": 10,
   "automatedCaseCount": 0,
+  "manualMeasurements": [],
   "notes": "复制本文件为 pilot-baseline.json（已 gitignore），仅保存在本地。"
 }

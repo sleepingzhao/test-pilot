@@ -64,13 +64,20 @@ test("recoverInterruptedBatches reconstructs interrupted batches from runs", asy
       mode: "full",
       repeatCount: 1,
     });
-    await store.saveRun(run("run_1", "batch_running", "passed"));
-    await store.saveRun(run("run_2", "batch_running", "failed"));
+    await store.saveRun({
+      ...run("run_1", "batch_running", "passed"),
+      completedAt: "2026-01-01T01:00:00.000Z",
+    });
+    await store.saveRun({
+      ...run("run_2", "batch_running", "failed"),
+      completedAt: "2026-01-01T02:00:00.000Z",
+    });
 
     assert.equal(await store.recoverInterruptedBatches(), 1);
     const recovered = await store.getBatch("batch_running");
     assert.equal(recovered?.status, "completed");
     assert.equal(recovered?.passed, 1);
+    assert.equal(recovered?.completedAt, "2026-01-01T02:00:00.000Z");
     assert.deepEqual(recovered?.runIds.sort(), ["run_1", "run_2"]);
   } finally {
     await rm(root, { recursive: true, force: true });

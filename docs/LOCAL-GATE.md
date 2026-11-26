@@ -49,6 +49,28 @@ pnpm clean:artifacts --execute    # 实际删除
 批量回归并行度：`TESTPILOT_MAX_PARALLEL`（默认 2，上限 4），见 `.env.example`。
 单条用例硬超时：`TESTPILOT_RUN_TIMEOUT_MS`（默认 180000，范围 30s–10min）；超时会落一条 error run，批次继续，不会卡死。
 
+## 套件回归基线（V8-6）
+
+同一批已批准用例及执行指纹的最近三批可比较回归形成基线。支持明确选跑和全量批次，批次需包含完整运行记录，重复运行模式另行查看。自动耗时使用批次墙钟。旧批次若有用例执行指纹，按已记录的信息归组，并与记录了并发的批次分开显示。
+
+在控制台「套件回归基线」展开当前组，复制完整计时标识。将该组实测的分钟数填入本地 `docs/pilot-baseline.json` 的 `manualMeasurements` 数组。
+
+```json
+{
+  "manualMeasurements": [
+    {
+      "suiteKey": "控制台提供的完整计时标识",
+      "manualRegressionMinutes": 12,
+      "reviewAndTriageMinutes": 3,
+      "remainingManualMinutes": 2
+    }
+  ]
+}
+```
+
+示例数字只展示格式。填写同范围的一轮人工耗时，确认为零的项填 0，待测项留空。人工净节省为纯手工回归减审阅排错与剩余手工检查，允许为负。自动执行的墙钟耗时单独展示。
+
+
 ## 与 `pnpm dev` 的关系
 
 日常开发用 `pnpm dev`（控制台 + API + demo）。**不等同于** verify；改代码后仍应单独跑 `pnpm verify` 再 push。

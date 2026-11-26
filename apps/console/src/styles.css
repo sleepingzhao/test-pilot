@@ -2602,3 +2602,15 @@ button.status-chip {
 .business-coverage ul { margin: .6rem 0 0; padding: 0; list-style: none; min-width: 10rem; }
 .business-coverage li { display: grid; gap: .2rem; margin-bottom: .5rem; overflow-wrap: anywhere; }
 .business-coverage .link-button { justify-self: start; text-align: left; }
+
+
+.baseline-human {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: .25rem .8rem;
+  margin: .8rem 0;
+  font-size: .88rem;
+}
+
+.baseline-human dd { margin: 0; }
+.baseline-scope code { overflow-wrap: anywhere; }

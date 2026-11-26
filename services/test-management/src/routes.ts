@@ -78,7 +78,9 @@ import { autoPruneArtifacts, measureBatchArtifactBytes } from "./artifact-cleanu
 import { createMutex, mapWithConcurrency, maxParallelFromEnv } from "./batch-parallel.js";
 import { sessionArtifactsRunsDir, sessionIdForBatch, sessionIdForRun } from "./session-layout.js";
 import {
-  computeRegressionBaseline,
+  computeRegressionBaselines,
+  manualMeasurementForSuite,
+  REGRESSION_TARGETS,
   writeRegressionBaselineReport,
 } from "./regression-baseline.js";
 import {
@@ -136,6 +138,7 @@ export function resetRecordStateForTest(): void {
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 export type RunBatchJob = {
+  maxParallel: number;
   id: string;
   batchId: string;
   status: "running" | "completed" | "failed";
@@ -356,6 +359,7 @@ async function snapshotAtUrl(url: string) {
 
 async function loadPilotBaseline(): Promise<{
   manualRegressionMinutes?: number;
+  manualMeasurements?: unknown;
   notes?: string;
   baseUrl?: string;
   loginPath?: string;
@@ -363,6 +367,7 @@ async function loadPilotBaseline(): Promise<{
 } | null> {
   const doc = await readLocalJson<{
     manualRegressionMinutes?: number;
+    manualMeasurements?: unknown;
     notes?: string;
     baseUrl?: string;
     loginPath?: string;
@@ -419,12 +424,14 @@ function sameOriginAs(url: string, configured: string): boolean {
   }
 }
 
+async function loadRegressionBaselines(store: FileStore) {
+  const [batches, runs] = await Promise.all([store.listBatches(50), store.listRuns(Infinity)]);
+  return computeRegressionBaselines(batches, new Map(runs.map(run => [run.runId, run])));
+}
+
 async function refreshRegressionBaselineReport(store: FileStore, dataRoot: string) {
-  const batches = await store.listBatches(50);
-  const runs = await store.listRuns(500);
-  const byId = new Map(runs.map((r) => [r.runId, r]));
-  const report = computeRegressionBaseline(batches, byId);
-  await writeRegressionBaselineReport(dataRoot, report);
+  const reports = await loadRegressionBaselines(store);
+  await writeRegressionBaselineReport(dataRoot, reports.find(report => report.batchCount === 3) ?? null);
 }
 
 async function appendRunMetrics(dataRoot: string, stored: StoredRun, extra?: Record<string, unknown>) {
@@ -583,7 +590,7 @@ async function executeRuns(
   dataRoot: string,
   job?: RunBatchJob,
 ): Promise<StoredRun[]> {
-  const parallel = tests.length > 1 ? maxParallelFromEnv() : 1;
+  const parallel = job?.maxParallel ?? 1;
   const batchCtx =
     job != null ? { batchId: job.batchId, batchStartedAt: job.startedAt } : undefined;
   // One pilot account: concurrent logins race with each other and stall page loads.
@@ -2232,10 +2239,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
   });
 
   app.get("/api/metrics/baseline", async () => {
-    const batches = await store.listBatches(50);
-    const runs = await store.listRuns(500);
-    const report = computeRegressionBaseline(batches, new Map(runs.map((r) => [r.runId, r])));
-    return { report, targets: { passRateMin: 0.95, flakeRateMax: 0.05 } };
+    const [groups, config] = await Promise.all([loadRegressionBaselines(store), loadPilotBaseline()]);
+    const reports = groups.map(group => ({
+      ...group,
+      human: manualMeasurementForSuite(group.suiteKey, config?.manualMeasurements),
+    }));
+    return { reports, report: reports.find(group => group.batchCount === 3) ?? null, targets: REGRESSION_TARGETS };
   });
 
   app.get("/api/metrics/summary", async () => {
@@ -2260,11 +2269,8 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     const batchRunCount = runs.filter((r) => batchRunIds.has(r.runId)).length;
     const standaloneRunCount = runs.length - batchRunCount;
     const recentBatches = storedBatches.slice(0, 8).map(metricsFromBatchRecord);
-    const fullBatch = storedBatches.find((b) => b.mode === "full" && (b.repeatCount ?? 1) === 1);
-    const lastBatchMs = fullBatch ? metricsFromBatchRecord(fullBatch).durationMs : null;
-    const batchMinutes = lastBatchMs != null ? lastBatchMs / 60_000 : null;
-    const minutesSavedVsBaseline =
-      batchMinutes != null && baselineMin != null ? Math.max(0, Math.round((baselineMin - batchMinutes) * 10) / 10) : null;
+    const lastCompleted = storedBatches.find(batch => batch.status === "completed");
+    const lastBatchMs = lastCompleted ? metricsFromBatchRecord(lastCompleted).durationMs : null;
     return {
       runCount: runs.length,
       batchRunCount,
@@ -2282,7 +2288,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       lastBatchMinutes: lastBatchMs != null ? Math.round((lastBatchMs / 60_000) * 10) / 10 : null,
       pilotBaselineMinutes: baselineMin,
       pilotBaselineNotes: baseline?.notes ?? null,
-      minutesSavedVsBaseline,
+      minutesSavedVsBaseline: null, // Legacy clients should use the scoped baseline report.
       recentBatches,
       flakeRecoveryCount: flake.flakeRecoveryCount,
       flakeRecoveryRate: flake.flakeRecoveryRate,
@@ -2412,7 +2418,9 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     }
 
     const jobId = `batch_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
+    const maxParallel = Math.min(list.length, maxParallelFromEnv());
     const job: RunBatchJob = {
+      maxParallel,
       id: jobId,
       batchId: jobId,
       status: "running",
@@ -2432,25 +2440,27 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       runIds: [],
       mode: body.testId || body.testIds?.length ? "selected" : body.includeDraft ? "include-draft" : "full",
       repeatCount,
+      maxParallel,
     };
     await store.saveBatch(batchRecord);
 
     void executeRuns(store, list, baseUrl, projectId, artifactsRoot, dataRoot, job)
       .then(async (runs) => {
-        job.status = "completed";
         job.runs = runs;
-        job.completedAt = new Date().toISOString();
+        const completedAt = new Date().toISOString();
         const runIds = runs.map((r) => r.runId);
         const artifactBytesTotal = await measureBatchArtifactBytes(artifactsRoot, runIds);
         await store.saveBatch({
           ...batchRecord,
-          completedAt: job.completedAt,
+          completedAt,
           passed: runs.filter((r) => r.status === "passed").length,
           status: "completed",
           runIds,
           artifactBytesTotal,
         });
-        await refreshRegressionBaselineReport(store, dataRoot);
+        job.completedAt = completedAt;
+        job.status = "completed";
+        await refreshRegressionBaselineReport(store, dataRoot).catch(err => app.log.error({ err }, "baseline report write failed"));
         void autoPruneArtifacts({ artifactsRoot, dataRoot }).catch(() => undefined);
       })
       .catch(async (err) => {
@@ -2478,7 +2488,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       total: list.length,
       repeatCount,
       batch: batchRecord,
-      maxParallel: maxParallelFromEnv(),
+      maxParallel,
     };
   });
 

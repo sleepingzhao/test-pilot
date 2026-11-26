@@ -78,7 +78,7 @@ export function businessCoverage(profile: DetectionReport, tests: StoredTest[], 
       if (checksRoute) add("route");
       // A frame locator on a shell page does not identify a content route.
       if (a.frame) continue;
-      if ((a.minCount ?? 0) >= 2 && ["row", "listitem", "cell"].includes(a.target?.role ?? "")) add("list");
+      if (a.listRecords && (a.minCount ?? 0) >= 2 && ["table", "grid", "list"].includes(a.target?.role ?? "")) add("list");
       const actions = steps.slice(nav + 1).filter(step => !step.frame);
       const elements = elementsByRoute.get(row.route) ?? [];
       const fill = actions.filter(step => isSearchInput(step, elements)).at(-1);

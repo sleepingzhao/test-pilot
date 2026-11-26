@@ -55,6 +55,7 @@ export type AssertionSummary = {
   notContains?: string;
   urlIncludes?: string;
   minCount?: number;
+  listRecords?: boolean;
   requestRef?: string;
   stepRef?: string;
   expect?: Record<string, unknown>;
@@ -98,7 +99,7 @@ export function summarizeAssertion(a: AssertionSummary, index: number): string {
     const checks = [];
     if (a.urlIncludes) checks.push(`URL 包含「${a.urlIncludes}」`);
     if (a.target) checks.push(`定位 ${JSON.stringify(a.target)}`);
-    if (a.minCount !== undefined) checks.push(`数量 ≥ ${a.minCount}`);
+    if (a.minCount !== undefined) checks.push(`${a.listRecords ? "可见业务记录" : "数量"} ≥ ${a.minCount}`);
     if (a.contains) checks.push(`包含「${a.contains}」`);
     if (a.notContains) checks.push(`不含「${a.notContains}」`);
     return `${label} [UI] ${checks.join(" · ")}`;

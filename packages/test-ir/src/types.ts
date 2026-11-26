@@ -25,6 +25,8 @@ export interface Locator {
   css?: string;
 }
 
+export type ListRecordScope = { role: "table" | "grid" | "list"; testId?: string };
+
 export interface TestActor {
   id: string;
   loginSteps?: TestStep[];
@@ -85,6 +87,8 @@ export interface TestAssertion {
   contains?: string;
   /** Require at least N elements matching `target` (structure assertion). */
   minCount?: number;
+  /** Count visible business records inside one table, grid or list target. */
+  listRecords?: true;
   /** Text that must be absent; pair it with `contains` or `target` so a blank page cannot pass. */
   notContains?: string;
   /** Require the page URL to contain this fragment (proves routing even for iframe-shell pages). */

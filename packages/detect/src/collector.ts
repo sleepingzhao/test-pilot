@@ -1,5 +1,5 @@
 import type { Frame, Locator, Page } from "playwright";
-import { snapshotPageContext } from "@testpilot/context-web";
+import { observeRecordList, snapshotPageContext } from "@testpilot/context-web";
 import { evaluateCapabilities } from "./rules.js";
 import {
   classifySignals,
@@ -407,12 +407,16 @@ function attachNetwork(page: Page): { records: NetworkObservation[]; detach: () 
 }
 
 async function readSurface(page: Page): Promise<SurfaceSnapshot> {
-  const snapshot = await snapshotPageContext(page);
+  const [snapshot, recordList] = await Promise.all([
+    snapshotPageContext(page),
+    observeRecordList(page),
+  ]);
   const title = await page.title();
   return {
     route: pathOf(page.url()),
     title: title || undefined,
     elements: snapshot.elements,
+    ...(recordList ? { recordList } : {}),
     ...(snapshot.texts.length ? { texts: snapshot.texts } : {}),
   };
 }

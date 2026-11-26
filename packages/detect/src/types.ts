@@ -1,3 +1,5 @@
+import type { ListRecordScope } from "@testpilot/test-ir";
+
 /** Capability taxonomy v1. Keep this product-agnostic: packs bind to capabilities, not vendors. */
 export type CapabilityId =
   | "crud"
@@ -76,8 +78,10 @@ export type ListItemRole = "row" | "listitem" | "cell";
 export type SurfaceSnapshot = {
   route: string;
   title?: string;
-  /** Structural hint retained when element text is removed from a real profile. */
+  /** Legacy unscoped hint from V8-3 profiles. */
   listItemRole?: ListItemRole;
+  /** Observed container locator without business record text. */
+  recordList?: ListRecordScope;
   elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string; placeholder?: string; ariaLabel?: string; inNav?: boolean }>;
   texts?: string[];
 };

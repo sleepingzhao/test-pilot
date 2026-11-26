@@ -119,6 +119,7 @@ test("real target strips page text from the stored profile", async () => {
       {
         route: "/home",
         title: "真实系统标题",
+        recordList: { role: "table", testId: "directory-table" },
         elements: [{ role: "button", name: "人名" }, { role: "row", name: "目录记录一" }, { role: "row", name: "目录记录二" }],
       },
     ],
@@ -153,7 +154,7 @@ test("real target strips page text from the stored profile", async () => {
     const stored = await readDetection(dataRoot, record.id);
     assert.equal(stored?.profile.surfaces[0]?.elements[0]?.name, undefined);
     assert.ok(stored);
-    assert.equal(stored.profile.surfaces[0]?.listItemRole, "row");
+    assert.deepEqual(stored.profile.surfaces[0]?.recordList, { role: "table", testId: "directory-table" });
     assert.ok(stored.profile.surfaces[0]?.elements.every(element => element.name === undefined));
     const smoke = {
       id: "ro-old-home-load", title: "路由冒烟", projectId: "default", approvalStatus: "approved" as const,
@@ -167,7 +168,7 @@ test("real target strips page text from the stored profile", async () => {
     const [list] = planReadOnlyCases({ detectionId: stored.id, profile: stored.profile, targetMode: "real", tests: [smoke] });
     assert.ok(list);
     assert.match(list.testId, /-list$/);
-    assert.ok(list.ir.assertions.some(assertion => assertion.minCount === 2 && assertion.target?.role === "row"));
+    assert.ok(list.ir.assertions.some(assertion => assertion.listRecords && assertion.minCount === 2 && assertion.target?.testId === "directory-table"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

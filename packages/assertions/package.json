@@ -18,6 +18,7 @@
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {
+    "@testpilot/context-web": "workspace:*",
     "@testpilot/evidence": "workspace:*",
     "@testpilot/fixtures": "workspace:*",
     "@testpilot/test-ir": "workspace:*",

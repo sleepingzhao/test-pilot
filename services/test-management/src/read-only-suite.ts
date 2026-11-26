@@ -1,5 +1,5 @@
-import type { DetectionReport, ListItemRole } from "@testpilot/detect";
-import type { Locator, TestIR } from "@testpilot/test-ir";
+import type { DetectionReport } from "@testpilot/detect";
+import type { ListRecordScope, Locator, TestIR } from "@testpilot/test-ir";
 import { businessCoverage, routeKey } from "./route-coverage.js";
 import type { StoredTest } from "./store.js";
 
@@ -62,16 +62,6 @@ function globalKeys(surfaces: DetectionReport["surfaces"]): Set<string> {
   }
   // Two appearances already means shared chrome; excluding a repeated tab is safer than asserting it.
   return new Set([...counts.entries()].filter(([, count]) => count >= 2).map(([key]) => key));
-}
-
-export function observedListRoles(surfaces: DetectionReport["surfaces"]): Map<string, ListItemRole> {
-  const keys = globalKeys(surfaces);
-  const roles = new Map<string, ListItemRole>();
-  for (const surface of surfaces) {
-    const role = structuralTarget(surface, keys)?.target.role;
-    if (role) roles.set(surface.route, role);
-  }
-  return roles;
 }
 
 type SnapshotElement = {
@@ -179,32 +169,6 @@ export function itemTexts(
   return [];
 }
 
-export function structuralTarget(
-  surface: DetectionReport["surfaces"][number],
-  global: Set<string>,
-): { target: { role: ListItemRole }; minCount: number } | undefined {
-  const usable = surfaceElements(surface, global);
-  const roles: Array<{ role: ListItemRole; minNamed: number; minCount: number }> = [
-    { role: "row", minNamed: 2, minCount: 2 },
-    { role: "listitem", minNamed: 2, minCount: 2 },
-    { role: "cell", minNamed: 3, minCount: 2 },
-  ];
-  for (const spec of roles) {
-    const named = usable.filter(
-      (element) =>
-        element.role === spec.role &&
-        !element.inNav &&
-        element.name?.trim() &&
-        isUsableItemName(element.name.trim()),
-    );
-    if (named.length < spec.minNamed) continue;
-    const names = named.map((element) => element.name!.trim());
-    if (new Set(names).size === 1) continue;
-    return { target: { role: spec.role }, minCount: spec.minCount };
-  }
-  return undefined;
-}
-
 export function columnHeaderTexts(surface: DetectionReport["surfaces"][number], global: Set<string>): string[] {
   const seen = new Set<string>();
   const headers: string[] = [];
@@ -309,6 +273,8 @@ export function planReadOnlyCases(input: {
   contentElements?: Record<string, SnapshotElement[]>;
   /** The exact standalone path that produced the snapshot (trailing slash matters). */
   contentPaths?: Record<string, string>;
+  /** A populated, unambiguous list container observed on the standalone content page. */
+  contentRecordLists?: Record<string, ListRecordScope>;
   /** Repeated block texts from content exploration when element names are missing. */
   contentTexts?: Record<string, string[]>;
 }): ReadOnlyCandidate[] {
@@ -322,10 +288,10 @@ export function planReadOnlyCases(input: {
     ...(input.profile.frameSurfaces ?? []).map((frame) => ({
       route: frame.route,
       elements: input.contentElements?.[frame.route] ?? frame.elements,
+      recordList: input.contentRecordLists?.[frame.route],
     })),
   ];
   const global = globalKeys(surfaces);
-  const listRoles = new Map(input.profile.surfaces.map(surface => [surface.route, surface.listItemRole]));
   const seen = new Set<string>();
   const candidates: ReadOnlyCandidate[] = [];
 
@@ -343,13 +309,12 @@ export function planReadOnlyCases(input: {
       ? itemsFromElements
       : filterFallbackItemTexts(input.contentTexts?.[surface.route] ?? [], surface);
     const itemsFromElementsOnly = itemsFromElements.length > 0;
-    const storedRole = contentPage ? undefined : listRoles.get(surface.route);
-    const struct = structuralTarget(surface, global) ?? (storedRole ? { target: { role: storedRole }, minCount: 2 } : undefined);
+    const recordList = surface.recordList;
     const headers = columnHeaderTexts(surface, global);
     const link = itemLink(surface, global, itemsFromElementsOnly ? items : []);
     const row = coverage.get(route);
     const covered = new Set(row?.evidence.map(ref => ref.kind));
-    const wantLoad = !covered.has("route") || (!!struct && !covered.has("list"));
+    const wantLoad = !covered.has("route") || (!!recordList && !covered.has("list"));
     const wantSearch =
       Boolean(search) &&
       (items.length > 0
@@ -366,11 +331,11 @@ export function planReadOnlyCases(input: {
     const policy = { screenshots: "never" as const, cleanup: "none" as const };
 
     if (wantLoad) {
-      const suffix = struct && covered.has("route") ? "list" : "load";
+      const suffix = recordList && covered.has("route") ? "list" : "load";
       const loadId = `${availablePrefix(baseId, [suffix], approvedIds)}-${suffix}`;
       candidates.push({
         testId: loadId,
-        title: `真实只读·${pageLabel}${route} ${struct ? "列表验证" : "加载"}`,
+        title: `真实只读·${pageLabel}${route} ${recordList ? "列表验证" : "加载"}`,
         route,
         kind: "load",
         notes: [
@@ -378,7 +343,7 @@ export function planReadOnlyCases(input: {
             ? `由画像中的 iframe 内容页 ${route} 自动生成；独立打开该内容页，断言路由与页面元素`
             : `由画像表面 ${route} 自动生成；断言路由 URL 落到该页面`,
           ...(stable ? ["附加断言目标来自该页面的非全局元素"] : ["该页只有全局元素，未生成可见性断言"]),
-          ...(struct ? ["附加列表行数断言（minCount）证明列表已渲染"] : []),
+          ...(recordList ? ["验证指定列表内至少有两条可见业务记录"] : []),
         ],
         ir: {
           id: loadId,
@@ -389,13 +354,14 @@ export function planReadOnlyCases(input: {
           assertions: [
             { id: "routed", type: "ui", urlIncludes: pagePath, oracle: "human-approved" },
             ...(stable ? [{ id: "visible", type: "ui" as const, target: stable, oracle: "human-approved" as const }] : []),
-            ...(struct
+            ...(recordList
               ? [
                   {
                     id: "items",
                     type: "ui" as const,
-                    target: struct.target,
-                    minCount: struct.minCount,
+                    target: recordList,
+                    minCount: 2,
+                    listRecords: true as const,
                     oracle: "human-approved" as const,
                   },
                 ]

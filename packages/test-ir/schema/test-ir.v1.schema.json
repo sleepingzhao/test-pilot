@@ -205,6 +205,7 @@
         "target": { "$ref": "#/$defs/locator" },
         "contains": { "type": "string" },
         "minCount": { "type": "integer", "minimum": 1 },
+        "listRecords": { "const": true },
         "notContains": { "type": "string", "minLength": 1 },
         "urlIncludes": { "type": "string", "minLength": 1 },
         "requestRef": { "type": "string", "minLength": 1 },
@@ -223,7 +224,26 @@
           "type": "string",
           "minLength": 1
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["listRecords"] },
+          "then": {
+            "required": ["target", "minCount"],
+            "properties": {
+              "type": { "const": "ui" },
+              "provider": { "const": "playwright-ui" },
+              "minCount": { "minimum": 2 },
+              "target": {
+                "required": ["role"],
+                "properties": { "role": { "enum": ["table", "grid", "list"] } }
+              },
+              "contains": false,
+              "notContains": false
+            }
+          }
+        }
+      ]
     },
     "actor": {
       "type": "object",

@@ -729,3 +729,20 @@ test("accepts frame selectors on steps and assertions", () => {
   });
   assert.equal(result.ok, true);
 });
+
+test("listRecords requires a supported container and a strong UI count", () => {
+  const input = {
+    id: "visible-records",
+    version: 1,
+    platform: "web",
+    steps: [{ id: "open", action: "navigate", path: "/" }],
+  };
+  const valid = { type: "ui", listRecords: true, minCount: 2, target: { role: "table" }, oracle: "human-approved" };
+  assert.equal(validateTestIR({ ...input, assertions: [valid] }).ok, true);
+  for (const changes of [
+    { target: undefined }, { target: { role: "row" } }, { minCount: 1 },
+    { minCount: undefined }, { type: "api" }, { provider: "custom-ui" }, { contains: "record" },
+  ]) {
+    assert.equal(validateTestIR({ ...input, assertions: [{ ...valid, ...changes }] }).ok, false, JSON.stringify(changes));
+  }
+});

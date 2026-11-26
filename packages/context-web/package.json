@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@testpilot/planner": "workspace:*",
+    "@testpilot/test-ir": "workspace:*",
     "playwright": "^1.49.0"
   },
   "devDependencies": {

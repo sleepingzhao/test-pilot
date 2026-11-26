@@ -131,6 +131,7 @@ function listSurfaceProfile(): DetectionReport {
     surfaces: [
       {
         route: "/members/",
+        recordList: { role: "table", testId: "members" },
         elements: [
           { role: "row", name: "Alice Chen" },
           { role: "row", name: "Bob Wang" },
@@ -156,7 +157,7 @@ test("semantic list surface generates minCount load and paired search cases", ()
   assert.ok(load);
   assert.ok(
     load.ir.assertions.some(
-      (assertion) => assertion.target?.role === "row" && assertion.minCount === 2,
+      (assertion) => assertion.target?.testId === "members" && assertion.listRecords && assertion.minCount === 2,
     ),
   );
   const match = cases.find((item) => item.testId.endsWith("-search-match"))!;
@@ -429,6 +430,10 @@ test("an approved URL smoke can gain a distinct list case in the same detection"
   const profile = listSurfaceProfile();
   const smoke = approvedReal("/members/");
   smoke.id = smoke.ir.id = "ro-d-members-load";
+  const legacy = { ...smoke, id: "old-list", ir: { ...smoke.ir, assertions: [
+    ...smoke.ir.assertions,
+    { type: "ui" as const, target: { role: "row" }, minCount: 2, oracle: "human-approved" as const },
+  ] } };
   const input = { detectionId: "d", targetMode: "real" as const, profile, tests: [smoke] };
   const before = businessCoverage(profile, input.tests, "real")[0]!;
   assert.deepEqual(before.evidence.map(ref => [ref.kind, ref.testId, ref.assertion.id]), [["route", smoke.id, "ok"]]);
@@ -441,6 +446,13 @@ test("an approved URL smoke can gain a distinct list case in the same detection"
   assert.deepEqual(after.evidence.filter(ref => ref.kind === "list").map(ref => [ref.testId, ref.assertion.id]),
     [[list.testId, "items"]]);
   assert.equal(planReadOnlyCases({ ...input, tests }).some(candidate => candidate.kind === "load"), false);
+  const legacyCoverage = businessCoverage(profile, [legacy], "real")[0]!;
+  assert.equal(legacyCoverage.evidence.some(ref => ref.kind === "list"), false);
+  assert.ok(planReadOnlyCases({ ...input, tests: [legacy] }).some(c => c.ir.assertions.some(a => a.listRecords)));
+  const oldSurface = profile.surfaces[0]!;
+  delete oldSurface.recordList;
+  oldSurface.listItemRole = "row";
+  assert.equal(planReadOnlyCases(input).some(c => c.ir.assertions.some(a => a.listRecords)), false);
   assert.deepEqual(smoke.ir.assertions, [{ id: "ok", type: "ui", urlIncludes: "/members/", oracle: "human-approved" }]);
 });
 
@@ -483,7 +495,7 @@ test("unapproved, other-target, and earlier-page assertions cannot fill a route'
   const profile = listSurfaceProfile();
   profile.surfaces.push({ route: "/other", elements: [] });
   const original = approvedReal("/members");
-  original.ir.assertions.push({ type: "ui", target: { role: "row" }, minCount: 2, oracle: "human-approved" });
+  original.ir.assertions.push({ type: "ui", target: { role: "table" }, listRecords: true, minCount: 2, oracle: "human-approved" });
   const wrongTarget = { ...original, ir: { ...original.ir, baseUrl: "https://elsewhere.invalid" } };
   const tests: StoredTest[] = [{ ...original, approvalStatus: "draft" }, wrongTarget];
   assert.ok(businessCoverage(profile, tests, "real").every(row => !row.evidence.length));

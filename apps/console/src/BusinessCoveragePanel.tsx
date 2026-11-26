@@ -4,7 +4,7 @@ import { api, type StoredTest } from "./api";
 import { summarizeAssertion } from "./stepSummary";
 
 const columns: Array<[RouteEvidence["kind"], string]> = [
-  ["route", "路由可达"], ["list", "列表数量"], ["searchMatch", "搜索命中"],
+  ["route", "路由可达"], ["list", "可见记录数"], ["searchMatch", "搜索命中"],
   ["searchFilter", "搜索过滤"], ["detail", "所选记录详情"],
 ];
 

@@ -1,5 +1,6 @@
 import type { Locator, TestAssertion } from "@testpilot/test-ir";
 import type { Page } from "playwright";
+import { countVisibleListRecords } from "@testpilot/context-web";
 import { runCapturedHttpAssertion, validateCapturedHttpAssertion } from "./captured-http.js";
 import { getAgentConfigBundle, getDbConfigBundle } from "@testpilot/fixtures";
 import {
@@ -70,6 +71,15 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
+function listRecordIssue(assertion: TestAssertion) {
+  if (!assertion.listRecords) return;
+  if (assertion.type !== "ui" || !["table", "grid", "list"].includes(assertion.target?.role ?? "") ||
+      !Number.isInteger(assertion.minCount) || (assertion.minCount ?? 0) < 2 ||
+      assertion.contains !== undefined || assertion.notContains !== undefined) {
+    return { path: "/listRecords", message: "listRecords requires a table, grid, or list target and minCount >= 2 without text predicates" };
+  }
+}
+
 export async function runUiAssertion(
   assertion: TestAssertion,
   ctx: AssertionContext,
@@ -83,6 +93,9 @@ export async function runUiAssertion(
       message: `expected ui assertion, got ${assertion.type}`,
     };
   }
+
+  const listIssue = listRecordIssue(assertion);
+  if (listIssue) return { assertionId: id, passed: false, errorKind: "ASSERTION_ORACLE", message: listIssue.message };
 
   try {
     const root = ctx.frame ? ctx.page.frameLocator(ctx.frame) : ctx.page;
@@ -127,17 +140,20 @@ export async function runUiAssertion(
       const locator = findTarget(assertion.target);
       const minCount = assertion.minCount;
       const deadline = Date.now() + uiAssertTimeoutMs();
-      let count = await locator.count();
+      const countMatches = assertion.listRecords
+        ? () => countVisibleListRecords(locator, assertion.target?.role ?? "")
+        : () => locator.count();
+      let count = await countMatches();
       while (count < minCount && Date.now() < deadline) {
         await sleep(100);
-        count = await locator.count();
+        count = await countMatches();
       }
       if (count < minCount) {
         return {
           assertionId: id,
           passed: false,
           errorKind: "PRODUCT_DEFECT",
-          message: `expected at least ${minCount} elements for target, found ${count}`,
+          message: `expected at least ${minCount} ${assertion.listRecords ? "visible business records" : "elements"} for target, found ${count}`,
           expected: `>= ${minCount}`,
           actual: String(count),
         };
@@ -263,6 +279,10 @@ export async function runAssertion(
 registerAssertionProvider({
   id: "playwright-ui",
   kind: "ui",
+  validate: assertion => {
+    const issue = listRecordIssue(assertion);
+    return issue ? [issue] : [];
+  },
   run: runUiAssertion,
 });
 

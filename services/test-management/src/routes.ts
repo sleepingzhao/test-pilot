@@ -6,11 +6,12 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { assertPlaywrightReady, combineActorRecordings, recordSession, type RecordedActor } from "@testpilot/recorder-web";
 import { runTestIR, type RunResult } from "@testpilot/runner-web";
-import { snapshotPageContext } from "@testpilot/context-web";
+import { observeRecordList, snapshotPageContext } from "@testpilot/context-web";
 import { draftToPartialIR, planDraft, planFromIntake, suggestAssertionsForTest, filterForbiddenSuggestionTokens } from "@testpilot/planner";
 import {
   computeIRHash,
   IR_HASH_VERSION,
+  type ListRecordScope,
   validateSemantics,
   validateTestIR,
   weakAssertionIssues,
@@ -177,10 +178,11 @@ async function exploreContentRoutes(
   routes: string[],
   origin: string,
   baselinePath: string,
-): Promise<{ elements: Record<string, SnapshotElement[]>; paths: Record<string, string>; texts: Record<string, string[]> }> {
+): Promise<{ elements: Record<string, SnapshotElement[]>; paths: Record<string, string>; texts: Record<string, string[]>; recordLists: Record<string, ListRecordScope> }> {
   const out: Record<string, SnapshotElement[]> = {};
   const paths: Record<string, string> = {};
   const texts: Record<string, string[]> = {};
+  const recordLists: Record<string, ListRecordScope> = {};
   const isSearchInput = (element: SnapshotElement) => {
     if (
       element.role !== "input" &&
@@ -194,7 +196,7 @@ async function exploreContentRoutes(
     return element.inputType === "search" || /搜索|search|筛选|filter/i.test(hint);
   };
   const handle = await openRealPage(origin).catch(() => undefined);
-  if (!handle) return { elements: out, paths, texts };
+  if (!handle) return { elements: out, paths, texts, recordLists };
   try {
     const base = new URL(origin).origin;
     const baseline = new Set<string>();
@@ -212,31 +214,38 @@ async function exploreContentRoutes(
       const candidates = route.endsWith("/") ? [route] : [`${route}/`, route];
       let elements: SnapshotElement[] = [];
       let keptTexts: string[] = [];
+      let keptRecordList: ListRecordScope | undefined;
       let routeScore = -1;
       for (const path of candidates) {
         try {
           await handle.page.goto(`${base}${path}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
           let best: SnapshotElement[] = [];
           let bestTexts: string[] = [];
+          let bestRecordList: ListRecordScope | undefined;
           let bestScore = -1;
           for (let attempt = 0; attempt < 3; attempt += 1) {
             await handle.page.waitForTimeout(2_000);
-            const snapshot = await snapshotPageContext(handle.page);
+            const [snapshot, recordList] = await Promise.all([
+              snapshotPageContext(handle.page),
+              observeRecordList(handle.page),
+            ]);
             const filtered = snapshot.elements.filter((element) => {
               if (isSearchInput(element)) return true;
               const key = element.testId ? `id:${element.testId}` : element.name ? `name:${element.name}` : "";
               return key ? !baseline.has(key) : false;
             });
             const contentScore = filtered.filter((element) => !isSearchInput(element)).length;
-            if (contentScore > bestScore) {
+            if (contentScore > bestScore || (contentScore === bestScore && recordList && !bestRecordList)) {
               best = filtered;
               bestTexts = snapshot.texts;
+              bestRecordList = recordList;
               bestScore = contentScore;
             }
           }
-          if (best.length && bestScore > routeScore) {
+          if ((best.length || bestRecordList) && bestScore > routeScore) {
             elements = best;
             keptTexts = bestTexts;
+            keptRecordList = bestRecordList;
             paths[route] = path;
             routeScore = bestScore;
             const hasInput = best.some(isSearchInput);
@@ -248,12 +257,13 @@ async function exploreContentRoutes(
       }
       out[route] = elements;
       texts[route] = keptTexts;
+      if (keptRecordList) recordLists[route] = keptRecordList;
       if (!paths[route]) paths[route] = candidates[0]!;
     }
   } finally {
     await handle.browser.close().catch(() => undefined);
   }
-  return { elements: out, paths, texts };
+  return { elements: out, paths, texts, recordLists };
 }
 
 function stampTestMeta(test: StoredTest, opts?: { approving?: boolean; assertionConfigHash?: string }): StoredTest {
@@ -1677,6 +1687,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         limit: body.limit,
         contentElements: explored.elements,
         contentPaths: explored.paths,
+        contentRecordLists: explored.recordLists,
         contentTexts: explored.texts,
       });
     } else {

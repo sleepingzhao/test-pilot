@@ -42,6 +42,14 @@ type IrAssertion = {
 };
 
 type View = "home" | "tests" | "create" | "detect" | "history" | "run" | "batch";
+const navigation = [
+  { id: "home", label: "开始" },
+  { id: "tests", label: "用例" },
+  { id: "create", label: "创建" },
+  { id: "detect", label: "系统画像" },
+  { id: "history", label: "结果" },
+] as const;
+
 type TestEnvKey = "pilot" | "demo" | "custom";
 type TestFilter = "all" | "draft" | `env:${TestEnvKey}`;
 
@@ -1299,25 +1307,21 @@ export function App() {
 
   return (
     <div className="shell">
-      <aside className="sidebar" aria-label="主导航">
-        <div className="brand">TestPilot</div>
-        <nav className="side-nav">
-          <button type="button" className={view === "home" ? "active" : ""} onClick={() => setView("home")}>
-            开始
-          </button>
-          <button type="button" className={view === "tests" ? "active" : ""} onClick={() => setView("tests")}>
-            用例
-            {draftCount > 0 ? <span className="nav-badge">{draftCount}</span> : null}
-          </button>
-          <button type="button" className={view === "create" ? "active" : ""} onClick={() => setView("create")}>
-            创建
-          </button>
-          <button type="button" className={view === "detect" ? "active" : ""} onClick={() => setView("detect")}>
-            系统画像
-          </button>
-          <button type="button" className={view === "history" ? "active" : ""} onClick={() => setView("history")}>
-            结果
-          </button>
+      <aside className="sidebar">
+        <div className="brand"><span className="brand-mark" aria-hidden="true" />TestPilot</div>
+        <nav className="side-nav" aria-label="主导航">
+          {navigation.map(({ id, label }) => {
+            const active = view === id || (id === "history" && (view === "run" || view === "batch"));
+            return (
+              <button key={id} type="button" aria-current={active ? "page" : undefined} onClick={() => setView(id)}>
+                <span className={`nav-icon nav-icon-${id}`} aria-hidden="true" />
+                <span>{label}</span>
+                {id === "tests" && draftCount > 0 ? (
+                  <span className="nav-badge" aria-label={`${draftCount} 条草稿`}>{draftCount}</span>
+                ) : null}
+              </button>
+            );
+          })}
         </nav>
       </aside>
 
@@ -1341,73 +1345,77 @@ export function App() {
       <main>
         {view === "home" && (
           <section className="hero">
-            <p className="hero-eyebrow">TestPilot · 可信回归</p>
-            <h1>把手工回归，变成可信任的自动化。</h1>
-            <p className="hero-lede">
-              {approvedCount ?? "…"} 条已批准用例
-              {approvedPilot > 0 ? `（试点 ${approvedPilot} · 练习 ${approvedDemo}）` : ""}
-              。先审阅草稿确认断言，再一键回归；每条通过的用例都能给出 HTTP、DB 或 Agent 证据。
-            </p>
-            <div className="hero-actions">
-              {draftCount > 0 ? (
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => {
-                    setTestFilter("draft");
-                    setView("tests");
-                  }}
-                >
-                  审阅 {draftCount} 条草稿
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={loading || (demoOk === false && pilotOk === false)}
-                  onClick={() => void runBatch()}
-                >
-                  {loading ? "运行中…" : "运行全部回归"}
-                </button>
-              )}
-              {draftCount > 0 && (
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  disabled={loading || (demoOk === false && pilotOk === false)}
-                  onClick={() => void runBatch()}
-                >
-                  {loading ? "运行中…" : "运行全部回归"}
-                </button>
-              )}
-              <button type="button" className="btn btn-secondary" onClick={() => setView("create")}>
-                创建用例
-              </button>
-            </div>
-            <div className="hero-links">
-              <a className="link-quiet" href={demoUrl} target="_blank" rel="noreferrer">
-                练习应用 ↗
-              </a>
-              <a
-                className="link-quiet"
-                href={pilotUrl ?? "#"}
-                onClick={(e) => {
-                  if (!pilotUrl) {
-                    e.preventDefault();
-                    notify("请在本机 .env 配置 TESTPILOT_PILOT_BASE_URL");
-                  }
-                }}
-                target="_blank"
-                rel="noreferrer"
-              >
-                试点地址 ↗
-              </a>
-              {llmInfo?.enabled ? (
-                <span className="link-quiet">
-                  LLM：{llmInfo.provider}/{llmInfo.model} · 累计{" "}
-                  {(llmInfo.tokensTotal ?? 0).toLocaleString()} tokens / {llmInfo.callCount ?? 0} 次（草稿 · 诊断 · 能力探测）
-                </span>
-              ) : null}
+            <div className="hero-intro">
+              <div className="hero-copy">
+                <h1>回归工作台</h1>
+                <p className="hero-lede">审阅用例和断言，运行已批准的回归，按结果查看运行证据。</p>
+                <div className="hero-actions">
+                  {draftCount > 0 ? (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => {
+                        setTestFilter("draft");
+                        setView("tests");
+                      }}
+                    >
+                      审阅 {draftCount} 条草稿
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={loading || (demoOk === false && pilotOk === false)}
+                      onClick={() => void runBatch()}
+                    >
+                      {loading ? "运行中…" : "运行全部回归"}
+                    </button>
+                  )}
+                  {draftCount > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      disabled={loading || (demoOk === false && pilotOk === false)}
+                      onClick={() => void runBatch()}
+                    >
+                      {loading ? "运行中…" : "运行全部回归"}
+                    </button>
+                  )}
+                  <button type="button" className="btn btn-secondary" onClick={() => setView("create")}>
+                    创建用例
+                  </button>
+                </div>
+                <div className="hero-links">
+                  <a className="link-quiet" href={demoUrl} target="_blank" rel="noreferrer">
+                    练习应用 ↗
+                  </a>
+                  <a
+                    className="link-quiet"
+                    href={pilotUrl ?? "#"}
+                    onClick={(e) => {
+                      if (!pilotUrl) {
+                        e.preventDefault();
+                        notify("请在本机 .env 配置 TESTPILOT_PILOT_BASE_URL");
+                      }
+                    }}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    试点地址 ↗
+                  </a>
+                  {llmInfo?.enabled ? (
+                    <span className="link-quiet">
+                      LLM：{llmInfo.provider}/{llmInfo.model} · 累计{" "}
+                      {(llmInfo.tokensTotal ?? 0).toLocaleString()} tokens / {llmInfo.callCount ?? 0} 次（草稿 · 诊断 · 能力探测）
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <div className="hero-art" aria-hidden="true">
+                <div className="hero-orbit hero-orbit-outer" />
+                <div className="hero-orbit hero-orbit-inner" />
+                <div className="hero-symbol"><span className="brand-mark" /></div>
+              </div>
             </div>
             <div className="stat-grid">
               <div className="stat-card">

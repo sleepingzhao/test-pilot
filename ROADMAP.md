@@ -123,6 +123,12 @@
     _证据：`ui-count.test.ts` 验证可见记录、作用域、空态和加载态，`auto-approve.test.ts` 覆盖忽略查询、初始空列表、只隐藏表头、只有命中能过滤、配对最新试跑失败及换环境后重试。Chromium 在本地夹具以真实模式走通画像、生成、配对批准与覆盖审阅，同一 IR 在查询被忽略时失败。缺少搜索提示的旧画像需重新探测。真实租户未新增试跑。`pnpm verify` → `ci-local: OK`（694 通过、0 失败、5 个既有 TODO，8 条 demo 冒烟、5 个 Provider 负向探针）。截图与日志在 `artifacts/verification/v8-7/`。_
 
 
+20. [x] **V8-8 控制台视觉与窄屏布局（P1）**
+    统一首页、导航、列表、表单和审阅弹窗的视觉层级，保留现有操作入口。
+
+    _证据：Chromium 在 1440、800、390 和 320px 宽度实测首页、用例列表、创建表单、系统画像及审阅。练习用例可运行并打开证据；窄屏审阅操作可见，业务覆盖表格在卡片内滚动。`pnpm verify` → `ci-local: OK`（694 通过、0 失败、5 个既有 TODO，8 条 demo 冒烟、5 个 Provider 负向探针）。截图和日志在 `artifacts/verification/v8-8/`。_
+
+
 ## 3. 明确后置
 
 Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。

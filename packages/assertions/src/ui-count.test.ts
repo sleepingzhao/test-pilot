@@ -3,7 +3,7 @@ import test from "node:test";
 import { chromium, type Page } from "playwright";
 import { observeRecordList } from "@testpilot/context-web";
 import type { TestAssertion } from "@testpilot/test-ir";
-import { runUiAssertion } from "./index.js";
+import { runUiAssertion, waitForVisibleRecordTexts } from "./index.js";
 import type { AssertionContext } from "./types.js";
 
 function fakePage(count: number): Page {
@@ -103,6 +103,52 @@ test("listRecords counts only visible records in its own table or list", async (
         assert.deepEqual(await observeRecordList(page), expected);
       });
     }
+  } finally {
+    await browser.close();
+  }
+});
+
+test("search only accepts visible business records in the selected result container", async (t) => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const target = { role: "table", testId: "results" };
+    const table = (body: string, attrs = "", header = "Member") =>
+      `<table data-testid="results"${attrs}><thead><tr><th>${header}</th></tr></thead><tbody>${body}</tbody></table>`;
+    const alpha = "<tr><td>Alpha</td></tr>";
+    const beta = "<tr><td>Beta</td></tr>";
+    const cases = [
+      { name: "matching record with comparison removed", mode: "match", html: table(alpha), passed: true },
+      { name: "comparison record remains", mode: "match", html: table(alpha + beta), passed: false },
+      { name: "header text cannot supply a match", mode: "match", html: table("", "", "Alpha"), passed: false },
+      { name: "hidden record cannot supply a match", mode: "match", html: table("<tr hidden><td>Alpha</td></tr>"), passed: false },
+      { name: "adjacent table cannot supply a match", mode: "match", html: table(beta) + `<table>${alpha}</table>`, passed: false },
+      { name: "empty results with an adjacent populated table", mode: "empty", html: table("") + `<table>${alpha}</table>`, passed: true },
+      { name: "empty-state placeholder", mode: "empty", html: table("<tr><td>暂无数据</td></tr>"), passed: true },
+      { name: "loading placeholder", mode: "empty", html: table("<tr><td>Loading records…</td></tr>"), passed: false },
+      { name: "unrelated record remains", mode: "empty", html: table(beta), passed: false },
+      { name: "result container is busy", mode: "empty", html: table("", ' aria-busy="true"'), passed: false },
+      { name: "result body is busy", mode: "empty", html: table(beta).replace("<tbody>", '<tbody aria-busy="true">'), passed: false },
+      { name: "result container is hidden", mode: "empty", html: table("", " hidden"), passed: false },
+      { name: "result container is missing", mode: "empty", html: "<p>Search finished</p>", passed: false },
+      { name: "duplicate result containers", mode: "empty", html: table("") + table(""), passed: false },
+    ] as const;
+    for (const { name, mode, html, passed } of cases) {
+      await t.test(name, async () => {
+        await page.setContent(html);
+        const assertion: TestAssertion = {
+          type: "ui", oracle: "human-approved", target, searchResults: mode,
+          ...(mode === "match" ? { contains: "Alpha", notContains: "Beta" } : { notContains: "Alpha" }),
+        };
+        const outcome = await runUiAssertion(assertion, { ...ctx(0), page });
+        assert.equal(outcome.passed, passed, outcome.message);
+        if (!passed) assert.equal(outcome.errorKind, "PRODUCT_DEFECT");
+      });
+    }
+    await page.setContent(table(alpha + beta));
+    assert.equal(await waitForVisibleRecordTexts(page, target, ["Alpha", "Beta"]), true);
+    await page.setContent(table("<tr><td>Alpha and Beta</td></tr>"));
+    assert.equal(await waitForVisibleRecordTexts(page, target, ["Alpha", "Beta"]), false);
   } finally {
     await browser.close();
   }

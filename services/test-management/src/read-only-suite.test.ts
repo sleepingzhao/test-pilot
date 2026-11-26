@@ -165,7 +165,9 @@ test("semantic list surface generates minCount load and paired search cases", ()
   assert.ok(match.ir.steps.some((step) => step.action === "press" && step.key === "Enter"));
   const none = cases.find((item) => item.testId.endsWith("-search-none"))!;
   const filtered = none.ir.assertions.find((a) => a.id === "filtered")!;
-  assert.equal(filtered.urlIncludes, "/members/");
+  assert.deepEqual(filtered.target, { role: "table", testId: "members" });
+  assert.equal(filtered.searchResults, "empty");
+  assert.equal(none.ir.steps.find(step => step.id === "baseline-records")?.recordTexts?.length, 2);
   assert.equal(filtered.notContains, firstItem);
 });
 
@@ -277,7 +279,7 @@ test("an approved assertion of the selected item and disappearance of its list h
   assert.equal(cases.some((item) => item.kind === "detail"), false);
 });
 
-test("contentTexts fallback drives search cases without minCount when elements lack item names", () => {
+test("contentTexts without a reliable result container generates search smoke only", () => {
   const cases = planReadOnlyCases({
     detectionId: "d",
     profile: {
@@ -303,15 +305,8 @@ test("contentTexts fallback drives search cases without minCount when elements l
       "/cards/": ["Alpha Centauri", "Beta Hydrae", "Gamma Orion"],
     },
   });
-  const match = cases.find((item) => item.testId.endsWith("-search-match"));
-  const none = cases.find((item) => item.testId.endsWith("-search-none"));
-  assert.ok(match);
-  assert.ok(none);
-  assert.equal(match!.ir.assertions.some((a) => "contains" in a && a.contains === "Alpha Centauri"), true);
-  assert.equal(none!.ir.assertions.some((a) => "notContains" in a && a.notContains === "Alpha Centauri"), true);
-  const load = cases.find((item) => item.kind === "load");
-  assert.ok(load);
-  assert.equal(load!.ir.assertions.some((a) => "minCount" in a), false);
+  assert.ok(cases.some(item => item.testId.endsWith("-search")));
+  assert.ok(cases.every(item => item.ir.assertions.every(a => !a.searchResults && !a.minCount)));
 });
 
 test("fallback texts skip labels that are page chrome", () => {  const cases = planReadOnlyCases({
@@ -325,6 +320,7 @@ test("fallback texts skip labels that are page chrome", () => {  const cases = p
       surfaces: [
         {
           route: "/tasks/",
+          recordList: { role: "list", testId: "tasks" },
           elements: [
             { role: "button", name: "全部任务" },
             { role: "input", name: "搜索", inputType: "text", placeholder: "搜索" },
@@ -359,6 +355,7 @@ test("list-item tabs are not used as search item text", () => {
       surfaces: [
         {
           route: "/tasks/",
+          recordList: { role: "list", testId: "tasks" },
           elements: [
             { role: "listitem", name: "全部任务 0" },
             { role: "listitem", name: "Prepare quarterly report" },
@@ -518,23 +515,19 @@ test("standalone iframe detail keeps its evidence when the stored shell has no h
   assert.equal(planReadOnlyCases({ ...input, tests }).some(c => c.kind === "detail"), false);
 });
 
-test("asserting that search hides a table header does not verify filtering", () => {
+test("title and whole-page text cannot replace scoped search evidence", () => {
   const profile = listSurfaceProfile();
   const input = { detectionId: "d", profile, targetMode: "real" as const };
   const match = planReadOnlyCases({ ...input, tests: [] }).find(c => c.testId.endsWith("-search-match"))!;
-  const contains = match.ir.assertions.find(a => a.id === "match")!.contains;
-  const ir = {
-    ...match.ir,
-    assertions: [{ type: "ui" as const, contains, notContains: "成员姓名", oracle: "human-approved" as const }],
-  };
-  const tests = [{ ...approvedReal("/members/"), id: match.testId, ir }];
-  const [row] = businessCoverage(profile, tests, "real");
-  assert.deepEqual(row!.evidence.map(ref => ref.kind), ["searchMatch"]);
-  assert.ok(planReadOnlyCases({ ...input, tests }).some(c => c.testId.endsWith("-search-none")));
-
-  const otherRecord = profile.surfaces[0]!.elements.find(el => el.role === "row" && el.name !== contains)?.name;
-  assert.ok(otherRecord);
-  ir.assertions[0]!.notContains = otherRecord;
-  assert.deepEqual(businessCoverage(profile, tests, "real")[0]!.evidence.map(ref => ref.kind),
-    ["searchMatch", "searchFilter"]);
+  const matchAssertion = match.ir.assertions.find(a => a.id === "match")!;
+  const oldAssertion = { type: "ui" as const, contains: matchAssertion.contains, notContains: "成员姓名", oracle: "human-approved" as const };
+  const badScope = { ...matchAssertion, target: { role: "table", testId: "different-table" } };
+  const noBaseline = { ...match.ir, steps: match.ir.steps.filter(step => !step.recordTexts) };
+  for (const ir of [
+    { ...match.ir, assertions: [oldAssertion] }, { ...match.ir, assertions: [badScope] }, noBaseline,
+  ]) {
+    const tests = [{ ...approvedReal("/members/"), id: match.testId, ir }];
+    assert.equal(businessCoverage(profile, tests, "real")[0]!.evidence.some(ref => ref.kind.startsWith("search")), false);
+    assert.ok(planReadOnlyCases({ ...input, tests }).some(c => c.testId.endsWith("-search-match")));
+  }
 });

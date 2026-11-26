@@ -17,7 +17,7 @@ import {
   weakAssertionIssues,
 } from "@testpilot/test-ir";
 import { validateAssertionProviders } from "@testpilot/assertions";
-import { computeAssertionConfigHash, resolveBaseUrl } from "@testpilot/fixtures";
+import { computeAssertionConfigHash } from "@testpilot/fixtures";
 import { classifyFailure, redactForEvidence, redactStringBody } from "@testpilot/evidence";
 import { chromium } from "playwright";
 import type { FileStore, RecordJob, StoredBatch, StoredRun, StoredTest } from "./store.js";
@@ -48,9 +48,10 @@ import { resolveApprovalActor, approvalIdentityPublicInfo } from "./approval-ide
 import { appendAuditEvent, readAuditLog } from "./audit-log.js";
 import { buildRiskReport, enrichRiskReportWithLlm, readLatestRiskReport, saveRiskReport } from "./risk-report.js";
 import { buildExplorationSuggestions } from "./explore-suggestions.js";
+import { sameResultScope, sameSearchInput, searchProof } from "./search-proof.js";
 import { businessCoverage } from "./route-coverage.js";
 import { planReadOnlyCases, type SnapshotElement } from "./read-only-suite.js";
-import { openRealPage } from "./real-login.js";
+import { openRealPage, redactRealCredentialHints } from "./real-login.js";
 import { buildFlakeMetricsReport, computeFlakeStats, normalizeRepeatCount } from "./flake-metrics.js";
 import {
   assertionConfigCatalog,
@@ -72,7 +73,7 @@ import {
   absoluteStepUrls,
   DEMO_BASE_URL,
 } from "./run-env.js";
-import { runOptionsFor } from "./read-only-run.js";
+import { executionContext, runOptionsFor, searchTrialEnvironmentKey } from "./read-only-run.js";
 import { metricsFromBatchRecord } from "./batch-metrics.js";
 import { autoPruneArtifacts, measureBatchArtifactBytes } from "./artifact-cleanup.js";
 import { createMutex, mapWithConcurrency, maxParallelFromEnv } from "./batch-parallel.js";
@@ -176,11 +177,12 @@ const readOnlySuiteJobs = new Map<string, ReadOnlySuiteJob>();
 /** Suite tests that cannot be verified read-only are kept as annotated drafts and not retried. */
 const SUITE_READONLY_SKIP = "suite:skip:read-only-blocked";
 
-/** Ground content-page assertions on the standalone page, not the shell's iframe snapshot. */
+/** Ground generated assertions on the page where the runner will execute them. */
 async function exploreContentRoutes(
   routes: string[],
   origin: string,
   baselinePath: string,
+  topLevelRoutes: ReadonlySet<string>,
 ): Promise<{ elements: Record<string, SnapshotElement[]>; paths: Record<string, string>; texts: Record<string, string[]>; recordLists: Record<string, ListRecordScope> }> {
   const out: Record<string, SnapshotElement[]> = {};
   const paths: Record<string, string> = {};
@@ -214,6 +216,7 @@ async function exploreContentRoutes(
       /* no baseline page; keep unfiltered snapshots */
     }
     for (const route of routes) {
+      const isTopLevel = topLevelRoutes.has(route);
       const candidates = route.endsWith("/") ? [route] : [`${route}/`, route];
       let elements: SnapshotElement[] = [];
       let keptTexts: string[] = [];
@@ -222,6 +225,7 @@ async function exploreContentRoutes(
       for (const path of candidates) {
         try {
           await handle.page.goto(`${base}${path}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+          if (!sameOriginAs(handle.page.url(), origin)) continue;
           let best: SnapshotElement[] = [];
           let bestTexts: string[] = [];
           let bestRecordList: ListRecordScope | undefined;
@@ -233,15 +237,20 @@ async function exploreContentRoutes(
               observeRecordList(handle.page),
             ]);
             const filtered = snapshot.elements.filter((element) => {
-              if (isSearchInput(element)) return true;
+              const safe = [element.name, element.ariaLabel, element.placeholder, element.testId].every(
+                value => !value || (redactRealCredentialHints(value) === value && redactStringBody(value) === value),
+              );
+              if (!safe) return false;
+              if (isTopLevel || isSearchInput(element)) return true;
               const key = element.testId ? `id:${element.testId}` : element.name ? `name:${element.name}` : "";
               return key ? !baseline.has(key) : false;
             });
             const contentScore = filtered.filter((element) => !isSearchInput(element)).length;
             if (contentScore > bestScore || (contentScore === bestScore && recordList && !bestRecordList)) {
               best = filtered;
-              bestTexts = snapshot.texts;
-              bestRecordList = recordList;
+              bestTexts = snapshot.texts.filter(value => redactRealCredentialHints(value) === value && redactStringBody(value) === value);
+              bestRecordList = recordList?.testId && redactRealCredentialHints(recordList.testId) !== recordList.testId
+                ? undefined : recordList;
               bestScore = contentScore;
             }
           }
@@ -261,7 +270,7 @@ async function exploreContentRoutes(
       out[route] = elements;
       texts[route] = keptTexts;
       if (keptRecordList) recordLists[route] = keptRecordList;
-      if (!paths[route]) paths[route] = candidates[0]!;
+
     }
   } finally {
     await handle.browser.close().catch(() => undefined);
@@ -500,16 +509,9 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 function runComparisonKey(ir: StoredTest["ir"], options: Parameters<typeof runTestIR>[1]): string {
-  const baseUrl = resolveBaseUrl(ir, options.env);
-  const actorUrls = ir.actors?.map(actor =>
-    actor.baseUrl || (actor.baseUrlRef && options.env.baseUrlRefs?.[actor.baseUrlRef]) || baseUrl,
-  );
   return createHash("sha256").update(JSON.stringify({
     irHash: computeIRHash(ir),
-    assertionConfigHash: computeAssertionConfigHash(repoRoot),
-    targets: actorUrls?.length ? actorUrls : [baseUrl],
-    readOnly: options.readOnlyNetwork === true,
-    realTarget: options.realTarget === true,
+    ...executionContext(ir, options),
   })).digest("hex");
 }
 
@@ -673,7 +675,9 @@ async function executeSingleIrRun(
   }
   const runId = `run_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
   const artifactsDir = sessionArtifactsRunsDir(artifactsRoot, sessionIdForRun(runId));
-  const result = await runTestIR(v.value, runOptionsFor(baseUrl, runId, artifactsDir, v.value));
+  const options = runOptionsFor(baseUrl, runId, artifactsDir, v.value);
+  const trialEnvironmentKey = searchTrialEnvironmentKey(v.value, options);
+  const result = await runTestIR(v.value, options);
   const artifacts = await ensureNetworkArtifact(result.artifacts);
   const stored = reclassifyDraftAssertionFailures(
     {
@@ -683,6 +687,7 @@ async function executeSingleIrRun(
       testTitle: test.title,
       trial: true,
       trialIrHash: computeIRHash(v.value),
+      trialEnvironmentKey,
     },
     test.approvalStatus === "approved",
   );
@@ -704,23 +709,36 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     draft: "搜索过滤用例未通过，命中用例保留草稿",
     mismatch: "配对用例的页面或过滤条目与命中用例不一致，请审阅两条用例",
     retry: "请重新试跑当前版本的搜索过滤用例，通过后再试跑命中用例",
+    environment: "配对过滤用例需要在同一执行环境重新试跑",
+    proof: "搜索自动批准需要结果区原始记录检查和查询后的记录断言",
   };
 
-  async function searchPairBlockReason(test: StoredTest): Promise<string | undefined> {
-    if (test.sourceChannel !== "suite" || !test.id.endsWith("-search-match")) return;
+  async function searchPairBlockReason(test: StoredTest, trial: StoredRun): Promise<string | undefined> {
+    if (test.sourceChannel !== "suite" || !/-search-(match|none)$/.test(test.id)) return;
+    const hit = test.id.endsWith("-search-match");
+    const assertion = test.ir.assertions.find(a => searchProof(test.ir.steps, a)?.kind === (hit ? "searchMatch" : "searchFilter"));
+    const proof = assertion && searchProof(test.ir.steps, assertion);
+    if (!assertion || !proof || !trial.trialEnvironmentKey) return pairNotes.proof;
+    if (!hit) return;
+
     const pair = await store.getTest(test.id.replace(/-search-match$/, "-search-none"));
     if (!pair) return pairNotes.missing;
     if (pair.approvalStatus !== "approved") return pairNotes.draft;
 
-    const item = test.ir.assertions.find(a => a.id === "match")?.contains;
-    const route = test.ir.steps.find(s => s.action === "navigate")?.path;
-    const samePage = route && pair.ir.steps.find(s => s.action === "navigate")?.path === route &&
-      pair.ir.baseUrl === test.ir.baseUrl && pair.ir.baseUrlRef === test.ir.baseUrlRef;
-    if (!samePage || !item || !pair.ir.assertions.some(a => a.type === "ui" && a.notContains === item)) {
+    const route = test.ir.steps.filter(s => s.action === "navigate" && (s.actor ?? "primary") === (assertion.actor ?? "primary")).at(-1)?.path;
+    const paired = pair.ir.assertions.find(a => searchProof(pair.ir.steps, a)?.kind === "searchFilter");
+    const filter = paired && searchProof(pair.ir.steps, paired);
+    const pairRoute = pair.ir.steps.filter(s => s.action === "navigate" && (s.actor ?? "primary") === (paired?.actor ?? "primary")).at(-1)?.path;
+    if (!route || route !== pairRoute || !paired || paired.notContains !== assertion.contains || !filter ||
+        !sameResultScope(assertion.target, paired.target) || assertion.frame !== paired.frame ||
+        !sameSearchInput(proof.input, filter.input) || !proof.recordTexts.every(text => filter.recordTexts.includes(text)) ||
+        pair.ir.baseUrl !== test.ir.baseUrl || pair.ir.baseUrlRef !== test.ir.baseUrlRef) {
       return pairNotes.mismatch;
     }
-    const latest = (await store.listRuns(Infinity)).find(run => run.trial && run.testId === pair.id);
+
+    const latest = (await store.listRuns(Infinity)).find(run => run.trial && run.testId === pair.id && run.projectId === trial.projectId);
     if (latest?.status !== "passed" || latest.trialIrHash !== computeIRHash(pair.ir)) return pairNotes.retry;
+    if (latest.trialEnvironmentKey !== trial.trialEnvironmentKey) return pairNotes.environment;
   }
 
   /**
@@ -741,7 +759,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     return true;
   }
 
-  async function approveAutomatically(test: StoredTest): Promise<StoredTest> {
+  async function approveAutomatically(test: StoredTest, trial?: StoredRun): Promise<StoredTest> {
     const configHash = computeAssertionConfigHash(repoRoot);
     const approved: StoredTest = {
       ...stampTestMeta(test, { approving: true, assertionConfigHash: configHash }),
@@ -749,8 +767,11 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       approvedIr: test.ir,
       autoApproved: true,
     };
-    if (test.sourceChannel === "suite" && test.plannerNotes) {
-      approved.plannerNotes = test.plannerNotes.filter(note => !Object.values(pairNotes).includes(note));
+    if (test.sourceChannel === "suite") {
+      approved.plannerNotes = test.plannerNotes?.filter(note => !Object.values(pairNotes).includes(note));
+      if (trial?.trialEnvironmentKey && test.ir.assertions.some(a => searchProof(test.ir.steps, a))) {
+        approved.searchTrialEnvironmentKey = trial.trialEnvironmentKey;
+      }
     }
     await store.saveTest(approved);
     try {
@@ -776,7 +797,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
    */
   async function saveDraftWithAutoApproval(
     test: StoredTest,
-    opts?: { trialPassed?: boolean },
+    opts?: { trialPassed?: boolean; trial?: StoredRun },
   ): Promise<StoredTest> {
     if (!opts?.trialPassed || test.approvalStatus !== "draft" || !autoApproveEnabled()) {
       await store.saveTest(test);
@@ -786,7 +807,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       await store.saveTest(test);
       return test;
     }
-    return approveAutomatically(test);
+    return approveAutomatically(test, opts.trial);
   }
 
   app.get("/api/health", async () => ({
@@ -897,12 +918,19 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         artifactsRoot,
         dataRoot,
       );
+      if (run.status === "passed" && test.approvalStatus === "approved" && test.sourceChannel === "suite" &&
+          test.ir.assertions.some(a => searchProof(test.ir.steps, a)) && !await searchPairBlockReason(test, run)) {
+        const current = await store.getTest(test.id);
+        if (current?.approvalStatus === "approved" && computeIRHash(current.ir) === run.trialIrHash) {
+          await store.saveTest({ ...current, searchTrialEnvironmentKey: run.trialEnvironmentKey });
+        }
+      }
       if (run.status === "passed" && test.approvalStatus === "draft" && autoApproveEnabled()) {
         const trialed = stampTestMeta({ ...test, ir: body.ir });
-        const approvalNote = await searchPairBlockReason(trialed);
+        const approvalNote = await searchPairBlockReason(trialed, run);
         if (approvalNote) return { run, trial: true, approvalNote };
         if (await autoApproveEligible(trialed)) {
-          const approved = await approveAutomatically(trialed);
+          const approved = await approveAutomatically(trialed, run);
           return { run, trial: true, test: withWeakAssertions(approved) };
         }
       }
@@ -1124,6 +1152,12 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
       approvedBy: actorResult.actor,
       approvedIr: test.ir,
     };
+    if (test.sourceChannel === "suite" && test.ir.assertions.some(a => searchProof(test.ir.steps, a))) {
+      const currentEnv = searchTrialEnvironmentKey(test.ir, runOptionsFor(store.project().defaultBaseUrl, "", "", test.ir));
+      const latest = (await store.listRuns(Infinity)).find(run => run.trial && run.testId === test.id && run.projectId === test.projectId);
+      approved.searchTrialEnvironmentKey = latest?.status === "passed" && latest.trialIrHash === currentHash &&
+        latest.trialEnvironmentKey === currentEnv && !await searchPairBlockReason(test, latest) ? currentEnv : undefined;
+    }
     await store.saveTest(approved);
     try {
       await appendAuditEvent(dataRoot, {
@@ -1672,10 +1706,19 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (record.target !== "real") {
       return reply.code(400).send({ error: "只读套件仅支持真实环境画像" });
     }
+    if (!sameOriginAs(record.profile.target.url, realBaseUrl()) || !isAllowedTargetUrl(record.profile.target.url)) {
+      return reply.code(409).send({ error: "画像与当前获准的真实目标不一致，请重新探测" });
+    }
     const body = (req.body ?? {}) as { limit?: number };
     const tests = await store.listTests();
+    const topLevelSearchRoutes = new Set(record.profile.surfaces.filter(surface =>
+      surface.recordList && surface.hasSearchInput,
+    ).map(surface => surface.route));
     const contentRoutes = [
-      ...new Set((record.profile.frameSurfaces ?? []).map((frame) => frame.route)),
+      ...new Set([
+        ...topLevelSearchRoutes,
+        ...(record.profile.frameSurfaces ?? []).map(frame => frame.route),
+      ]),
     ]
       .filter((route) => route !== "/")
       .slice(0, 12);
@@ -1685,6 +1728,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
         contentRoutes,
         record.profile.target.url,
         record.profile.surfaces[0]?.route ?? "/",
+        topLevelSearchRoutes,
       );
       candidates = planReadOnlyCases({
         detectionId,
@@ -1826,7 +1870,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
               message = run.artifacts.notes ?? failedAssertion?.message ?? run.metrics.failureKind;
             }
             if (run.status === "passed") {
-              const pairDraftReason = await searchPairBlockReason(activeDraft);
+              const pairDraftReason = await searchPairBlockReason(activeDraft, run);
               if (pairDraftReason) {
                 activeDraft = stampTestMeta({
                   ...activeDraft,
@@ -1835,7 +1879,7 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
                 await store.saveTest(activeDraft);
                 message = pairDraftReason;
               } else {
-                const saved = await saveDraftWithAutoApproval(activeDraft, { trialPassed: true });
+                const saved = await saveDraftWithAutoApproval(activeDraft, { trialPassed: true, trial: run });
                 approved = saved.approvalStatus === "approved";
                 if (approved) job.approvedIds.push(candidate.testId);
               }

@@ -240,13 +240,14 @@ function stableTarget(
   return undefined;
 }
 
-function searchTarget(surface: DetectionReport["surfaces"][number]): Locator | undefined {
+export function searchTarget(surface: DetectionReport["surfaces"][number]): Locator | undefined {
   const input = surface.elements.find((element) => {
-    if (element.role !== "input" && element.role !== "textarea" && element.role !== "textbox") return false;
+    if (element.role !== "input" && element.role !== "textarea" && element.role !== "textbox" && element.role !== "searchbox") return false;
     const hint = element.placeholder ?? element.ariaLabel ?? element.name ?? "";
-    return element.inputType === "search" || /搜索|search/i.test(hint);
+    return element.inputType === "search" || element.role === "searchbox" || /搜索|search/i.test(hint);
   });
   if (!input) return undefined;
+  if (input.testId) return { testId: input.testId };
   if (input.placeholder) return { placeholder: input.placeholder };
   if (input.ariaLabel) return { label: input.ariaLabel };
   return undefined;
@@ -284,7 +285,12 @@ export function planReadOnlyCases(input: {
   const approvedIds = new Set(input.tests.filter(t => t.approvalStatus === "approved").map(t => t.id));
   const frameRoutes = new Set((input.profile.frameSurfaces ?? []).map((frame) => frame.route));
   const surfaces = [
-    ...input.profile.surfaces.filter((surface) => !frameRoutes.has(surface.route)),
+    ...input.profile.surfaces.filter(surface => !frameRoutes.has(surface.route)).map(surface => {
+      const elements = input.contentElements?.[surface.route];
+      return elements?.length ? {
+        ...surface, elements, recordList: input.contentRecordLists?.[surface.route] ?? surface.recordList,
+      } : surface;
+    }),
     ...(input.profile.frameSurfaces ?? []).map((frame) => ({
       route: frame.route,
       elements: input.contentElements?.[frame.route] ?? frame.elements,
@@ -310,6 +316,12 @@ export function planReadOnlyCases(input: {
       : filterFallbackItemTexts(input.contentTexts?.[surface.route] ?? [], surface);
     const itemsFromElementsOnly = itemsFromElements.length > 0;
     const recordList = surface.recordList;
+    const item = items[0];
+    const comparisonItem = item && items.find(candidate => {
+      const left = item.toLowerCase();
+      const right = candidate.toLowerCase();
+      return !left.includes(right) && !right.includes(left);
+    });
     const headers = columnHeaderTexts(surface, global);
     const link = itemLink(surface, global, itemsFromElementsOnly ? items : []);
     const row = coverage.get(route);
@@ -317,7 +329,7 @@ export function planReadOnlyCases(input: {
     const wantLoad = !covered.has("route") || (!!recordList && !covered.has("list"));
     const wantSearch =
       Boolean(search) &&
-      (items.length > 0
+      (recordList && item && comparisonItem
         ? !covered.has("searchMatch") || !covered.has("searchFilter")
         : !row?.hasSearchSmoke);
     const wantDetail =
@@ -326,7 +338,7 @@ export function planReadOnlyCases(input: {
     seen.add(route);
     const baseId = `ro-${slug(input.detectionId)}-${contentPage ? "content-" : ""}${slug(route)}`.slice(0, 110);
     const pageLabel = contentPage ? "内容页" : "";
-    const pagePath = (contentPage ? input.contentPaths?.[surface.route] : undefined) ?? surface.route;
+    const pagePath = input.contentPaths?.[surface.route] ?? surface.route;
     const baseSteps = [{ id: "open", action: "navigate" as const, path: pagePath }];
     const policy = { screenshots: "never" as const, cleanup: "none" as const };
 
@@ -373,76 +385,55 @@ export function planReadOnlyCases(input: {
     }
 
     if (wantSearch && search) {
-      if (items.length > 0) {
-        // Auto-approval checks a sibling filter with the same ID prefix and item.
-        // A filter on a different detection cannot supply that proof.
+      if (recordList && item && comparisonItem) {
         const needMatch = !covered.has("searchMatch");
-        const pairProven = row?.evidence.some(ref => ref.kind === "searchFilter" &&
-          ref.testId === `${baseId}-search-none` && ref.assertion.notContains === items[0]);
-        const needFilter = !covered.has("searchFilter") || (needMatch && !pairProven);
+        const needFilter = needMatch || !covered.has("searchFilter");
         const suffixes = [...(needMatch ? ["search-match"] : []), ...(needFilter ? ["search-none"] : [])];
-        const pairPrefix = availablePrefix(baseId, suffixes, approvedIds);
-        const afterOpen = [...baseSteps, ...waitPageSteps(stable)];
-        const matchSteps: TestIR["steps"] = [
-          ...afterOpen,
-          { id: "search-fill", action: "fill", target: search, value: items[0]! },
-          { id: "search-submit", action: "press", key: "Enter" },
-        ];
-        const itemInRoute = route.toLowerCase().includes(items[0]!.toLowerCase());
-        if (needMatch) candidates.push({
-          testId: `${pairPrefix}-search-match`,
-          title: `真实只读·${pageLabel}${route} 搜索命中`,
-          route,
-          kind: "search",
-          notes: [
-            `在 ${route} 搜索真实列表项「${items[0]}」，断言页面仍包含该项`,
-            "只读：仅 fill + Enter，无其它写操作",
-          ],
-          ir: {
-            id: `${pairPrefix}-search-match`,
-            version: 1,
-            platform: "web",
-            baseUrlRef: "real-env",
-            steps: matchSteps,
-            assertions: [
-              { id: "routed", type: "ui", urlIncludes: pagePath, oracle: "human-approved" },
-              ...(stable ? [{ id: "still-usable", type: "ui" as const, target: stable, oracle: "human-approved" as const }] : []),
-              { id: "match", type: "ui", contains: items[0], oracle: "human-approved" },
-            ],
-            policy,
-          },
-        });
-
-        if (!itemInRoute && (needFilter || (needMatch && pairPrefix !== baseId))) {
-          const noneSteps: TestIR["steps"] = [
-            ...afterOpen,
-            { id: "search-fill", action: "fill", target: search, value: "zzqqxx" },
-            { id: "search-submit", action: "press", key: "Enter" },
-          ];
-          candidates.push({
-            testId: `${pairPrefix}-search-none`,
-            title: `真实只读·${pageLabel}${route} 搜索过滤`,
+        const prefix = availablePrefix(baseId, suffixes, approvedIds);
+        const caseFor = (mode: "match" | "empty"): ReadOnlyCandidate => {
+          const match = mode === "match";
+          const id = `${prefix}-search-${match ? "match" : "none"}`;
+          let query = match ? item : "zzqqxx";
+          while (!match && [item, comparisonItem].some(text => text.toLowerCase().includes(query))) query += "z";
+          return {
+            testId: id,
+            title: `真实只读·${pageLabel}${route} 搜索${match ? "命中" : "过滤"}`,
             route,
             kind: "search",
             notes: [
-              `搜索无命中词后，路由仍在 ${route}，且先前可见的「${items[0]}」不再出现`,
-              "urlIncludes + notContains 配对断言，避免空页面误判",
+              "搜索前确认结果区有两条可见的原始记录。",
+              match ? "查询后保留命中记录并移除对照记录。" : "查询后确认原记录消失，结果区无可见记录。",
             ],
             ir: {
-              id: `${pairPrefix}-search-none`,
+              id,
               version: 1,
               platform: "web",
               baseUrlRef: "real-env",
-              steps: noneSteps,
+              steps: [
+                ...baseSteps,
+                ...waitPageSteps(stable),
+                { id: "baseline-records", action: "wait", target: recordList, recordTexts: [item, comparisonItem] },
+                { id: "search-fill", action: "fill", target: search, value: query },
+                { id: "search-submit", action: "press", key: "Enter" },
+              ],
               assertions: [
                 { id: "routed", type: "ui", urlIncludes: pagePath, oracle: "human-approved" },
-                ...(stable ? [{ id: "still-usable", type: "ui" as const, target: stable, oracle: "human-approved" as const }] : []),
-                { id: "filtered", type: "ui", urlIncludes: pagePath, notContains: items[0], oracle: "human-approved" },
+                {
+                  id: match ? "match" : "filtered",
+                  type: "ui",
+                  target: recordList,
+                  searchResults: mode,
+                  ...(match ? { contains: item } : {}),
+                  notContains: match ? comparisonItem : item,
+                  oracle: "human-approved",
+                },
               ],
               policy,
             },
-          });
-        }
+          };
+        };
+        if (needMatch) candidates.push(caseFor("match"));
+        if (needFilter) candidates.push(caseFor("empty"));
       } else {
         const smokeId = `${availablePrefix(baseId, ["search"], approvedIds)}-search`;
         const smokeSteps: TestIR["steps"] = [
@@ -457,7 +448,7 @@ export function planReadOnlyCases(input: {
           kind: "search",
           notes: [
             `在 ${route} 的搜索框输入占位词，只验证页面仍可操作，不证明过滤结果`,
-            "画像中无可用于语义搜索的列表项，保留冒烟用例",
+            "语义搜索需要可定位的结果容器和两条可区分的原始记录。",
           ],
           ir: {
             id: smokeId,

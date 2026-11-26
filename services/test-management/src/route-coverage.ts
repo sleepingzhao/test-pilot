@@ -1,5 +1,7 @@
 import type { DetectionReport, RouteCoverageRow, RouteEvidence, SurfaceSnapshot } from "@testpilot/detect";
 import type { TestStep } from "@testpilot/test-ir";
+import { searchProof } from "./search-proof.js";
+import { runOptionsFor, searchTrialEnvironmentKey } from "./read-only-run.js";
 import { buildRunEnvironment } from "./run-env.js";
 import type { StoredTest } from "./store.js";
 
@@ -54,7 +56,8 @@ export function businessCoverage(profile: DetectionReport, tests: StoredTest[], 
   if (mode === "real" && !refs["real-env"]) refs["real-env"] = profile.target.url;
   if (mode === "pilot" && !refs["pilot-admin"]) refs["pilot-admin"] = profile.target.url;
   const origin = new URL(profile.target.url).origin;
-  for (const { id, title, approvalStatus, ir } of tests) {
+  for (const test of tests) {
+    const { id, title, approvalStatus, ir } = test;
     if (approvalStatus !== "approved") continue;
     for (const [index, a] of ir.assertions.entries()) {
       if (a.type !== "ui" || (a.provider && a.provider !== "playwright-ui")) continue;
@@ -83,13 +86,10 @@ export function businessCoverage(profile: DetectionReport, tests: StoredTest[], 
       const elements = elementsByRoute.get(row.route) ?? [];
       const fill = actions.filter(step => isSearchInput(step, elements)).at(-1);
       if (fill && checksRoute) row.hasSearchSmoke = true;
-      if (fill?.value && a.contains === fill.value) add("searchMatch");
-      const excluded = a.notContains;
-      if (fill && excluded && excluded !== fill.value) {
-        const excludesHeader = elements.some(el => el.role === "columnheader" && el.name === excluded);
-        const excludesItem = elements.some(el => !el.inNav && el.name === excluded &&
-          ["row", "listitem", "cell", "link", "option"].includes(el.role ?? ""));
-        if (!excludesHeader && (excludesItem || (!a.contains && (checksRoute || a.target)))) add("searchFilter");
+      const proof = searchProof(actions, a);
+      if (proof && (test.sourceChannel !== "suite" || (test.searchTrialEnvironmentKey &&
+          test.searchTrialEnvironmentKey === searchTrialEnvironmentKey(ir, runOptionsFor(env.baseUrl, "", "", ir))))) {
+        add(proof.kind);
       }
       // The item must be selected and asserted, with evidence that the list view was left.
       if (a.contains && a.notContains && selectedDetail(actions, a.contains, a.notContains, elements)) add("detail");

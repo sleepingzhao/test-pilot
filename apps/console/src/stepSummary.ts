@@ -5,6 +5,7 @@ type StepLike = {
   target?: { role?: string; name?: string; label?: string; placeholder?: string; testId?: string };
   valueRef?: string;
   key?: string;
+  recordTexts?: string[];
 };
 
 export function describeStep(step: StepLike, index: number): string {
@@ -27,6 +28,7 @@ export function describeStep(step: StepLike, index: number): string {
     case "press":
       return `${n}. 按键 ${step.key ?? "?"}`;
     case "wait":
+      if (step.recordTexts) return `${n}. 等待结果区出现 ${step.recordTexts.length} 条原始记录`;
       return `${n}. 等待${step.target ? "元素出现" : "页面稳定"}`;
     case "request":
       return `${n}. ${step.method ?? "GET"} ${step.path ?? "/"}`;
@@ -56,6 +58,7 @@ export type AssertionSummary = {
   urlIncludes?: string;
   minCount?: number;
   listRecords?: boolean;
+  searchResults?: "match" | "empty";
   requestRef?: string;
   stepRef?: string;
   expect?: Record<string, unknown>;
@@ -100,6 +103,8 @@ export function summarizeAssertion(a: AssertionSummary, index: number): string {
     if (a.urlIncludes) checks.push(`URL 包含「${a.urlIncludes}」`);
     if (a.target) checks.push(`定位 ${JSON.stringify(a.target)}`);
     if (a.minCount !== undefined) checks.push(`${a.listRecords ? "可见业务记录" : "数量"} ≥ ${a.minCount}`);
+    if (a.searchResults === "empty") checks.push("结果区无可见记录");
+    if (a.searchResults === "match") checks.push("结果区验证记录");
     if (a.contains) checks.push(`包含「${a.contains}」`);
     if (a.notContains) checks.push(`不含「${a.notContains}」`);
     return `${label} [UI] ${checks.join(" · ")}`;

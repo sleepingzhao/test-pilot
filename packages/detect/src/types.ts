@@ -82,6 +82,8 @@ export type SurfaceSnapshot = {
   listItemRole?: ListItemRole;
   /** Observed container locator without business record text. */
   recordList?: ListRecordScope;
+  /** Search input was identified before names were removed. */
+  hasSearchInput?: boolean;
   elements: Array<{ role?: string; name?: string; testId?: string; inputType?: string; placeholder?: string; ariaLabel?: string; inNav?: boolean }>;
   texts?: string[];
 };

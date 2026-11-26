@@ -120,7 +120,12 @@ test("real target strips page text from the stored profile", async () => {
         route: "/home",
         title: "真实系统标题",
         recordList: { role: "table", testId: "directory-table" },
-        elements: [{ role: "button", name: "人名" }, { role: "row", name: "目录记录一" }, { role: "row", name: "目录记录二" }],
+        elements: [
+          { role: "button", name: "人名" },
+          { role: "row", name: "目录记录一" },
+          { role: "row", name: "目录记录二" },
+          { role: "textbox", name: "搜索账号", placeholder: "搜索账号" },
+        ],
       },
     ],
     signals: [
@@ -155,7 +160,8 @@ test("real target strips page text from the stored profile", async () => {
     assert.equal(stored?.profile.surfaces[0]?.elements[0]?.name, undefined);
     assert.ok(stored);
     assert.deepEqual(stored.profile.surfaces[0]?.recordList, { role: "table", testId: "directory-table" });
-    assert.ok(stored.profile.surfaces[0]?.elements.every(element => element.name === undefined));
+    assert.equal(stored.profile.surfaces[0]?.hasSearchInput, true);
+    assert.ok(stored.profile.surfaces[0]?.elements.every(element => element.name === undefined && element.placeholder === undefined));
     const smoke = {
       id: "ro-old-home-load", title: "路由冒烟", projectId: "default", approvalStatus: "approved" as const,
       updatedAt: new Date().toISOString(),

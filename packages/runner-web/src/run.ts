@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { requestPathIssue, type Locator as TargetLocator, type TestActor, type TestIR, type TestStep } from "@testpilot/test-ir";
-import { runAssertion, urlPathMatches, type AssertionContext } from "@testpilot/assertions";
+import { runAssertion, urlPathMatches, waitForVisibleRecordTexts, type AssertionContext } from "@testpilot/assertions";
 import type { DirectNetworkInput, NetworkEntry, RunArtifacts, WsFrame } from "@testpilot/evidence";
 import { classifyFailure, createEvidenceCollector, maxRunAttempts, redactForEvidence, redactStringBody, redactStrings, shouldRetryAfterFailure } from "@testpilot/evidence";
 import type { RunEnvironment } from "@testpilot/fixtures";
@@ -269,7 +269,11 @@ async function executeStep(
         break;
       }
       case "wait": {
-        if (step.target) {
+        if (step.recordTexts && step.target) {
+          if (!(await waitForVisibleRecordTexts(root, step.target, step.recordTexts))) {
+            throw new Error("Expected baseline records were not visible in the search results container");
+          }
+        } else if (step.target) {
           await resolveStepLocator(root, step.target, 15_000);
         } else {
           await page.waitForLoadState("domcontentloaded");

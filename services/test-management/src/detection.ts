@@ -1,3 +1,4 @@
+import { searchTarget } from "./read-only-suite.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { collectSystemProfile, type SystemProfile } from "@testpilot/detect";
@@ -183,6 +184,7 @@ function sanitizeProfile(profile: SystemProfile, stripText: boolean): SystemProf
     surfaces: profile.surfaces.map((surface) => ({
       route: surface.route,
       ...(surface.recordList ? { recordList: surface.recordList } : {}),
+      ...(searchTarget(surface) ? { hasSearchInput: true } : {}),
       elements: surface.elements.map((element) => ({
         role: element.role,
         testId: element.testId,

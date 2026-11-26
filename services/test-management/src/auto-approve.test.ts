@@ -18,6 +18,8 @@ const ENV_KEYS = [
   "TESTPILOT_AUTO_APPROVE",
   "TESTPILOT_ALLOWED_TARGETS",
   "TESTPILOT_REAL_BASE_URL",
+  "TESTPILOT_READONLY",
+  "TESTPILOT_REAL_LOGIN_PROFILE_JSON",
   "TESTPILOT_ENV_REAL_ENTERPRISE_ID",
   "TESTPILOT_ENV_REAL_USER_ID",
   "TESTPILOT_ENV_REAL_PASSWORD",
@@ -194,24 +196,43 @@ for (const createsTicket of [false, true]) {
   });
 }
 
-for (const scenario of ["missing", "failed", "passed"] as const) {
-  test(`suite and single trial enforce the same search pair when filtering is ${scenario}`, async () => {
-    const route = scenario === "missing" ? "/alpha/" : "/members/";
-    let filteringWorks = scenario === "passed";
+for (const scenario of ["ignored", "initially-empty", "header-only", "hit-only", "working"] as const) {
+  test(`scoped search changes the result set: ${scenario}`, async () => {
+    const route = "/members/";
+    let filterNoMatch = scenario === "working";
+    const handler: RequestListener = (_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      const records = scenario === "initially-empty" ? "" : "<tr><td>Alpha</td></tr><tr><td>Beta</td></tr>";
+      res.end(`<h1 data-testid="directory">成员目录</h1><input placeholder="搜索成员">
+        <table data-testid="members"><thead><tr><th>成员姓名</th></tr></thead><tbody>${records}</tbody></table>
+        <script>document.querySelector('input').onkeydown = e => {
+          if (e.key !== 'Enter') return;
+          if ('${scenario}' === 'header-only') document.querySelector('thead').remove();
+          if ('${scenario}' === 'working' || '${scenario}' === 'hit-only') {
+            const rows = [...document.querySelectorAll('tbody tr')];
+            const matches = rows.filter(row => row.textContent.includes(e.target.value));
+            if (matches.length || ${filterNoMatch}) {
+              for (const row of rows) row.hidden = !matches.includes(row);
+            }
+          }
+        };</script>`);
+    };
     await withFixture(async ({ baseUrl, app, store, dataRoot }) => {
       process.env.TESTPILOT_REAL_BASE_URL = baseUrl;
-      const id = `detect_${scenario}`;
-      await saveDetection(dataRoot, {
-        id, sessionId: sessionIdForDetect(id), target: "real", url: baseUrl, createdAt: new Date().toISOString(),
+      const saveProfile = (id: string, url: string) => saveDetection(dataRoot, {
+        id, sessionId: sessionIdForDetect(id), target: "real", url, createdAt: new Date().toISOString(),
         profile: {
-          version: 1, target: { url: baseUrl, mode: "passive" }, capabilities: [], questions: [], signals: [],
-          surfaces: [{ route, elements: [
+          version: 1, target: { url, mode: "passive" }, capabilities: [], questions: [], signals: [],
+          surfaces: [{ route, recordList: { role: "table", testId: "members" }, elements: [
             { role: "heading", name: "成员目录", testId: "directory" },
             { role: "input", placeholder: "搜索成员" },
-            { role: "listitem", name: "Alpha" },
+            { role: "cell", name: "Alpha" },
+            { role: "cell", name: "Beta" },
           ] }],
         },
       });
+      const id = `detect_${scenario}`;
+      await saveProfile(id, baseUrl);
       const start = await app.inject({ method: "POST", url: `/api/detect/${id}/read-only-suite`, payload: {} });
       assert.equal(start.statusCode, 202, start.body);
       const jobUrl = `/api/read-only-suite/jobs/${start.json().jobId}`;
@@ -223,49 +244,69 @@ for (const scenario of ["missing", "failed", "passed"] as const) {
       }
       assert.equal(job.status, "completed", JSON.stringify(job));
       type Result = { testId: string; status: string; approved: boolean; message?: string };
-      const hit = (job.results as Result[]).find(result => result.testId.endsWith("-search-match"));
-      const filter = (job.results as Result[]).find(result => result.testId.endsWith("-search-none"));
-      assert.equal(filter?.status, scenario === "missing" ? undefined : scenario, JSON.stringify(job));
-      assert.ok(hit);
-      assert.equal(hit.status, "passed", hit.message);
-      assert.equal(hit.approved, scenario === "passed", hit.message);
-      const saved = await store.getTest(hit.testId);
-      assert.ok(saved);
+      const outcomes = job.results as Result[];
+      const hit = outcomes.find(o => o.testId.endsWith("-search-match"));
+      const filter = outcomes.find(o => o.testId.endsWith("-search-none"));
+      assert.ok(hit && filter, JSON.stringify(job));
+      const works = scenario === "working";
+      assert.equal(hit.status, works || scenario === "hit-only" ? "passed" : "failed", JSON.stringify(hit));
+      assert.equal(filter.status, works ? "passed" : "failed", JSON.stringify(filter));
+      assert.equal(hit.approved, works);
+      assert.equal(filter.approved, works);
+      if (scenario === "hit-only") assert.match(hit.message ?? "", /过滤用例未通过/);
+      const coverage = async (detectionId: string) => (await app.inject({ url: `/api/detect/${detectionId}/business-coverage` })).json()[0].evidence
+        .filter((entry: { kind: string }) => entry.kind.startsWith("search"));
+      assert.equal((await coverage(id)).length, works ? 2 : 0);
+      if (!works) return;
 
+      const saved = await store.getTest(hit.testId);
+      const pair = await store.getTest(filter.testId);
+      assert.ok(saved && pair);
       const retry = async (ir: TestIR) => {
         const res = await app.inject({ method: "POST", url: `/api/tests/${ir.id}/trial-run`, payload: { ir } });
         assert.equal(res.statusCode, 200, res.body);
         return res.json();
       };
-      // Re-open the hit as a draft so both entry points make their own approval decision.
       const reopen = () => app.inject({ method: "PUT", url: `/api/tests/${saved.id}`, payload: { ir: saved.ir } });
       assert.equal((await reopen()).statusCode, 200);
-      const single = await retry(saved.ir);
-      assert.equal(single.run.status, "passed");
-      assert.equal(single.approvalNote, hit.message);
-      assert.equal((await store.getTest(saved.id))?.approvalStatus, hit.approved ? "approved" : "draft");
+      const alternate = createServer(handler);
+      await new Promise<void>(resolve => alternate.listen(0, "127.0.0.1", resolve));
+      try {
+        const second = 'http://127.0.0.1:' + (alternate.address() as { port: number }).port;
+        process.env.TESTPILOT_REAL_BASE_URL = second;
+        process.env.TESTPILOT_ALLOWED_TARGETS = baseUrl + "," + second;
+        await saveProfile("detect_second", second);
+        const wrongProfile = await app.inject({ method: "POST", url: `/api/detect/${id}/read-only-suite`, payload: {} });
+        assert.equal(wrongProfile.statusCode, 409, wrongProfile.body);
+        assert.equal((await coverage("detect_second")).length, 0);
 
-      if (scenario === "passed") {
-        filteringWorks = false;
-        const pair = await store.getTest(filter!.testId);
-        assert.ok(pair);
+        const stale = await retry(saved.ir);
+        assert.equal(stale.run.status, "passed");
+        assert.match(stale.approvalNote, /同一执行环境/);
+        assert.equal((await store.getTest(saved.id))?.approvalStatus, "draft");
+        const currentFilter = await retry(pair.ir);
+        assert.equal(currentFilter.run.status, "passed");
+        assert.equal((await retry(saved.ir)).test?.approvalStatus, "approved");
+        assert.equal((await coverage("detect_second")).length, 2);
+
+        filterNoMatch = false;
         assert.equal((await retry(pair.ir)).run.status, "failed");
         assert.equal((await reopen()).statusCode, 200);
         assert.match((await retry(saved.ir)).approvalNote, /重新试跑/);
         assert.equal((await store.getTest(saved.id))?.approvalStatus, "draft");
+
+        await store.deleteTest(pair.id);
+        assert.match((await retry(saved.ir)).approvalNote, /缺少配对/);
+        assert.equal((await store.getTest(saved.id))?.approvalStatus, "draft");
+      } finally {
+        await new Promise<void>(resolve => alternate.close(() => resolve()));
       }
     }, {
       TESTPILOT_AUTO_APPROVE: "1",
-      TESTPILOT_UI_ASSERT_TIMEOUT_MS: "500",
+      TESTPILOT_UI_ASSERT_TIMEOUT_MS: "600",
       TESTPILOT_ENV_REAL_ENTERPRISE_ID: "fixture",
       TESTPILOT_ENV_REAL_USER_ID: "fixture",
       TESTPILOT_ENV_REAL_PASSWORD: "fixture",
-    }, (_req, res) => {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(`<h1 data-testid="directory">成员目录</h1><input placeholder="搜索成员"><ul><li>Alpha</li></ul>
-        <script>document.querySelector('input').onkeydown = e => {
-          if (${filteringWorks} && e.key === 'Enter' && e.target.value === 'zzqqxx') document.querySelector('li').remove();
-        };</script>`);
-    });
+    }, handler);
   });
 }

@@ -51,6 +51,8 @@ export interface TestStep {
   key?: string;
   /** Ordered labels for each cascader level (province → street). */
   cascaderPath?: string[];
+  /** For wait steps, require all of these visible record texts inside the list target. */
+  recordTexts?: string[];
   /** Await a WS/SSE event on `actor` (default primary) instead of driving the page. */
   waitForEvent?: {
     direction?: "sent" | "received";
@@ -89,6 +91,8 @@ export interface TestAssertion {
   minCount?: number;
   /** Count visible business records inside one table, grid or list target. */
   listRecords?: true;
+  /** Search postcondition evaluated only against visible records in one results container. */
+  searchResults?: "match" | "empty";
   /** Text that must be absent; pair it with `contains` or `target` so a blank page cannot pass. */
   notContains?: string;
   /** Require the page URL to contain this fragment (proves routing even for iframe-shell pages). */

@@ -51,7 +51,7 @@ function configuredRealSecrets(): string[] {
     .filter((value): value is string => Boolean(value));
 }
 
-function redactCredentialHints(text: string): string {
+export function redactRealCredentialHints(text: string): string {
   let out = text;
   for (const secret of configuredRealSecrets()) {
     if (secret.length >= 2) out = out.split(secret).join("[REDACTED]");
@@ -61,7 +61,7 @@ function redactCredentialHints(text: string): string {
 
 function formatLoginPageExcerpt(body: string): string {
   const normalized = body.replace(/\s+/g, " ").trim();
-  const excerpt = redactCredentialHints(normalized).slice(0, 200);
+  const excerpt = redactRealCredentialHints(normalized).slice(0, 200);
   return excerpt || "页面未返回可读文本";
 }
 

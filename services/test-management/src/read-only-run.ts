@@ -1,8 +1,12 @@
+import { createHash } from "node:crypto";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { computeAssertionConfigHash, resolveBaseUrl } from "@testpilot/fixtures";
 import type { RunEnvironment } from "@testpilot/fixtures";
 import type { TestIR, TestPolicy } from "@testpilot/test-ir";
 import type { RunOptions } from "@testpilot/runner-web";
 import { buildRunEnvironment } from "./run-env.js";
-import { isRealTarget, loginRealPage } from "./real-login.js";
+import { isRealTarget, loginRealPage, realLoginConfig } from "./real-login.js";
 
 /**
  * Opt-in only: the HTTP method does not tell us whether a request mutates data — enterprise
@@ -60,4 +64,33 @@ export function runOptionsFor(
     options.readOnlyNetwork = true;
   }
   return options;
+}
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+export function executionContext(ir: TestIR, options: RunOptions) {
+  const baseUrl = resolveBaseUrl(ir, options.env);
+  const actorUrls = ir.actors?.map(actor =>
+    actor.baseUrl || (actor.baseUrlRef && options.env.baseUrlRefs?.[actor.baseUrlRef]) || baseUrl,
+  );
+  return {
+    assertionConfigHash: computeAssertionConfigHash(repoRoot),
+    targets: actorUrls?.length ? actorUrls : [baseUrl],
+    readOnly: options.readOnlyNetwork === true,
+    realTarget: options.realTarget === true,
+  };
+}
+
+export function searchTrialEnvironmentKey(ir: TestIR, options: RunOptions): string {
+  const actors = ir.actors?.map(actor => ({ id: actor.id, account: actor.account ?? "primary" })) ??
+    [{ id: "primary", account: "primary" } as const];
+  const source = {
+    ...executionContext(ir, options),
+    actors: actors.map(actor => {
+      const identity = options.realTarget ? realLoginConfig(actor.account) : null;
+      return { ...actor, tenant: identity?.enterpriseId, user: identity?.userId };
+    }),
+    loginProfile: options.realTarget ? process.env.TESTPILOT_REAL_LOGIN_PROFILE_JSON : undefined,
+  };
+  return createHash("sha256").update(JSON.stringify(source)).digest("hex");
 }

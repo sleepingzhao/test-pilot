@@ -194,4 +194,4 @@ export async function snapshotPageContext(page: Page, scope?: string): Promise<P
   return { url, elements: snapshot.elements, texts: snapshot.texts };
 }
 
-export { countVisibleListRecords, observeRecordList } from "./list-records.js";
+export { countVisibleListRecords, observeRecordList, readVisibleListRecords } from "./list-records.js";

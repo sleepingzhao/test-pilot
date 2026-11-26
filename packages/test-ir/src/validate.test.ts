@@ -746,3 +746,21 @@ test("listRecords requires a supported container and a strong UI count", () => {
     assert.equal(validateTestIR({ ...input, assertions: [{ ...valid, ...changes }] }).ok, false, JSON.stringify(changes));
   }
 });
+
+test("search evidence requires a record scope and the predicates for its result mode", () => {
+  const target = { role: "table", testId: "results" };
+  const before = { action: "wait", id: "baseline", target, recordTexts: ["Alpha", "Beta"] };
+  const match = { type: "ui", oracle: "human-approved", target, searchResults: "match", contains: "Alpha", notContains: "Beta" };
+  const empty = { type: "ui", oracle: "human-approved", target, searchResults: "empty", notContains: "Alpha" };
+  const validate = (step: object, assertion: object) =>
+    validateTestIR({ id: "search", version: 1, platform: "web", steps: [step], assertions: [assertion] }).ok;
+  assert.equal(validate(before, match), true);
+  assert.equal(validate(before, empty), true);
+  assert.equal(validate({ ...before, action: "click" }, match), false);
+  assert.equal(validate({ ...before, recordTexts: ["Alpha", "Alpha"] }, match), false);
+  assert.equal(validate({ ...before, target: { role: "row" } }, match), false);
+  assert.equal(validate(before, { ...match, target: { testId: "results" } }), false);
+  assert.equal(validate(before, { ...match, notContains: " " }), false);
+  assert.equal(validate(before, { ...empty, contains: "Alpha" }), false);
+  assert.equal(validate(before, { ...empty, provider: "captured-http" }), false);
+});

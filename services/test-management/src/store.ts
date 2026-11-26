@@ -37,6 +37,8 @@ export type StoredTest = {
   autoApproved?: boolean;
   /** IR snapshot at approval; lets a hash-algorithm rebuild keep the approval. */
   approvedIr?: TestIR;
+  /** Execution fingerprint of a scoped search trial supporting suite coverage. */
+  searchTrialEnvironmentKey?: string;
   /** Hash of docs assertion-db/agent config at approval time. */
   assertionConfigHash?: string;
   intentSummary?: string;
@@ -53,6 +55,7 @@ export type StoredRun = RunResult & {
   trial?: boolean;
   /** Hash of the exact IR submitted for this trial, including unsaved edits. */
   trialIrHash?: string;
+  trialEnvironmentKey?: string;
   /** Approved execution fingerprint for comparing runs of the same case. */
   comparisonKey?: string;
   batchId?: string;

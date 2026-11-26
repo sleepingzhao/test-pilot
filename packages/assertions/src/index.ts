@@ -1,6 +1,6 @@
 import type { Locator, TestAssertion } from "@testpilot/test-ir";
-import type { Page } from "playwright";
-import { countVisibleListRecords } from "@testpilot/context-web";
+import type { FrameLocator, Page } from "playwright";
+import { countVisibleListRecords, readVisibleListRecords } from "@testpilot/context-web";
 import { runCapturedHttpAssertion, validateCapturedHttpAssertion } from "./captured-http.js";
 import { getAgentConfigBundle, getDbConfigBundle } from "@testpilot/fixtures";
 import {
@@ -80,6 +80,81 @@ function listRecordIssue(assertion: TestAssertion) {
   }
 }
 
+function findUiTarget(root: Page | FrameLocator, t: Locator) {
+  if (t.testId) return root.getByTestId(t.testId);
+  if (t.role)
+    return t.name
+      ? root.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name, exact: true })
+      : root.getByRole(t.role as Parameters<Page["getByRole"]>[0]);
+  if (t.name) return root.getByText(t.name, { exact: false });
+  if (t.label) return root.getByLabel(t.label);
+  if (t.placeholder) return root.getByPlaceholder(t.placeholder);
+  if (t.css) return root.locator(t.css);
+  throw new Error("empty target");
+}
+
+export async function waitForVisibleRecordTexts(root: Page | FrameLocator, target: Locator, terms: string[]): Promise<boolean> {
+  const locator = findUiTarget(root, target);
+  const deadline = Date.now() + uiAssertTimeoutMs();
+  do {
+    const result = await readVisibleListRecords(locator, target.role ?? "", terms);
+    // Two distinct search samples must represent at least two records.
+    if (result && !result.pending && result.distinct) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(100);
+  } while (true);
+}
+
+function searchResultsIssue(assertion: TestAssertion) {
+  if (!assertion.searchResults) return;
+  const validTexts = assertion.searchResults === "match"
+    ? assertion.contains?.trim() && assertion.contains !== assertion.notContains
+    : assertion.searchResults === "empty" && assertion.contains === undefined;
+  if (assertion.type !== "ui" || !["table", "grid", "list"].includes(assertion.target?.role ?? "") ||
+      !assertion.notContains?.trim() || !validTexts || assertion.listRecords || assertion.minCount !== undefined) {
+    return { path: "/searchResults", message: "searchResults requires a results container and distinct match/exclusion predicates, or an empty result with an excluded record" };
+  }
+}
+
+async function runSearchResults(root: Page | FrameLocator, assertion: TestAssertion, id: string): Promise<AssertionOutcome> {
+  const target = assertion.target!;
+  const locator = findUiTarget(root, target);
+  const empty = assertion.searchResults === "empty";
+  const terms = empty ? [assertion.notContains!] : [assertion.notContains!, assertion.contains!];
+  const timeout = uiAssertTimeoutMs();
+  const deadline = Date.now() + timeout;
+  let satisfiedAt: number | undefined;
+  let actual;
+  let passed = false;
+  do {
+    const result = await readVisibleListRecords(locator, target.role!, terms);
+    const ready = !!result && !result.pending;
+    actual = {
+      containerReady: ready,
+      visibleRecords: result?.count ?? null,
+      excludedPresent: result?.present[0] ?? null,
+      ...(empty ? {} : { matchedPresent: result?.present[1] ?? null }),
+    };
+    const satisfies = ready && !result.present[0] && (empty ? result.count === 0 : result.present[1] === true);
+    if (satisfies) {
+      satisfiedAt ??= Date.now();
+      if (timeout === 0 || Date.now() - satisfiedAt >= 200) {
+        passed = true;
+        break;
+      }
+    } else {
+      satisfiedAt = undefined;
+    }
+    if (Date.now() >= deadline) break;
+    await sleep(100);
+  } while (true);
+  return {
+    assertionId: id, passed, actual,
+    expected: empty ? "a ready result list with no visible records" : "the matching record present and the excluded record absent",
+    ...(!passed ? { errorKind: "PRODUCT_DEFECT" as const, message: "search result records did not reach the expected state" } : {}),
+  };
+}
+
 export async function runUiAssertion(
   assertion: TestAssertion,
   ctx: AssertionContext,
@@ -94,23 +169,11 @@ export async function runUiAssertion(
     };
   }
 
-  const listIssue = listRecordIssue(assertion);
+  const listIssue = listRecordIssue(assertion) ?? searchResultsIssue(assertion);
   if (listIssue) return { assertionId: id, passed: false, errorKind: "ASSERTION_ORACLE", message: listIssue.message };
 
   try {
     const root = ctx.frame ? ctx.page.frameLocator(ctx.frame) : ctx.page;
-    const findTarget = (t: NonNullable<typeof assertion.target>) => {
-      if (t.testId) return root.getByTestId(t.testId);
-      if (t.role)
-        return t.name
-          ? root.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name, exact: true })
-          : root.getByRole(t.role as Parameters<Page["getByRole"]>[0]);
-      if (t.name) return root.getByText(t.name, { exact: false });
-      if (t.label) return root.getByLabel(t.label);
-      if (t.placeholder) return root.getByPlaceholder(t.placeholder);
-      if (t.css) return root.locator(t.css);
-      throw new Error("empty target");
-    };
     if (assertion.urlIncludes) {
       const deadline = Date.now() + uiAssertTimeoutMs();
       let current = ctx.page.url();
@@ -132,12 +195,13 @@ export async function runUiAssertion(
         return { assertionId: id, passed: true, expected: `url includes "${assertion.urlIncludes}"`, actual: current };
       }
     }
+    if (assertion.searchResults) return await runSearchResults(root, assertion, id);
     const matches = (text: string) =>
       (!assertion.contains || text.includes(assertion.contains)) &&
       (!assertion.notContains || !text.includes(assertion.notContains));
 
     if (assertion.target && typeof assertion.minCount === "number") {
-      const locator = findTarget(assertion.target);
+      const locator = findUiTarget(root, assertion.target);
       const minCount = assertion.minCount;
       const deadline = Date.now() + uiAssertTimeoutMs();
       const countMatches = assertion.listRecords
@@ -169,12 +233,12 @@ export async function runUiAssertion(
     }
 
     if (assertion.target && !assertion.contains && !assertion.notContains) {
-      await findTarget(assertion.target).first().waitFor({ state: "visible", timeout: 10_000 });
+      await findUiTarget(root, assertion.target).first().waitFor({ state: "visible", timeout: 10_000 });
       return { assertionId: id, passed: true, expected: "visible", actual: "visible" };
     }
 
     if (assertion.target) {
-      const el = findTarget(assertion.target).first();
+      const el = findUiTarget(root, assertion.target).first();
       await el.waitFor({ state: "visible", timeout: 10_000 });
       const deadline = Date.now() + uiAssertTimeoutMs();
       let text = await el.innerText().catch(() => "");
@@ -280,7 +344,7 @@ registerAssertionProvider({
   id: "playwright-ui",
   kind: "ui",
   validate: assertion => {
-    const issue = listRecordIssue(assertion);
+    const issue = listRecordIssue(assertion) ?? searchResultsIssue(assertion);
     return issue ? [issue] : [];
   },
   run: runUiAssertion,

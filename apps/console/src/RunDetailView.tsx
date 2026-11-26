@@ -112,6 +112,9 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
   const evidence = listEvidenceRows(run);
   const actorEvidence = listActorEvidenceGroups(run);
   const hasFailedStep = run.steps.some((s) => s.status === "failed");
+  const previousPassing = run.previousPassing;
+  const previousSteps = new Map(previousPassing?.steps.map(step => [step.stepId, step]));
+  const previousAssertions = new Map(previousPassing?.assertions.map(a => [a.assertionId, a]));
   const hasFailedAssertion = run.assertions.some((a) => !a.passed);
 
   function scrollToFailure() {
@@ -183,6 +186,13 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
             失败分型：<strong>{failureKindLabel(run.metrics.failureKind) ?? run.metrics.failureKind}</strong>
           </p>
         )}
+        {run.status !== "passed" && !run.trial && (
+          <p className="run-detail-meta">
+            {previousPassing ? (
+              <>上次通过 · {new Date(previousPassing.completedAt).toLocaleString()} · {previousPassing.durationMs ?? "—"} ms · <code>{previousPassing.runId}</code></>
+            ) : "暂无同版本、同执行配置的通过记录。"}
+          </p>
+        )}
         {(hasFailedStep || hasFailedAssertion) && (
           <p className="run-detail-actions">
             <button type="button" className="btn btn-secondary btn-small" onClick={scrollToFailure}>
@@ -196,49 +206,55 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
         <div className="card-panel">
           <h3>步骤时间线</h3>
           <ol className="run-step-timeline">
-            {run.steps.map((s) => (
-              <li
-                key={s.stepId}
-                id={`run-step-${s.stepId}`}
-                className={`run-step${s.status === "failed" ? " run-step-failed" : ""}`}
-              >
-                <span className="run-step-id">{s.stepId}</span>
-                {s.actor ? (
-                  <span className="badge subtle step-actor-badge" title="step.actor">
-                    {s.actor}
-                  </span>
-                ) : null}
-                <span className="run-step-status">{s.status}</span>
-                {typeof s.durationMs === "number" ? (
-                  <span className="run-step-dur">{s.durationMs} ms</span>
-                ) : null}
-                {s.screenshot ? (
-                  <a
-                    className="run-step-shot-link"
-                    href={artifactUrlForFile(run, s.screenshot)}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <img
-                      className="run-step-shot"
-                      src={artifactUrlForFile(run, s.screenshot)}
-                      alt={`${s.stepId} 截图`}
-                      loading="lazy"
-                    />
-                  </a>
-                ) : null}
-                {s.message ? (
-                  s.message.length > 240 ? (
-                    <details className="run-step-more">
-                      <summary>{s.message.slice(0, 240)}…</summary>
-                      <pre>{s.message}</pre>
-                    </details>
-                  ) : (
-                    <span className="run-step-msg">{s.message}</span>
-                  )
-                ) : null}
-              </li>
-            ))}
+            {run.steps.map((s) => {
+              const previous = s.status === "failed" ? previousSteps.get(s.stepId) : undefined;
+              return (
+                <li
+                  key={s.stepId}
+                  id={`run-step-${s.stepId}`}
+                  className={`run-step${s.status === "failed" ? " run-step-failed" : ""}`}
+                >
+                  <span className="run-step-id">{s.stepId}</span>
+                  {s.actor ? (
+                    <span className="badge subtle step-actor-badge" title="step.actor">
+                      {s.actor}
+                    </span>
+                  ) : null}
+                  <span className="run-step-status">{s.status}</span>
+                  {typeof s.durationMs === "number" ? (
+                    <span className="run-step-dur">{s.durationMs} ms</span>
+                  ) : null}
+                  {s.screenshot ? (
+                    <a
+                      className="run-step-shot-link"
+                      href={artifactUrlForFile(run, s.screenshot)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <img
+                        className="run-step-shot"
+                        src={artifactUrlForFile(run, s.screenshot)}
+                        alt={`${s.stepId} 截图`}
+                        loading="lazy"
+                      />
+                    </a>
+                  ) : null}
+                  {s.message ? (
+                    s.message.length > 240 ? (
+                      <details className="run-step-more">
+                        <summary>{s.message.slice(0, 240)}…</summary>
+                        <pre>{s.message}</pre>
+                      </details>
+                    ) : (
+                      <span className="run-step-msg">{s.message}</span>
+                    )
+                  ) : null}
+                  {previous?.status === "passed" && (
+                    <div className="run-step-previous">上次通过 · {previous.durationMs ?? "—"} ms</div>
+                  )}
+                </li>
+              );
+            })}
             {run.steps.length === 0 && <li className="run-step-muted">无步骤记录</li>}
           </ol>
         </div>
@@ -246,28 +262,37 @@ export function RunDetailView({ runId, onBack, onOpenBatch }: Props) {
         <div className="card-panel" id="run-assertions-panel">
           <h3>断言</h3>
           <ul className="run-assertion-list">
-            {run.assertions.map((a) => (
-              <li key={a.assertionId} className={a.passed ? "assert-pass" : "assert-fail"}>
-                <div className="run-assertion-head">
-                  <strong>{a.assertionId}</strong>
-                  <span>{a.passed ? "通过" : "失败"}</span>
-                  {a.errorKind ? <span className="assert-kind">{a.errorKind}</span> : null}
-                </div>
-                {a.message ? <p className="diagnose-msg">{a.message}</p> : null}
-                {a.expected !== undefined && (
-                  <details className="assert-detail">
-                    <summary>预期（已脱敏）</summary>
-                    <pre>{formatJsonBrief(a.expected)}</pre>
-                  </details>
-                )}
-                {a.actual !== undefined && (
-                  <details className="assert-detail" open={!a.passed}>
-                    <summary>实际（已脱敏）</summary>
-                    <pre>{formatJsonBrief(a.actual)}</pre>
-                  </details>
-                )}
-              </li>
-            ))}
+            {run.assertions.map((a) => {
+              const previous = !a.passed && previousAssertions.get(a.assertionId);
+              return (
+                <li key={a.assertionId} className={a.passed ? "assert-pass" : "assert-fail"}>
+                  <div className="run-assertion-head">
+                    <strong>{a.assertionId}</strong>
+                    <span>{a.passed ? "通过" : "失败"}</span>
+                    {a.errorKind ? <span className="assert-kind">{a.errorKind}</span> : null}
+                  </div>
+                  {a.message ? <p className="diagnose-msg">{a.message}</p> : null}
+                  {a.expected !== undefined && (
+                    <details className="assert-detail">
+                      <summary>预期（已脱敏）</summary>
+                      <pre>{formatJsonBrief(a.expected)}</pre>
+                    </details>
+                  )}
+                  {a.actual !== undefined && (
+                    <details className="assert-detail" open={!a.passed}>
+                      <summary>实际（已脱敏）</summary>
+                      <pre>{formatJsonBrief(a.actual)}</pre>
+                    </details>
+                  )}
+                  {previous && (
+                    <details className="assert-detail" open>
+                      <summary>上次通过时的实际结果（已脱敏）</summary>
+                      <pre>{formatJsonBrief(previous.actual)}</pre>
+                    </details>
+                  )}
+                </li>
+              );
+            })}
             {run.assertions.length === 0 && <li className="run-step-muted">无断言结果</li>}
           </ul>
         </div>

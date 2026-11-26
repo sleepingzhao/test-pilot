@@ -3,7 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { assertPlaywrightReady, combineActorRecordings, recordSession, type RecordedActor } from "@testpilot/recorder-web";
 import { runTestIR, type RunResult } from "@testpilot/runner-web";
 import { snapshotPageContext } from "@testpilot/context-web";
@@ -16,7 +16,7 @@ import {
   weakAssertionIssues,
 } from "@testpilot/test-ir";
 import { validateAssertionProviders } from "@testpilot/assertions";
-import { computeAssertionConfigHash } from "@testpilot/fixtures";
+import { computeAssertionConfigHash, resolveBaseUrl } from "@testpilot/fixtures";
 import { classifyFailure, redactForEvidence, redactStringBody } from "@testpilot/evidence";
 import { chromium } from "playwright";
 import type { FileStore, RecordJob, StoredBatch, StoredRun, StoredTest } from "./store.js";
@@ -482,6 +482,20 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+function runComparisonKey(ir: StoredTest["ir"], options: Parameters<typeof runTestIR>[1]): string {
+  const baseUrl = resolveBaseUrl(ir, options.env);
+  const actorUrls = ir.actors?.map(actor =>
+    actor.baseUrl || (actor.baseUrlRef && options.env.baseUrlRefs?.[actor.baseUrlRef]) || baseUrl,
+  );
+  return createHash("sha256").update(JSON.stringify({
+    irHash: computeIRHash(ir),
+    assertionConfigHash: computeAssertionConfigHash(repoRoot),
+    targets: actorUrls?.length ? actorUrls : [baseUrl],
+    readOnly: options.readOnlyNetwork === true,
+    realTarget: options.realTarget === true,
+  })).digest("hex");
+}
+
 async function runSingleTest(
   store: FileStore,
   test: StoredTest,
@@ -496,11 +510,14 @@ async function runSingleTest(
   const startedMs = Date.now();
   const sessionId = batch ? sessionIdForBatch(batch.batchId) : sessionIdForRun(runId);
   const artifactsDir = sessionArtifactsRunsDir(artifactsRoot, sessionId);
+  let comparisonKey: string | undefined;
   try {
     const v = validateTestIR(test.ir);
     if (!v.ok) throw new Error(`IR 校验失败: ${v.issues.map((i) => i.message).join("; ")}`);
+    const options = runOptionsFor(baseUrl, runId, artifactsDir, v.value);
+    if (test.approvalStatus === "approved") comparisonKey = runComparisonKey(v.value, options);
     const result = await withTimeout(
-      runTestIR(v.value, runOptionsFor(baseUrl, runId, artifactsDir, v.value)),
+      runTestIR(v.value, options),
       runTimeoutMs(),
       `run ${test.id}`,
     );
@@ -510,6 +527,7 @@ async function runSingleTest(
       artifacts,
       projectId,
       testTitle: test.title,
+      comparisonKey,
       ...(batch ? { batchId: batch.batchId, batchStartedAt: batch.batchStartedAt } : {}),
     };
     await store.saveRun(stored);
@@ -537,6 +555,7 @@ async function runSingleTest(
       },
       projectId,
       testTitle: test.title,
+      comparisonKey,
       ...(batch ? { batchId: batch.batchId, batchStartedAt: batch.batchStartedAt } : {}),
     };
     await store.saveRun(failed);
@@ -2459,7 +2478,26 @@ export function registerRoutes(app: FastifyInstance, store: FileStore, artifacts
     if (!isSafeRunId(runId)) return reply.notFound("run not found");
     const run = await store.getRun(runId);
     if (!run) return reply.notFound("run not found");
-    return { ...redactRunForApi(run), artifactsPresent: artifactPresence(run, artifactsRoot) };
+    const previous = run.status !== "passed" && !run.trial && run.comparisonKey
+      ? (await store.listRuns(Infinity)).filter(candidate =>
+          candidate.status === "passed" && !candidate.trial &&
+          candidate.projectId === run.projectId && candidate.testId === run.testId &&
+          candidate.comparisonKey === run.comparisonKey &&
+          Date.parse(candidate.completedAt) <= Date.parse(run.startedAt),
+        ).sort((a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt))[0]
+      : undefined;
+    const prior = previous && redactRunForApi(previous);
+    return {
+      ...redactRunForApi(run),
+      artifactsPresent: artifactPresence(run, artifactsRoot),
+      ...(prior ? { previousPassing: {
+        runId: prior.runId,
+        completedAt: prior.completedAt,
+        durationMs: prior.metrics?.durationMs,
+        assertions: prior.assertions,
+        steps: prior.steps.map(({ stepId, status, durationMs }) => ({ stepId, status, durationMs })),
+      } } : {}),
+    };
   });
 
   app.get("/api/runs/:runId/ws", async (req, reply) => {

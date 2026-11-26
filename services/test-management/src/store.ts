@@ -53,6 +53,8 @@ export type StoredRun = RunResult & {
   trial?: boolean;
   /** Hash of the exact IR submitted for this trial, including unsaved edits. */
   trialIrHash?: string;
+  /** Approved execution fingerprint for comparing runs of the same case. */
+  comparisonKey?: string;
   batchId?: string;
   batchStartedAt?: string;
 };

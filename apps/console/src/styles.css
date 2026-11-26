@@ -578,6 +578,11 @@ button.status-chip {
   margin: 8px 0 0;
 }
 
+.run-step-previous {
+  grid-column: 1 / -1;
+  color: var(--muted-strong);
+}
+
 .run-step-msg {
   color: var(--muted-strong);
 }

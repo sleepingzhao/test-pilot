@@ -248,6 +248,13 @@ export type StoredRun = {
   };
   /** Present files for this run, computed by the API (missing after cleanup). */
   artifactsPresent?: Record<string, boolean>;
+  previousPassing?: {
+    runId: string;
+    completedAt: string;
+    durationMs?: number;
+    assertions: StoredRun["assertions"];
+    steps: Array<Pick<StoredRun["steps"][number], "stepId" | "status" | "durationMs">>;
+  };
   cleanup?: {
     status: "passed" | "failed" | "skipped";
     steps: Array<{ stepId: string; status: string; durationMs?: number; message?: string }>;

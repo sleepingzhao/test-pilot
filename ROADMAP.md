@@ -76,10 +76,7 @@
     建议未访问页面/链接与补充场景；只作为建议，不自动生成或批准。
     _证据：采集器在路由预算用尽时记录 `unvisited`（≤20，`collector.test.ts` 覆盖）；`buildExplorationSuggestions` 汇总未访问页面、未覆盖能力（复用风险覆盖判定）与画像未知项（合计 ≤20 条，其中问题最多 8 条），只读建议；`GET /api/detect/:id/explore-suggestions`；控制台画像页「主动探索（建议）」面板，浏览器实测生成 file-media / realtime 覆盖缺口与测试思路，无自动生成/批准入口。_
 
-11. [ ] **llm-judge（暂缓）**
-    仅探索模式，不进入回归门禁；边界未定前不开工。
-
-12. [x] **V7-14 语义级只读生成（P0）**
+11. [x] **V7-14 语义级只读生成（P0）**
     生成的只读用例断言列表结构、搜索命中/过滤与详情，而不是只断言路由；语义用例失败只留草稿，不降级、不自动批准。
     _证据：IR/断言新增 `minCount`（runner 轮询 `locator.count()`，不足归 `PRODUCT_DEFECT`；弱断言门禁拒绝 `minCount < 2` 或无 `target`，正反测试 `ui-count.test.ts`、`validate.test.ts`）；采集器纳入 `tr/td/th/li/table/h1–h4`，元素标注 `inNav`（nav/header/aside/role=navigation|menu|tablist|toolbar），并从重复卡片提取单行文本（跳过导航/交互行，不拼接整块）；生成器排除导航元素、空状态（`暂无…`/`加载中`）与多单元格拼接行，产出 load（`minCount`）、search-match（真实条目的 `contains` + Enter）、search-none（`urlIncludes` + `notContains` 配对）、detail（`contains` + 列表表头 `notContains`）；过滤用例先试跑，命中用例仅在其通过后才自动批准（`routes.ts`）；语义用例失败不降级为 URL 路由，也不再被自动批准。真实目标实测（在建了 3 条 `TP回归验证*` 任务后）：`/task` 搜索命中（contains 真实标题）与过滤（`notContains` 同一标题，配对用例先跑）均通过并自动批准；`/chat` 搜索不过滤消息内容——过滤用例失败，命中用例保留草稿并标注「搜索过滤用例未通过」；`/sop` 为空表（`暂无数据`）+ 侧边导航，不生成伪搜索/详情用例。限制：只有 ARIA/表格结构或稳定重复卡片才能提取条目；`/task` 的列表/看板视图都是 div 卡片，`minCount` 无法在该应用实测（仅单测）；页面数据稀疏时语义用例多为草稿。_
 
@@ -131,7 +128,7 @@
 
 ## 3. 明确后置
 
-Android / iOS / Harmony、CI、多项目 / RBAC、自动修复。
+Android / iOS / Harmony、CI、多项目 / RBAC、自动修复；llm-judge（V1 不做；如未来启用，仅限探索模式，不进入回归门禁）。
 
 ## 4. 通用完成标准
 
